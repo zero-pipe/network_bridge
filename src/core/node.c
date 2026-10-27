@@ -52,16 +52,24 @@ int nb_node_poller_index(const nb_node_t *node, ntk_poller *poller)
     return -1;
 }
 
+/* 线程安全 xorshift：CAS 推进共享种子，避免并发 nb_node_create 时竞争/重复 id。 */
 static uint32_t nb_rand(void)
 {
     static uint32_t st;
-    if (st == 0) {
-        st = (uint32_t)ntk_monotonic_ms() ^ 0x9e3779b9u;
-    }
-    st ^= st << 13;
-    st ^= st >> 17;
-    st ^= st << 5;
-    return st;
+    uint32_t old;
+    uint32_t next;
+
+    do {
+        old = nb_atomic_load_u32(&st);
+        if (old == 0) {
+            old = (uint32_t)ntk_monotonic_ms() ^ 0x9e3779b9u;
+        }
+        next = old;
+        next ^= next << 13;
+        next ^= next >> 17;
+        next ^= next << 5;
+    } while (!nb_atomic_cas_u32(&st, &old, next));
+    return next;
 }
 
 /* ---- 定长对象复用池 ---- */
@@ -171,7 +179,7 @@ int nb_node_create(const nb_node_config_t *cfg, nb_node_t **out)
     nb_node_t *node;
     nb_node_config_t local;
     ntk_poller_pool_opts_t popts;
-    static int platform_inited = 0;
+    static uint32_t platform_inited = 0;
 
     if (!cfg || !out) {
         return NB_ERR_INVALID;
@@ -263,9 +271,9 @@ int nb_node_create(const nb_node_config_t *cfg, nb_node_t **out)
         return NB_ERR_NOMEM;
     }
 
-    if (!platform_inited) {
+    if (nb_atomic_once_begin(&platform_inited)) {
         ntk_platform_init();
-        platform_inited = 1;
+        nb_atomic_once_end(&platform_inited);
     }
 
     memset(&popts, 0, sizeof(popts));

@@ -90,7 +90,6 @@ int nb_buf_slice(nb_buf_t *owner, size_t offset, size_t size, nb_buf_view_t *out
 
 nb_buf_pool_t *nb_buf_pool_create(const nb_buf_pool_config_t *config);
 nb_buf_t *nb_buf_acquire(nb_buf_pool_t *pool);
-nb_buf_t *nb_buf_pool_acquire(nb_buf_pool_t *pool);
 void nb_buf_pool_uninit(nb_buf_pool_t **pool);
 void nb_buf_pool_get_stats(const nb_buf_pool_t *pool, nb_buf_pool_stats_t *out);
 

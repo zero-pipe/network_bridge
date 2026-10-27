@@ -186,7 +186,7 @@ static void test_pool(void)
         return;
     }
     a = nb_buf_acquire(pool);
-    b = nb_buf_pool_acquire(pool);
+    b = nb_buf_acquire(pool);
     c = nb_buf_acquire(pool);
     CHECK(a != NULL);
     CHECK(b != NULL);

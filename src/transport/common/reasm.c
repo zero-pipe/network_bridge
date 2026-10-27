@@ -83,7 +83,7 @@ nb_reasm_slot_t *nb_reasm_acquire(
     nb_reasm_t *reasm, uint32_t msg_id, uint32_t total_len, uint32_t frag_count, uint64_t now_ms)
 {
     nb_reasm_slot_t *slot = NULL;
-    if (!reasm || frag_count == 0 || (total_len > 0 && frag_count == 0)) {
+    if (!reasm || frag_count == 0) {
         return NULL;
     }
     for (size_t i = 0; i < MAX_REASM; i++) {

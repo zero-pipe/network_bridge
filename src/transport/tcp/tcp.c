@@ -75,6 +75,7 @@ static void nb_tcp_client_on_connect(ntk_tcp_client *client, void *user);
 static void nb_tcp_client_on_recv(ntk_tcp_client *client, const void *data, size_t len, void *user);
 static void nb_tcp_client_on_error(ntk_tcp_client *client, void *user);
 static void nb_tcp_tick_cb(void *user);
+static void nb_tcp_free_link(nb_tcp_transport_t *t, nb_tcp_link_t *link);
 
 static void nb_tcp_rx_reset(nb_tcp_link_t *link)
 {
@@ -258,11 +259,9 @@ static int nb_tcp_link_emit(nb_tcp_transport_t *t,
         return NB_ERR_AGAIN;
     }
     if (!link->connected) {
-        /* 异步 connect 尚未完成：保留整帧，on_connect 后由 flush_tx 发出。 */
-        if (nb_iobuf_append_copy(&link->tx, poller, header, header_len) != 0) {
-            return NB_ERR_NOMEM;
-        }
-        if (payload_len && nb_iobuf_append_copy(&link->tx, poller, payload, payload_len) != 0) {
+        /* 异步 connect 尚未完成：整帧原子入队，on_connect 后由 flush_tx 发出。 */
+        if (nb_iobuf_append_copy2(&link->tx, poller, header, header_len, payload, payload_len) !=
+            0) {
             return NB_ERR_NOMEM;
         }
         return NB_OK;
@@ -270,10 +269,8 @@ static int nb_tcp_link_emit(nb_tcp_transport_t *t,
 
     /* 已有积压：整帧入队（拷贝），冲刷由队列驱动。 */
     if (!nb_iobuf_empty(&link->tx)) {
-        if (nb_iobuf_append_copy(&link->tx, poller, header, header_len) != 0) {
-            return NB_ERR_NOMEM;
-        }
-        if (payload_len && nb_iobuf_append_copy(&link->tx, poller, payload, payload_len) != 0) {
+        if (nb_iobuf_append_copy2(&link->tx, poller, header, header_len, payload, payload_len) !=
+            0) {
             return NB_ERR_NOMEM;
         }
         nb_tcp_link_flush_tx(t, link);
@@ -307,20 +304,34 @@ static int nb_tcp_link_emit(nb_tcp_transport_t *t,
         } else if (sent < 0) {
             return NB_ERR_IO;
         }
-        /* 半写：只拷贝未写后缀（一次拷贝，替代原先 malloc+两次 memcpy）。 */
-        if ((size_t)sent < header_len) {
-            size_t hrem = header_len - (size_t)sent;
-            if (nb_iobuf_append_copy(&link->tx, poller, header + sent, hrem) != 0) {
-                return NB_ERR_NOMEM;
+        /*
+         * 半写：把未写的剩余部分（header 尾 + payload，或 payload 尾）作为一个
+         * 整体原子入队。若只入队了 header、payload 入队失败，长度前缀与实际
+         * 字节将不匹配，后续帧会被对端误读为该帧的帧体，导致永久流错位。
+         */
+        {
+            const uint8_t *rem1;
+            size_t len1;
+            const uint8_t *rem2;
+            size_t len2;
+            if ((size_t)sent < header_len) {
+                rem1 = header + (size_t)sent;
+                len1 = header_len - (size_t)sent;
+                rem2 = (const uint8_t *)payload;
+                len2 = payload_len;
+            } else {
+                size_t off = (size_t)sent - header_len;
+                rem1 = (const uint8_t *)payload + off;
+                len1 = payload_len - off;
+                rem2 = NULL;
+                len2 = 0;
             }
-            if (payload_len &&
-                nb_iobuf_append_copy(&link->tx, poller, payload, payload_len) != 0) {
-                return NB_ERR_NOMEM;
-            }
-        } else if (payload_len) {
-            size_t off = (size_t)sent - header_len;
-            if (nb_iobuf_append_copy(
-                    &link->tx, poller, (const uint8_t *)payload + off, payload_len - off) != 0) {
+            if (nb_iobuf_append_copy2(&link->tx, poller, rem1, len1, rem2, len2) != 0) {
+                if ((size_t)sent > 0) {
+                    /* 帧已部分写到对端，无法补齐剩余字节：断开连接避免流错位。 */
+                    nb_tcp_free_link(t, link);
+                    return NB_ERR_IO;
+                }
                 return NB_ERR_NOMEM;
             }
         }

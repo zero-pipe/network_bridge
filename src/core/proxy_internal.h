@@ -11,12 +11,14 @@
 
 #include "caps.h"
 #include "pending.h"
+#include "atomic.h"
 
 struct nb_proxy {
     nb_node_t *node;
     uint8_t payload_encoding;
     uint32_t prefer_stream_threshold;
     nb_stub_t *stub;
+    nb_spinlock_t endpoint_lock; /* 保护 endpoint_* / has_endpoint（setter vs poller 读） */
     int has_endpoint;
     char endpoint_ip[NB_ENDPOINT_MAX];
     char endpoint_scheme[NB_SCHEME_MAX];

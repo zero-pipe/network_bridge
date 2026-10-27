@@ -53,6 +53,16 @@ int nb_iobuf_empty(const nb_iobuf_t *b);
  * 返回 0 成功，-1 失败（不改变原有内容）。
  */
 int nb_iobuf_append_copy(nb_iobuf_t *b, ntk_poller *poller, const void *data, size_t len);
+/*
+ * 原子追加两段：要么两段全部入队，要么完全不改变原有内容（避免只入队了帧头、
+ * 帧体却入队失败，造成长度前缀与实际字节不匹配的流错位）。任一 len 为 0 时忽略该段。
+ */
+int nb_iobuf_append_copy2(nb_iobuf_t *b,
+                          ntk_poller *poller,
+                          const void *data1,
+                          size_t len1,
+                          const void *data2,
+                          size_t len2);
 int nb_iobuf_append_buf(nb_iobuf_t *b, ntk_buf *owner, const void *data, size_t len);
 int nb_iobuf_append_borrow(nb_iobuf_t *b, const void *data, size_t len);
 

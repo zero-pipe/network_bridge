@@ -385,11 +385,6 @@ nb_buf_t *nb_buf_acquire(nb_buf_pool_t *pool)
     return buf;
 }
 
-nb_buf_t *nb_buf_pool_acquire(nb_buf_pool_t *pool)
-{
-    return nb_buf_acquire(pool);
-}
-
 void nb_buf_pool_uninit(nb_buf_pool_t **pool)
 {
     nb_buf_pool_t *p;

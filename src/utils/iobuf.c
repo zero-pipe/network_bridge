@@ -87,24 +87,39 @@ int nb_iobuf_empty(const nb_iobuf_t *b)
 
 int nb_iobuf_append_copy(nb_iobuf_t *b, ntk_poller *poller, const void *data, size_t len)
 {
+    return nb_iobuf_append_copy2(b, poller, data, len, NULL, 0);
+}
+
+int nb_iobuf_append_copy2(nb_iobuf_t *b,
+                          ntk_poller *poller,
+                          const void *data1,
+                          size_t len1,
+                          const void *data2,
+                          size_t len2)
+{
     ntk_buf *owner;
     nb_iobuf_blk_t *blk;
+    size_t total = len1 + len2;
 
-    if (!b || !data || len == 0) {
+    if (!b || total == 0 || (len1 && !data1) || (len2 && !data2)) {
         return -1;
     }
-    owner = ntk_buf_alloc_local(poller, len);
+    owner = ntk_buf_alloc_local(poller, total);
     if (!owner) {
         return -1;
     }
-    memcpy((void *)ntk_buf_data(owner), data, len);
-    ntk_buf_set_len(owner, len);
-    blk = nb_blk_new(owner, ntk_buf_data(owner), len);
+    if (len1) {
+        memcpy((void *)ntk_buf_data(owner), data1, len1);
+    }
+    if (len2) {
+        memcpy((uint8_t *)ntk_buf_data(owner) + len1, data2, len2);
+    }
+    ntk_buf_set_len(owner, total);
+    blk = nb_blk_new(owner, ntk_buf_data(owner), total);
     if (!blk) {
         ntk_buf_unref(owner);
         return -1;
     }
-    blk->owner = owner; /* nb_blk_new 已赋值，这里显式强调所有权 */
     if (nb_iobuf_push(b, blk) != 0) {
         nb_blk_release(blk);
         return -1;

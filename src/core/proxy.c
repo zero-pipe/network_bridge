@@ -29,6 +29,7 @@ int nb_proxy_resolve(nb_proxy_t *proxy,
     if (!proxy) {
         return NB_ERR_INVALID;
     }
+    nb_spinlock_lock(&proxy->endpoint_lock);
     if (proxy->has_endpoint) {
         nb_copy_str(ip_out, ip_cap, proxy->endpoint_ip, "127.0.0.1");
         *port_out = proxy->endpoint_port;
@@ -43,8 +44,10 @@ int nb_proxy_resolve(nb_proxy_t *proxy,
                              (proxy->endpoint_transport == NB_TRANSPORT_TCP ? "tcp" : "udp"),
                          "udp");
         }
+        nb_spinlock_unlock(&proxy->endpoint_lock);
         return NB_OK;
     }
+    nb_spinlock_unlock(&proxy->endpoint_lock);
     if (nb_node_resolve(proxy->node, service, prefer_stream, &target) != NB_OK) {
         return NB_ERR_NOTFOUND;
     }
@@ -148,6 +151,7 @@ int nb_proxy_create(nb_node_t *node, const nb_proxy_options_t *options, nb_proxy
         return NB_ERR_NOMEM;
     }
     p->node = node;
+    nb_spinlock_init(&p->endpoint_lock);
     p->payload_encoding = options ? options->payload_encoding : 0;
     p->prefer_stream_threshold = options ? options->prefer_stream_threshold : 0;
     /* proxy 在 stub 之上注入路由：send 钩子使用 proxy 做解析。 */
@@ -183,6 +187,7 @@ int nb_proxy_set_endpoint(nb_proxy_t *proxy, const char *ip, uint16_t port, nb_t
     if (!proxy || !ip || !port) {
         return NB_ERR_INVALID;
     }
+    nb_spinlock_lock(&proxy->endpoint_lock);
     nb_copy_str(proxy->endpoint_ip, sizeof(proxy->endpoint_ip), ip, "127.0.0.1");
     proxy->endpoint_port = port;
     proxy->endpoint_transport = transport;
@@ -191,6 +196,7 @@ int nb_proxy_set_endpoint(nb_proxy_t *proxy, const char *ip, uint16_t port, nb_t
                  transport == NB_TRANSPORT_TCP ? "tcp" : "udp",
                  "udp");
     proxy->has_endpoint = 1;
+    nb_spinlock_unlock(&proxy->endpoint_lock);
     return NB_OK;
 }
 
@@ -200,11 +206,13 @@ int nb_proxy_set_endpoint_uri(nb_proxy_t *proxy, const char *endpoint)
     if (!proxy || !endpoint || nb_endpoint_parse(endpoint, &parsed) != NB_OK || parsed.port == 0) {
         return NB_ERR_INVALID;
     }
+    nb_spinlock_lock(&proxy->endpoint_lock);
     nb_copy_str(proxy->endpoint_ip, sizeof(proxy->endpoint_ip), parsed.host, "127.0.0.1");
     nb_copy_str(proxy->endpoint_scheme, sizeof(proxy->endpoint_scheme), parsed.scheme, "tcp");
     proxy->endpoint_port = parsed.port;
     proxy->endpoint_transport = parsed.transport;
     proxy->has_endpoint = 1;
+    nb_spinlock_unlock(&proxy->endpoint_lock);
     return NB_OK;
 }
 
