@@ -42,8 +42,8 @@ typedef struct nb_buf_view {
 
 typedef struct nb_buf_pool_config {
     size_t slot_size;
-    size_t slot_count;  /* 0 = 懒分配；>0 = 预分配并作为硬上限 */
-    size_t max_cached;  /* 0 = slot_count 或默认 64 */
+    size_t slot_count;               /* 0 = 懒分配；>0 = 预分配并作为硬上限 */
+    size_t max_cached;               /* 0 = slot_count 或默认 64 */
     unsigned flags;
     const nb_allocator_t *allocator; /* 预留；当前使用全局 allocator */
 } nb_buf_pool_config_t;

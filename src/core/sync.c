@@ -8,7 +8,7 @@
 typedef struct nb_sync_ctx {
     ntk_sem *sem;
     ntk_mutex *lock;
-    int refs; /* 2：等待方 + 回调方，最后一个释放 */
+    int refs;       /* 2：等待方 + 回调方，最后一个释放 */
     int done;
     int status;     /* 传输状态 */
     int app_status; /* 应用状态码 */

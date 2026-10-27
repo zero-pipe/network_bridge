@@ -56,16 +56,16 @@ typedef struct nb_envelope {
     uint8_t kind;
     uint8_t encoding;
     uint8_t stream_flags;
-    uint8_t flags;        /* MSG_FLAG_*；随包透传 */
+    uint8_t flags;          /* MSG_FLAG_*；随包透传 */
     int status;
     uint32_t request_id;
     uint32_t stream_id;
     uint64_t stream_offset;
     uint64_t stream_total_size;
-    uint32_t timeout_ms; /* 请求剩余超时毫秒；0 = 无 deadline */
+    uint32_t timeout_ms;    /* 请求剩余超时毫秒；0 = 无 deadline */
     const char *route;
-    uint16_t route_len;   /* decode: filled; encode: ignored */
-    const void *metadata; /* metadata TLV 字节；可为 NULL */
+    uint16_t route_len;     /* decode: filled; encode: ignored */
+    const void *metadata;   /* metadata TLV 字节；可为 NULL */
     uint16_t metadata_len;
     const char *status_msg; /* 状态消息；可为 NULL */
     uint16_t status_msg_len;

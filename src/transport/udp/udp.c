@@ -52,9 +52,9 @@ typedef struct nb_session {
     uint32_t ssrc_remote;
     int ssrc_remote_known;
     uint16_t send_seq;
-    uint64_t last_rx_data_ms; /* recv-side: last time peer data arrived (sender RTO) */
-    uint16_t acked_upto;      /* highest send seq inferred received by peer */
-    uint8_t rto_attempts;     /* idle-RTO retransmit rounds; reset on peer data */
+    uint64_t last_rx_data_ms;    /* recv-side: last time peer data arrived (sender RTO) */
+    uint16_t acked_upto;         /* highest send seq inferred received by peer */
+    uint8_t rto_attempts;        /* idle-RTO retransmit rounds; reset on peer data */
 
     nb_rx_window_t rx_window;
     uint64_t last_nack_ms;
@@ -62,9 +62,9 @@ typedef struct nb_session {
 
     nb_tx_ring_t tx_ring;
 
-    nb_udp_txq_t *txq_head; /* 拥塞排队消息（FIFO）；backpressure 按字节高水位 */
+    nb_udp_txq_t *txq_head;      /* 拥塞排队消息（FIFO）；backpressure 按字节高水位 */
     nb_udp_txq_t *txq_tail;
-    uint32_t txq_pending_bytes; /* 队列中尚未发送的字节数 */
+    uint32_t txq_pending_bytes;  /* 队列中尚未发送的字节数 */
     uint32_t cc_burst;
     uint32_t cc_burst_max;
     uint64_t cc_last_loss_ms;
@@ -78,7 +78,7 @@ typedef struct nb_session {
     uint64_t lost;
 
     /* 整包 XOR 前向纠错（env FEC=1）：缓存最近一个 FEC 包以重建单个丢失分片 */
-    uint16_t fec_seq; /* FEC 包独立序号（不占用数据序号空间） */
+    uint16_t fec_seq;            /* FEC 包独立序号（不占用数据序号空间） */
     uint8_t *fec_rx_buf;
     uint32_t fec_rx_len;
     uint32_t fec_rx_msgid;
@@ -93,19 +93,19 @@ typedef struct nb_session {
     uint32_t rtcp_last_sr_ntp;   /* 本端最近发出 SR 的 NTP middle32 */
     int rx_max_seq_set;
     uint16_t rx_max_seq;
-    uint32_t rx_cycles; /* 序号回绕计数 */
+    uint32_t rx_cycles;          /* 序号回绕计数 */
     uint32_t rx_received;
-    uint32_t rx_expected_prior; /* 上次报告时的期望包数 */
-    uint32_t rx_received_prior; /* 上次报告时的实收包数 */
-    double jitter;              /* 接收抖动估计（毫秒） */
-    uint32_t jitter_ms_u32;     /* jitter 的原子镜像，供跨线程 peer 查询 */
+    uint32_t rx_expected_prior;  /* 上次报告时的期望包数 */
+    uint32_t rx_received_prior;  /* 上次报告时的实收包数 */
+    double jitter;               /* 接收抖动估计（毫秒） */
+    uint32_t jitter_ms_u32;      /* jitter 的原子镜像，供跨线程 peer 查询 */
     int have_transit;
     int64_t transit_prev;
-    uint32_t last_rx_sr_ntp; /* 对端最近 SR 的 NTP middle32 */
-    uint64_t last_rx_sr_ms;  /* 收到该 SR 的本端单调时刻 */
+    uint32_t last_rx_sr_ntp;     /* 对端最近 SR 的 NTP middle32 */
+    uint64_t last_rx_sr_ms;      /* 收到该 SR 的本端单调时刻 */
     int have_last_rx_sr;
-    uint32_t last_rtt_ms;     /* 由对端报告块测得 */
-    int32_t rtcp_remote_lost; /* 对端报告的本端流累计丢包 */
+    uint32_t last_rtt_ms;        /* 由对端报告块测得 */
+    int32_t rtcp_remote_lost;    /* 对端报告的本端流累计丢包 */
     /* 本会话 SR/RR 收发明细（供按对端查询）。IO 线程写、查询线程读，
      * 走 relaxed 原子访问避免跨线程 data race；数值仅为诊断用途。 */
     uint64_t rtcp_sr_sent;
@@ -128,7 +128,7 @@ typedef struct nb_udp_transport {
     nb_udp_io_ctx_t io_ctx[NB_TRANSPORT_MAX_IO];
     nb_session_t sessions[NB_TRANSPORT_MAX_IO][NB_UDP_PEERS_PER_IO];
     int io_count;
-    uint32_t txq_bytes; /* 所有 session 共用：已入队但尚未释放的字节数 */
+    uint32_t txq_bytes;                             /* 所有 session 共用：已入队但尚未释放的字节数 */
     nb_poolset_t *reasm_pools[NB_TRANSPORT_MAX_IO]; /* 每 io 一份 size-class 池 */
 } nb_udp_transport_t;
 

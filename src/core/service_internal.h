@@ -17,8 +17,8 @@ typedef struct nb_method {
     handler_fn fn;
     chunk_handler_fn stream_fn;
     void *user;
-    int owns_user;                      /* user 由框架分配（如 sync 桥接结构），销毁时释放 */
-    int run_in_worker;                  /* 非 0 时 unary handler 调度到 node->handler_pool */
+    int owns_user;                         /* user 由框架分配（如 sync 桥接结构），销毁时释放 */
+    int run_in_worker;                     /* 非 0 时 unary handler 调度到 node->handler_pool */
     const nb_service_executor_t *executor; /* 非 NULL 时使用调用者提供的 executor */
 } nb_method_t;
 
@@ -35,14 +35,14 @@ struct nb_service {
 struct nb_call {
     nb_node_t *node;
     nb_transport_t *transport;
-    ntk_poller *poller; /* 请求到达时的 poller；跨线程 nb_reply 回投到这里 */
+    ntk_poller *poller;   /* 请求到达时的 poller；跨线程 nb_reply 回投到这里 */
     nb_peer_token_t token;
     char peer_ip[NB_ENDPOINT_MAX];
     uint16_t peer_port;
     uint32_t msg_id;
     uint64_t deadline_ms; /* 请求 deadline（绝对单调 ms，0 = 无） */
     int replied;
-    int one_way; /* EVENT：handler 可复用，但不产生响应 */
+    int one_way;          /* EVENT：handler 可复用，但不产生响应 */
     int stream_owned;
     int from_worker_pool; /* call 来自节点的 worker_call_pool */
 };

@@ -44,8 +44,8 @@ static int payload_is_pattern(const nb_payload_t *pl, const uint8_t *pattern)
 typedef struct loan_state {
     const uint8_t *pattern;
     ntk_sem *sem;
-    int worker_seen;  /* WORKER 在 loan 归还后仍读到原始字节 */
-    int inline_seen;  /* INLINE 在回调期间读到原始字节 */
+    int worker_seen; /* WORKER 在 loan 归还后仍读到原始字节 */
+    int inline_seen; /* INLINE 在回调期间读到原始字节 */
     size_t worker_len;
     size_t inline_len;
 } loan_state_t;

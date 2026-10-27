@@ -66,8 +66,8 @@ extern "C" {
 
 /* ---- 绑定 ---- */
 typedef struct nb_binding_config {
-    const char *name;     /* provider/binding name, e.g. "tcp" */
-    const char *endpoint; /* URI, e.g. tcp://127.0.0.1:8080 */
+    const char *name;                 /* provider/binding name, e.g. "tcp" */
+    const char *endpoint;             /* URI, e.g. tcp://127.0.0.1:8080 */
     nb_intra_process_t intra_process; /* provider-local event fast path */
 } nb_binding_config_t;
 
@@ -85,14 +85,14 @@ typedef struct nb_node_runtime_config {
 
 /* 传输/链路调优。 */
 typedef struct nb_node_transport_config {
-    nb_transport_kind_t transport; /* 默认 binding 的传输，默认 UDP */
-    const char *bind_host;      /* 绑定地址，默认 "0.0.0.0" */
-    uint16_t data_port;         /* 数据面端口，0 = 自动分配 */
-    uint16_t frag_bytes;        /* UDP 每分片字节，0 = 默认 1200 */
-    uint32_t max_msg_bytes;     /* 单条 envelope 上限，0 = 默认 1 MiB */
-    uint32_t backpressure_bytes; /* 出站高水位，0 = 默认 4 MiB */
-    uint32_t rtcp_interval_ms;   /* UDP RTCP 间隔，0 = 默认 1000ms */
-    int rtcp_disabled;           /* 非 0 关闭 RTCP */
+    nb_transport_kind_t transport;       /* 默认 binding 的传输，默认 UDP */
+    const char *bind_host;               /* 绑定地址，默认 "0.0.0.0" */
+    uint16_t data_port;                  /* 数据面端口，0 = 自动分配 */
+    uint16_t frag_bytes;                 /* UDP 每分片字节，0 = 默认 1200 */
+    uint32_t max_msg_bytes;              /* 单条 envelope 上限，0 = 默认 1 MiB */
+    uint32_t backpressure_bytes;         /* 出站高水位，0 = 默认 4 MiB */
+    uint32_t rtcp_interval_ms;           /* UDP RTCP 间隔，0 = 默认 1000ms */
+    int rtcp_disabled;                   /* 非 0 关闭 RTCP */
     const nb_binding_config_t *bindings; /* 非空时启动所有 binding */
     size_t binding_count;
 } nb_node_transport_config_t;
@@ -133,8 +133,8 @@ typedef struct nb_node_log_config {
 
 /* 组合根配置：身份 + 各模块子配置。 */
 typedef struct nb_node_config {
-    const char *name;           /* 节点名（日志/发现），可空 */
-    nb_node_mode_t mode;           /* MESH（默认）/ STATIC */
+    const char *name;                        /* 节点名（日志/发现），可空 */
+    nb_node_mode_t mode;                     /* MESH（默认）/ STATIC */
     const nb_service_table_t *service_table; /* 可选共享声明表，静态生命周期 */
     nb_node_runtime_config_t runtime;
     nb_node_transport_config_t transport;

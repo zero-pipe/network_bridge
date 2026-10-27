@@ -66,7 +66,7 @@ struct nb_node {
     uint16_t frag_bytes;
     uint32_t max_msg_bytes;
     uint32_t bp_high_water;
-    uint8_t drop_percent; /* 测试用：UDP 出站丢包百分比 */
+    uint8_t drop_percent;                             /* 测试用：UDP 出站丢包百分比 */
     uint32_t rtcp_interval_ms;
     int rtcp_disabled;
     uint32_t max_recv_streams;
@@ -75,40 +75,40 @@ struct nb_node {
     nb_rate_slot_t rates[NB_NODE_RATE_LIMIT_SLOTS];
 
     ntk_poller_pool *pool;
-    ntk_poller *io_pollers[NB_TRANSPORT_MAX_IO];   /* 出站分片：按 request_id 固定到某个 poller */
-    unsigned io_count;                /* io_pollers 有效个数（>= 1） */
+    ntk_poller *io_pollers[NB_TRANSPORT_MAX_IO];      /* 出站分片：按 request_id 固定到某个 poller */
+    unsigned io_count;                                /* io_pollers 有效个数（>= 1） */
     nb_pending_t *pending_lanes[NB_TRANSPORT_MAX_IO]; /* 每 poller 的 pending lane（owner-only 访问） */
-    ntk_mutex *pending_lock;          /* 保护 pending_hash 的跨 poller 查找 */
-    ntk_timer *pending_timers[NB_TRANSPORT_MAX_IO]; /* 每 poller 的 pending 超时/重传定时器 */
-    ntk_poller *poller;               /* io 0，用于发现/客户端调用 */
-    ntk_thread_pool *handler_pool;    /* 可选：业务 handler 线程池（0 = 关闭） */
-    int worker_fallback_warned;       /* handler_threads=0 时只告警一次 */
-    ntk_mutex *handler_limit_mutex;   /* 保护 handler_inflight / external_inflight */
-    unsigned handler_max_concurrency; /* 0 = 不限制 */
-    unsigned handler_inflight;        /* worker 排队 + 执行中的任务数 */
-    unsigned external_inflight;       /* 自定义 executor 未完成任务数（诊断用） */
-    uint32_t max_inflight;             /* 客户端 pending 上限 */
-    unsigned pending_count;            /* 当前未完成调用数（跨 poller 原子访问） */
-    int shutting_down;                 /* nb_node_destroy 已开始 */
-    nb_obj_pool_t worker_call_pool;  /* worker 路径 nb_call_t 复用池 */
-    nb_obj_pool_t handler_task_pool; /* worker/executor 任务头复用池 */
-    nb_obj_pool_t reply_task_pool;   /* 跨线程回复任务头复用池 */
+    ntk_mutex *pending_lock;                          /* 保护 pending_hash 的跨 poller 查找 */
+    ntk_timer *pending_timers[NB_TRANSPORT_MAX_IO];   /* 每 poller 的 pending 超时/重传定时器 */
+    ntk_poller *poller;                               /* io 0，用于发现/客户端调用 */
+    ntk_thread_pool *handler_pool;                    /* 可选：业务 handler 线程池（0 = 关闭） */
+    int worker_fallback_warned;                       /* handler_threads=0 时只告警一次 */
+    ntk_mutex *handler_limit_mutex;                   /* 保护 handler_inflight / external_inflight */
+    unsigned handler_max_concurrency;                 /* 0 = 不限制 */
+    unsigned handler_inflight;                        /* worker 排队 + 执行中的任务数 */
+    unsigned external_inflight;                       /* 自定义 executor 未完成任务数（诊断用） */
+    uint32_t max_inflight;                            /* 客户端 pending 上限 */
+    unsigned pending_count;                           /* 当前未完成调用数（跨 poller 原子访问） */
+    int shutting_down;                                /* nb_node_destroy 已开始 */
+    nb_obj_pool_t worker_call_pool;                   /* worker 路径 nb_call_t 复用池 */
+    nb_obj_pool_t handler_task_pool;                  /* worker/executor 任务头复用池 */
+    nb_obj_pool_t reply_task_pool;                    /* 跨线程回复任务头复用池 */
     nb_transport_t *transports[NB_MAX_BINDINGS];
     size_t transport_count;
     ntk_timer *hello_timer;
     ntk_timer *node_timer;
 
     nb_service_t *services;
-    ntk_mutex *services_lock; /* 保护 services/methods 链表（注册 vs 请求分发） */
-    ntk_mutex *codecs_lock;   /* 保护 codecs 链表 */
+    ntk_mutex *services_lock;                         /* 保护 services/methods 链表（注册 vs 请求分发） */
+    ntk_mutex *codecs_lock;                           /* 保护 codecs 链表 */
     nb_discovery_state_t discovery;
-    nb_pending_t *pending;      /* 全部 pending 槽位（按需分配） */
-    nb_pending_t *pending_hash; /* request_id -> pending，O(1) 查找 */
-    nb_pending_t *pending_free; /* 可复用的空闲槽位 */
-    nb_dedup_t dedup;           /* 服务端请求去重 / 响应重放（UDP unary） */
+    nb_pending_t *pending;                            /* 全部 pending 槽位（按需分配） */
+    nb_pending_t *pending_hash;                       /* request_id -> pending，O(1) 查找 */
+    nb_pending_t *pending_free;                       /* 可复用的空闲槽位 */
+    nb_dedup_t dedup;                                 /* 服务端请求去重 / 响应重放（UDP unary） */
     nb_recv_stream_t recv_streams[NB_STREAM_MAX_RECV_STREAMS];
-    nb_cancel_slot_t cancels[CANCEL_SLOTS]; /* 在途调用取消登记（best-effort） */
-    unsigned cancel_count;                   /* 已登记取消数；原子访问，0 时查询走快路径 */
+    nb_cancel_slot_t cancels[CANCEL_SLOTS];           /* 在途调用取消登记（best-effort） */
+    unsigned cancel_count;                            /* 已登记取消数；原子访问，0 时查询走快路径 */
     nb_codec_entry_t *codecs;
 
     nb_node_mode_t mode;

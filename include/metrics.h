@@ -43,17 +43,17 @@ typedef struct nb_metrics {
     int32_t rtcp_remote_lost;   /* 对端报告的本端流累计丢包 */
 
     /* 可观测性：当前值（gauge）与端到端延迟分布 */
-    uint64_t connections;         /* 当前活跃链路/会话数（UDP session + TCP link） */
-    uint64_t inflight_requests;   /* 当前未完成客户端调用数 */
-    uint64_t inflight_handlers;   /* 当前未完成 worker/executor 任务数 */
-    uint64_t latency_count;       /* 已完成的端到端采样数 */
-    uint64_t latency_sum_ms;      /* 延迟总和，用于计算均值 */
+    uint64_t connections;       /* 当前活跃链路/会话数（UDP session + TCP link） */
+    uint64_t inflight_requests; /* 当前未完成客户端调用数 */
+    uint64_t inflight_handlers; /* 当前未完成 worker/executor 任务数 */
+    uint64_t latency_count;     /* 已完成的端到端采样数 */
+    uint64_t latency_sum_ms;    /* 延迟总和，用于计算均值 */
     uint64_t latency_hist[NB_LATENCY_HIST_BUCKETS];
-    uint64_t latency_p50_ms;      /* 由直方图估算的分位值 */
+    uint64_t latency_p50_ms;    /* 由直方图估算的分位值 */
     uint64_t latency_p90_ms;
     uint64_t latency_p99_ms;
-    uint64_t rate_limited;    /* 被 per-peer 入站限速丢弃/回退的请求数 */
-    uint64_t streams_rejected; /* 因并发流上限被拒绝的新流数 */
+    uint64_t rate_limited;      /* 被 per-peer 入站限速丢弃/回退的请求数 */
+    uint64_t streams_rejected;  /* 因并发流上限被拒绝的新流数 */
 } nb_metrics_t;
 
 /* ---- 对端链路质量 ---- */

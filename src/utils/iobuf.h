@@ -31,8 +31,8 @@ typedef struct nb_iobuf_blk {
     struct nb_iobuf_blk *next;
     ntk_buf *owner; /* 引用计数块；NULL 表示借用/无主内存 */
     const uint8_t *data;
-    size_t off; /* 已消费字节（相对 data） */
-    size_t len; /* 有效字节 */
+    size_t off;     /* 已消费字节（相对 data） */
+    size_t len;     /* 有效字节 */
 } nb_iobuf_blk_t;
 
 typedef struct nb_iobuf {

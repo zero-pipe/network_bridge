@@ -16,15 +16,15 @@
 typedef struct nb_pending {
     int used;
     nb_node_t *node;
-    ntk_poller *poller; /* 归属 poller：发送/超时/重传/回调都在此线程 */
-    struct nb_pending *lane_prev; /* 归属 poller 的 pending lane */
+    ntk_poller *poller;               /* 归属 poller：发送/超时/重传/回调都在此线程 */
+    struct nb_pending *lane_prev;     /* 归属 poller 的 pending lane */
     struct nb_pending *lane_next;
-    uint32_t gen; /* 槽位复用代际，tick 迭代时用于识别被复用的槽位 */
-    const void *owner; /* 创建该调用的 stub；用于 stub/proxy 销毁时批量取消 */
+    uint32_t gen;                     /* 槽位复用代际，tick 迭代时用于识别被复用的槽位 */
+    const void *owner;                /* 创建该调用的 stub；用于 stub/proxy 销毁时批量取消 */
     uint64_t request_id;
     response_fn cb;
     void *user;
-    uint64_t started_ms;  /* 调用发起时刻，用于端到端延迟统计 */
+    uint64_t started_ms;              /* 调用发起时刻，用于端到端延迟统计 */
     uint64_t deadline_ms;
     /* RTO 重传（弱网整包丢失时 NACK 无从触发，需超时重发请求） */
     int has_req;
@@ -45,16 +45,16 @@ typedef struct nb_pending {
     nb_transport_kind_t transport;
     char scheme[NB_SCHEME_MAX];
     uint8_t *data;
-    nb_buf_t *data_owner; /* 非空时 data 指向 owner 内部，释放走 nb_buf_release */
+    nb_buf_t *data_owner;             /* 非空时 data 指向 owner 内部，释放走 nb_buf_release */
     size_t len;
     uint8_t encoding;
-    uint8_t *metadata; /* 请求 metadata 的 TLV 副本，用于重传 */
+    uint8_t *metadata;                /* 请求 metadata 的 TLV 副本，用于重传 */
     uint16_t metadata_len;
     nb_metadata_t *response_metadata; /* 响应 metadata（按需分配） */
-    char *response_message;        /* 响应状态消息（按需分配） */
-    UT_hash_handle hh;             /* request_id 哈希索引 */
-    struct nb_pending *next;      /* 节点持有的全部槽位链表 */
-    struct nb_pending *free_next; /* 空闲槽位复用链表 */
+    char *response_message;           /* 响应状态消息（按需分配） */
+    UT_hash_handle hh;                /* request_id 哈希索引 */
+    struct nb_pending *next;          /* 节点持有的全部槽位链表 */
+    struct nb_pending *free_next;     /* 空闲槽位复用链表 */
 } nb_pending_t;
 
 nb_pending_t *nb_pending_add(nb_node_t *node,

@@ -71,11 +71,11 @@ typedef struct nb_codec_json_model nb_codec_json_model_t;
 
 struct nb_codec_json_model {
     nb_codec_json_type_t type;
-    const char *key;      /* JSON 字段名；OBJ 根描述符可为 NULL */
-    size_t offset;        /* 目标结构体字段偏移（OBJ 根忽略） */
+    const char *key;        /* JSON 字段名；OBJ 根描述符可为 NULL */
+    size_t offset;          /* 目标结构体字段偏移（OBJ 根忽略） */
     size_t presence_offset; /* 可选：字段出现时置 1 的 uint8_t 偏移，0 = 不跟踪 */
     union {
-        size_t obj_size; /* OBJ：结构体大小 */
+        size_t obj_size;    /* OBJ：结构体大小 */
         struct {
             size_t elem_size;
             nb_codec_json_type_t elem_type;

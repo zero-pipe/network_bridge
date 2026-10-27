@@ -73,7 +73,7 @@ typedef struct nb_chunk {
     size_t len;
     uint64_t offset;
     const nb_metadata_t *metadata; /* 可为 NULL；仅在本次回调内有效 */
-    const char *message;        /* 状态消息，可为 NULL */
+    const char *message;           /* 状态消息，可为 NULL */
     unsigned flags;
     uint8_t encoding;
 } nb_chunk_t;
@@ -158,7 +158,7 @@ nb_payload_t nb_payload_move_view(const nb_payload_move_t *payload);
 typedef struct nb_request {
     const char *service;
     const char *method;
-    nb_payload_t payload; /* 对框架透明的业务字节 */
+    nb_payload_t payload;          /* 对框架透明的业务字节 */
     const char *peer_ip;
     uint16_t peer_port;
     /*
@@ -171,8 +171,8 @@ typedef struct nb_request {
 } nb_request_t;
 
 typedef struct nb_response {
-    int status;          /* 应用定义，0 建议表示成功 */
-    const char *message; /* 状态消息，可为 NULL；仅回调内有效 */
+    int status;                    /* 应用定义，0 建议表示成功 */
+    const char *message;           /* 状态消息，可为 NULL；仅回调内有效 */
     nb_payload_t payload;
     const nb_metadata_t *metadata; /* 响应 metadata，可为 NULL；仅回调内有效 */
 } nb_response_t;

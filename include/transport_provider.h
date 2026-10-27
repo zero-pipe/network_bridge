@@ -21,15 +21,15 @@ typedef struct nb_transport_instance nb_transport_instance_t;
  */
 typedef struct nb_transport_message {
     uint8_t kind;
-    uint8_t flags; /* MSG_FLAG_*；随包透传 */
-    int status; /* RESPONSE：应用状态码；带 NB_MSG_FLAG_FRAMEWORK_STATUS 时为框架错误码 */
+    uint8_t flags;          /* MSG_FLAG_*；随包透传 */
+    int status;             /* RESPONSE：应用状态码；带 NB_MSG_FLAG_FRAMEWORK_STATUS 时为框架错误码 */
     uint32_t request_id;
-    uint32_t timeout_ms; /* 请求剩余超时毫秒；0 = 无 deadline */
-    const void *metadata; /* metadata TLV 字节；可为 NULL */
+    uint32_t timeout_ms;    /* 请求剩余超时毫秒；0 = 无 deadline */
+    const void *metadata;   /* metadata TLV 字节；可为 NULL */
     uint16_t metadata_len;
     const char *status_msg; /* 状态消息；可为 NULL */
     uint16_t status_msg_len;
-    int has_stream; /* 非 0 时 stream 有效 */
+    int has_stream;         /* 非 0 时 stream 有效 */
     nb_stream_meta_t stream;
     const char *route;
     nb_payload_t payload;

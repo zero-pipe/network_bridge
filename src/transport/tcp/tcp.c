@@ -34,9 +34,9 @@ static const size_t k_tcp_rx_class_slots[] = NB_TRANSPORT_RX_CLASS_SLOTS;
 
 /* 入站分帧：当前帧一个池化 nb_buf，到齐后直接把所有权交给 core。 */
 typedef struct nb_tcp_rx {
-    nb_buf_t *frame;   /* 当前累积帧；NULL 表示等待新帧 */
-    size_t total;      /* TCP_HDR_LEN + body_len */
-    size_t got;        /* 已写入 frame 的字节数 */
+    nb_buf_t *frame; /* 当前累积帧；NULL 表示等待新帧 */
+    size_t total;    /* TCP_HDR_LEN + body_len */
+    size_t got;      /* 已写入 frame 的字节数 */
     uint8_t hdr[TCP_HDR_LEN];
     size_t hdr_got;
 } nb_tcp_rx_t;
@@ -50,9 +50,9 @@ typedef struct nb_tcp_link {
     ntk_tcp_session *session; /* 服务端侧：accept 得到 */
     ntk_tcp_client *client;   /* 客户端侧：connect 发起 */
     int connected;
-    int io;         /* 所属 poller 分片，决定用哪个 rx poolset */
-    nb_tcp_rx_t rx; /* 接收分帧 */
-    nb_iobuf_t tx;  /* 出站待写队列（仅客户端侧使用） */
+    int io;                   /* 所属 poller 分片，决定用哪个 rx poolset */
+    nb_tcp_rx_t rx;           /* 接收分帧 */
+    nb_iobuf_t tx;            /* 出站待写队列（仅客户端侧使用） */
 } nb_tcp_link_t;
 
 typedef struct nb_tcp_transport {

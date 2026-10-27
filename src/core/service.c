@@ -111,10 +111,10 @@ typedef struct nb_handler_task {
     uint8_t inline_payload[HANDLER_INLINE_PAYLOAD]; /* 小请求免一次 malloc */
     size_t payload_len;
     uint8_t encoding;
-    uint64_t deadline_ms; /* 请求 deadline（绝对单调 ms，0 = 无） */
-    nb_metadata_t *metadata; /* 请求 metadata 解码副本，按需分配；无则为 NULL */
-    nb_buf_t *frame_owner;   /* 入站整帧所有权；非空时 payload 借用其中 */
-    int external;         /* 1 = 自定义 executor 任务 */
+    uint64_t deadline_ms;                           /* 请求 deadline（绝对单调 ms，0 = 无） */
+    nb_metadata_t *metadata;                        /* 请求 metadata 解码副本，按需分配；无则为 NULL */
+    nb_buf_t *frame_owner;                          /* 入站整帧所有权；非空时 payload 借用其中 */
+    int external;                                   /* 1 = 自定义 executor 任务 */
 } nb_handler_task_t;
 
 static void nb_handler_inflight_release(nb_node_t *node);
@@ -858,8 +858,8 @@ typedef struct nb_stream_task {
     uint8_t encoding;
     unsigned flags;
     uint64_t offset;
-    const nb_metadata_t *metadata; /* 借用 stream 状态里的副本；仅本次任务内有效 */
-    nb_metadata_t chunk_metadata;  /* 本 chunk 自带 metadata 的解码副本 */
+    const nb_metadata_t *metadata;   /* 借用 stream 状态里的副本；仅本次任务内有效 */
+    nb_metadata_t chunk_metadata;    /* 本 chunk 自带 metadata 的解码副本 */
     int has_chunk_metadata;
     char message[NB_STATUS_MSG_MAX]; /* 本 chunk 的状态消息 */
     uint16_t message_len;

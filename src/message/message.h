@@ -27,18 +27,18 @@ extern "C" {
 typedef void *nb_peer_token_t;
 
 typedef struct nb_message {
-    uint8_t kind;         /* KIND_REQUEST / RESPONSE / EVENT */
-    uint8_t flags;        /* MSG_FLAG_*；随 envelope 透传 */
-    int status;           /* RESPONSE：应用状态码，或带框架标志时的框架错误码 */
-    uint32_t request_id;  /* 请求/响应关联 ID */
-    uint32_t timeout_ms;  /* 请求剩余超时毫秒；0 = 无 deadline */
-    const void *metadata; /* metadata TLV 字节；可为 NULL */
+    uint8_t kind;               /* KIND_REQUEST / RESPONSE / EVENT */
+    uint8_t flags;              /* MSG_FLAG_*；随 envelope 透传 */
+    int status;                 /* RESPONSE：应用状态码，或带框架标志时的框架错误码 */
+    uint32_t request_id;        /* 请求/响应关联 ID */
+    uint32_t timeout_ms;        /* 请求剩余超时毫秒；0 = 无 deadline */
+    const void *metadata;       /* metadata TLV 字节；可为 NULL */
     uint16_t metadata_len;
-    const char *status_msg; /* 状态消息；可为 NULL */
+    const char *status_msg;     /* 状态消息；可为 NULL */
     uint16_t status_msg_len;
-    const char *route;    /* "service.method"；可为 NULL */
-    nb_payload_t payload;    /* 对框架透明的业务字节 */
-    nb_stream_meta_t stream; /* 仅 has_stream 非 0 时有效 */
+    const char *route;          /* "service.method"；可为 NULL */
+    nb_payload_t payload;       /* 对框架透明的业务字节 */
+    nb_stream_meta_t stream;    /* 仅 has_stream 非 0 时有效 */
     int has_stream;
 
     /* 寻址 / 对端上下文：入站为来源，出站为目标。 */
