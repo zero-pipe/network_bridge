@@ -1,10 +1,9 @@
 /*
  * SHM transport end-to-end test.
  *
- * Two nodes in one process share a real POSIX shared-memory channel. The
- * request/response rings and provider threads are exercised exactly as they
- * are for two processes. Cross-process coverage is provided by the benchmark
- * tools (`--shm`) and the quality gate.
+ * 一个 server（端口 1）+ 多个 client（端口 2..4）共享同一个 POSIX 共享内存段，
+ * 请求/响应队列、provider 线程与 chunk 池完全按真实部署路径运行，覆盖多客户端
+ * 对同一 server 的并发回投。跨进程覆盖由 benchmark 工具（--shm）与质量门禁提供。
  */
 #include <client.h>
 #include <server.h>
@@ -19,6 +18,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#define CLIENT_COUNT 3
+
 typedef struct shm_client_state {
     ntk_sem *sem;
     int status;
@@ -26,10 +27,30 @@ typedef struct shm_client_state {
     size_t len;
 } shm_client_state_t;
 
+/* 订阅回调状态：EVENT 到达时记录 payload 并唤醒主线程。 */
+typedef struct shm_sub_state {
+    ntk_sem *sem;
+    volatile int count;
+    uint8_t buf[256];
+    size_t len;
+} shm_sub_state_t;
+
 static void echo_handler(nb_call_t *call, const nb_request_t *req, void *user)
 {
     (void)user;
     nb_reply_bytes(call, 0, req->payload.data, req->payload.len);
+}
+
+static void on_event(nb_call_t *call, const nb_request_t *req, void *user)
+{
+    shm_sub_state_t *st = (shm_sub_state_t *)user;
+    (void)call;
+    st->len = req->payload.len <= sizeof(st->buf) ? req->payload.len : sizeof(st->buf);
+    memcpy(st->buf, req->payload.data, st->len);
+    st->count++;
+    if (st->sem) {
+        ntk_sem_post(st->sem, 1);
+    }
 }
 
 static void on_response(int status, const nb_response_t *resp, void *user)
@@ -94,23 +115,28 @@ int main(void)
 {
     char channel[64];
     char server_endpoint[96];
-    char client_endpoint[96];
+    char client_endpoint[CLIENT_COUNT][96];
     nb_binding_config_t server_binding;
-    nb_binding_config_t client_binding;
+    nb_binding_config_t client_binding[CLIENT_COUNT];
     nb_node_config_t server_cfg;
-    nb_node_config_t client_cfg;
+    nb_node_config_t client_cfg[CLIENT_COUNT];
     nb_node_t *server = NULL;
-    nb_node_t *client = NULL;
+    nb_node_t *client[CLIENT_COUNT] = {NULL};
     nb_service_t *service = NULL;
-    nb_proxy_t *proxy = NULL;
+    nb_service_t *subscriber = NULL;
+    nb_proxy_t *proxy[CLIENT_COUNT] = {NULL};
     shm_client_state_t st;
+    shm_sub_state_t sub_st;
     int failed = 0;
     int rc;
     int i;
+    int c;
 
     snprintf(channel, sizeof(channel), "test-shm-%ld", (long)getpid());
     snprintf(server_endpoint, sizeof(server_endpoint), "shm://%s:1", channel);
-    snprintf(client_endpoint, sizeof(client_endpoint), "shm://%s:2", channel);
+    for (c = 0; c < CLIENT_COUNT; c++) {
+        snprintf(client_endpoint[c], sizeof(client_endpoint[c]), "shm://%s:%d", channel, c + 2);
+    }
 
     if (nb_shm_register() != NB_OK) {
         nb_log_error("shm provider register failed");
@@ -121,10 +147,6 @@ int main(void)
     server_binding.name = "shm";
     server_binding.endpoint = server_endpoint;
     server_binding.intra_process = NB_INTRA_OFF;
-    memset(&client_binding, 0, sizeof(client_binding));
-    client_binding.name = "shm";
-    client_binding.endpoint = client_endpoint;
-    client_binding.intra_process = NB_INTRA_OFF;
 
     nb_node_config_default(&server_cfg);
     server_cfg.name = "shm-server";
@@ -133,28 +155,43 @@ int main(void)
     server_cfg.transport.bindings = &server_binding;
     server_cfg.transport.binding_count = 1;
 
-    nb_node_config_default(&client_cfg);
-    client_cfg.name = "shm-client";
-    client_cfg.mode = NB_MODE_STATIC;
-    client_cfg.runtime.io_threads = 1;
-    client_cfg.transport.bindings = &client_binding;
-    client_cfg.transport.binding_count = 1;
+    for (c = 0; c < CLIENT_COUNT; c++) {
+        memset(&client_binding[c], 0, sizeof(client_binding[c]));
+        client_binding[c].name = "shm";
+        client_binding[c].endpoint = client_endpoint[c];
+        client_binding[c].intra_process = NB_INTRA_OFF;
+
+        nb_node_config_default(&client_cfg[c]);
+        client_cfg[c].name = "shm-client";
+        client_cfg[c].mode = NB_MODE_STATIC;
+        client_cfg[c].runtime.io_threads = 1;
+        client_cfg[c].transport.bindings = &client_binding[c];
+        client_cfg[c].transport.binding_count = 1;
+    }
 
     rc = nb_node_create(&server_cfg, &server);
-    if (rc == NB_OK) {
-        rc = nb_node_create(&client_cfg, &client);
-    }
     if (rc == NB_OK) {
         rc = nb_service_create(server, "echo", &service);
     }
     if (rc == NB_OK) {
         rc = nb_service_add_method(service, "ping", echo_handler, NULL);
     }
+    for (c = 0; rc == NB_OK && c < CLIENT_COUNT; c++) {
+        rc = nb_node_create(&client_cfg[c], &client[c]);
+        if (rc == NB_OK) {
+            rc = nb_proxy_create(client[c], NULL, &proxy[c]);
+        }
+        if (rc == NB_OK) {
+            rc = nb_proxy_set_endpoint_uri(proxy[c], server_endpoint);
+        }
+    }
+    /* client[0] 兼任订阅者：方法名即主题名，注册时会把 route 写入段内订阅表。 */
+    memset(&sub_st, 0, sizeof(sub_st));
     if (rc == NB_OK) {
-        rc = nb_proxy_create(client, NULL, &proxy);
+        rc = nb_service_create(client[0], "TopicService", &subscriber);
     }
     if (rc == NB_OK) {
-        rc = nb_proxy_set_endpoint_uri(proxy, server_endpoint);
+        rc = nb_service_add_method(subscriber, "chat", on_event, &sub_st);
     }
     if (rc != NB_OK) {
         nb_log_error("shm setup failed: %d", rc);
@@ -168,38 +205,82 @@ int main(void)
         failed = 1;
         goto done;
     }
+    sub_st.sem = ntk_sem_create(0);
+    if (!sub_st.sem) {
+        failed = 1;
+    }
 
-    {
+    for (c = 0; c < CLIENT_COUNT && !failed; c++) {
         const char *small = "hello-shm";
-        if (verify_call(proxy, &st, small, strlen(small) + 1)) {
+
+        if (verify_call(proxy[c], &st, small, strlen(small) + 1)) {
             failed = 1;
         }
     }
     {
         uint8_t big[5000];
+
         for (i = 0; i < (int)sizeof(big); i++) {
             big[i] = (uint8_t)('A' + (i % 26));
         }
-        if (verify_call(proxy, &st, big, sizeof(big))) {
-            failed = 1;
+        /* 轮转各客户端：验证每条的响应都回到发起方自己的队列。 */
+        for (c = 0; c < CLIENT_COUNT && !failed; c++) {
+            if (verify_call(proxy[c], &st, big, sizeof(big))) {
+                failed = 1;
+            }
         }
     }
     for (i = 0; i < 100 && !failed; i++) {
         char text[64];
+        int ci = i % CLIENT_COUNT;
+
         snprintf(text, sizeof(text), "shm-request-%d", i);
-        if (verify_call(proxy, &st, text, strlen(text) + 1)) {
+        if (verify_call(proxy[ci], &st, text, strlen(text) + 1)) {
             failed = 1;
         }
     }
 
+    /* pub/sub：client[1] 发布事件，client[0] 的订阅方法接收（跨节点零拷贝扇出）。 */
+    if (!failed) {
+        nb_payload_t ev;
+        int attempt;
+
+        ev.data = "pubsub-over-shm";
+        ev.len = strlen((const char *)ev.data) + 1;
+        ev.encoding = 0;
+        /* 等 client[0] 的 IO 线程执行方法注册（其中包含 subscribe）。 */
+        ntk_sleep_ms(100);
+        for (attempt = 0; attempt < 50 && sub_st.count == 0; attempt++) {
+            if (nb_proxy_call_event(proxy[1], "TopicService", "chat", &ev, NULL) != NB_OK) {
+                failed = 1;
+                break;
+            }
+            (void)ntk_sem_timedwait(sub_st.sem, 200);
+        }
+        if (!failed && (sub_st.count == 0 || sub_st.len != ev.len ||
+                        memcmp(sub_st.buf, ev.data, ev.len) != 0)) {
+            nb_log_error(
+                "shm pub/sub not delivered: count=%d len=%zu", sub_st.count, sub_st.len);
+            failed = 1;
+        }
+    }
+
+    if (sub_st.sem) {
+        ntk_sem_destroy(sub_st.sem);
+    }
     ntk_sem_destroy(st.sem);
 
 done:
-    if (proxy) {
-        nb_proxy_destroy(proxy);
+    if (subscriber) {
+        nb_service_destroy(subscriber);
     }
-    if (client) {
-        nb_node_destroy(client);
+    for (c = 0; c < CLIENT_COUNT; c++) {
+        if (proxy[c]) {
+            nb_proxy_destroy(proxy[c]);
+        }
+        if (client[c]) {
+            nb_node_destroy(client[c]);
+        }
     }
     if (service) {
         nb_service_destroy(service);

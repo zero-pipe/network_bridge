@@ -49,6 +49,7 @@ static void nb_provider_on_receive(void *receiver,
     msg.peer_ip = peer_host;
     msg.peer_port = peer_port;
     msg.peer_token = reply_token;
+    msg.frame_owner = message->frame_owner;
     nb_node_on_message(transport->node, transport, &msg);
 }
 
@@ -83,6 +84,7 @@ static void nb_provider_message_from(const nb_message_t *src, nb_transport_messa
     dst->stream = src->stream;
     dst->route = src->route;
     dst->payload = src->payload;
+    dst->frame_owner = src->frame_owner;
 }
 
 static int nb_provider_op_send(nb_transport_t *t, const nb_message_t *message)

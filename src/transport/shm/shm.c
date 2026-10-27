@@ -1,15 +1,22 @@
 /*
- * POSIX shared-memory transport provider.
+ * POSIX shared-memory transport provider — iceoryx-style zero-copy.
  *
- * Layout: one named region per channel, with a request ring written by the
- * client (endpoint id 2) and a response ring written by the server (id 1).
- * The rings carry the framework's encoded v2 envelope, so semantics stay
- * identical to the socket/DDS providers. Process-shared mutexes protect the
- * ring heads/tails and process-shared semaphores wake the peer thread.
+ * 一个 channel 对应一个命名共享内存段（see shm_segment.c）：段内按 size class
+ * 分档管理 chunk，请求/响应用无锁 MPMC 队列传递“段内偏移”。消息不再拷进固定
+ * slot：
+ *   - 发送方从段里借一块 chunk，把编码后的 v2 envelope 直接写进去，入队偏移；
+ *   - 接收方线程弹出偏移，把 chunk 包成 external nb_buf 作为 frame_owner 交给
+ *     core，payload 直接指向段内内存——大包跨线程零拷贝，小包由 core 决定拷贝；
+ *   - 服务端回复时按请求带来的 client id 借新 chunk 写响应，投递到该 client 的
+ *     响应队列。
  *
- * This first version deliberately supports one requester per channel. Use a
- * unique channel per server/client pair. The region is created by whichever
- * process starts first and unlinked by the server on destroy.
+ * 角色：endpoint 端口 1 = server（段的所有者，销毁时 unlink），2.. = client
+ * （最多 NB_SHM_MAX_CLIENTS 个）。client 只能 send，server 只能 reply。
+ *
+ * 发布/订阅：KIND_EVENT 走段内订阅表扇出——service 注册方法时把 route
+ * （"service.method"）登记到本节点槽位，事件按 route 零拷贝投递给所有订阅者
+ * （发布者自身除外）。订阅者按自身角色复用入站队列：server 走请求队列，
+ * client 走自己的响应队列；event 与 response 共享队列，由 core 按 kind 分发。
  */
 #include "transport_internal.h"
 
@@ -18,6 +25,7 @@
 #include "atomic.h"
 #include "endpoint.h"
 #include "envelope.h"
+#include "shm_segment.h"
 #include "util.h"
 
 #define NB_LOG_TAG "shm"
@@ -29,258 +37,29 @@
 
 #if defined(__linux__)
 
-#include <errno.h>
-#include <fcntl.h>
 #include <pthread.h>
-#include <semaphore.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <time.h>
-#include <unistd.h>
 
-#define NB_SHM_MAGIC 0x4e425348u /* "NBSH" */
-#define NB_SHM_VERSION 1u
-#define NB_SHM_SLOT_COUNT 32u
-#define NB_SHM_SLOT_BYTES NB_SHM_MAX_MESSAGE_BYTES
-#define NB_SHM_WAIT_MS 10u
-
-typedef struct nb_shm_slot {
-    uint32_t len;
-    uint32_t reserved;
-    uint64_t seq;
-    uint8_t data[NB_SHM_SLOT_BYTES];
-} nb_shm_slot_t;
-
-typedef struct nb_shm_ring {
-    uint64_t head;
-    uint64_t tail;
-    uint64_t dropped;
-    nb_shm_slot_t slots[NB_SHM_SLOT_COUNT];
-} nb_shm_ring_t;
-
-typedef struct nb_shm_header {
-    uint32_t magic;
-    uint32_t version;
-    uint32_t initialized;
-    uint32_t slot_bytes;
-    uint32_t slot_count;
-    uint32_t reserved;
-    pthread_mutex_t req_lock;
-    pthread_mutex_t resp_lock;
-    sem_t req_sem;
-    sem_t resp_sem;
-    nb_shm_ring_t req;
-    nb_shm_ring_t resp;
-} nb_shm_header_t;
+#define NB_SHM_WAIT_MS 50
 
 typedef struct nb_shm_instance {
     nb_transport_provider_options_t options;
     char channel[NB_ENDPOINT_MAX];
-    char name[128];
     uint16_t self_id;
-    int fd;
-    nb_shm_header_t *header;
-    size_t map_size;
+    nb_shmseg_t *seg;
     pthread_t thread;
     uint32_t running;
     int thread_started;
 } nb_shm_instance_t;
 
-static void nb_shm_make_name(const char *channel, char *out, size_t cap)
+/* 用指针宽度承载回程 client id：入站时放 peer_token，回复时取回。 */
+static void *nb_shm_token(uint16_t client_id)
 {
-    static const char prefix[] = "/zrpc-shm-";
-    size_t i = 0;
-    size_t j = 0;
-
-    while (prefix[i] && j + 1 < cap) {
-        out[j++] = prefix[i++];
-    }
-    for (i = 0; channel && channel[i] && j + 1 < cap; i++) {
-        char c = channel[i];
-        int keep = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-                   (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.';
-        out[j++] = keep ? c : '_';
-    }
-    if (cap) {
-        out[j] = '\0';
-    }
+    return (void *)(uintptr_t)client_id;
 }
 
-static void nb_shm_wait_sem(sem_t *sem)
+static uint16_t nb_shm_token_id(void *token)
 {
-    struct timespec ts;
-
-    if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
-        return;
-    }
-    ts.tv_nsec += (long)NB_SHM_WAIT_MS * 1000000L;
-    if (ts.tv_nsec >= 1000000000L) {
-        ts.tv_sec++;
-        ts.tv_nsec -= 1000000000L;
-    }
-    while (sem_timedwait(sem, &ts) == -1 && errno == EINTR) {
-    }
-}
-
-static void nb_shm_drain_sem(sem_t *sem)
-{
-    while (sem_trywait(sem) == 0) {
-    }
-}
-
-static int nb_shm_init_header(nb_shm_header_t *header)
-{
-    pthread_mutexattr_t attr;
-    int rc = NB_OK;
-
-    memset(header, 0, sizeof(*header));
-    header->magic = NB_SHM_MAGIC;
-    header->version = NB_SHM_VERSION;
-    header->slot_bytes = NB_SHM_SLOT_BYTES;
-    header->slot_count = NB_SHM_SLOT_COUNT;
-    if (pthread_mutexattr_init(&attr) != 0) {
-        return NB_ERR_IO;
-    }
-    if (pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED) != 0) {
-        rc = NB_ERR_IO;
-    } else if (pthread_mutex_init(&header->req_lock, &attr) != 0 ||
-               pthread_mutex_init(&header->resp_lock, &attr) != 0) {
-        rc = NB_ERR_IO;
-    }
-    pthread_mutexattr_destroy(&attr);
-    if (rc != NB_OK) {
-        return rc;
-    }
-    if (sem_init(&header->req_sem, 1, 0) != 0 ||
-        sem_init(&header->resp_sem, 1, 0) != 0) {
-        return NB_ERR_IO;
-    }
-    __atomic_store_n(&header->initialized, 1u, __ATOMIC_RELEASE);
-    return NB_OK;
-}
-
-static int nb_shm_open_region(nb_shm_instance_t *inst)
-{
-    struct stat st;
-    void *map;
-    int created = 0;
-    int fd;
-    int i;
-
-    nb_shm_make_name(inst->channel, inst->name, sizeof(inst->name));
-    fd = shm_open(inst->name, O_CREAT | O_EXCL | O_RDWR, 0600);
-    if (fd >= 0) {
-        created = 1;
-    } else if (errno == EEXIST) {
-        fd = shm_open(inst->name, O_RDWR, 0600);
-        if (fd < 0) {
-            nb_log_error("shm_open(%s) failed: %s", inst->name, strerror(errno));
-            return NB_ERR_IO;
-        }
-    } else {
-        nb_log_error("shm_open(%s) failed: %s", inst->name, strerror(errno));
-        return NB_ERR_IO;
-    }
-
-    inst->map_size = sizeof(nb_shm_header_t);
-    if (created) {
-        if (ftruncate(fd, (off_t)inst->map_size) != 0) {
-            nb_log_error("ftruncate(%s) failed: %s", inst->name, strerror(errno));
-            close(fd);
-            shm_unlink(inst->name);
-            return NB_ERR_IO;
-        }
-    } else if (fstat(fd, &st) != 0 || (size_t)st.st_size < inst->map_size) {
-        nb_log_error("shared region %s is too small", inst->name);
-        close(fd);
-        return NB_ERR_IO;
-    }
-
-    map = mmap(NULL, inst->map_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (map == MAP_FAILED) {
-        nb_log_error("mmap(%s) failed: %s", inst->name, strerror(errno));
-        close(fd);
-        if (created) {
-            shm_unlink(inst->name);
-        }
-        return NB_ERR_IO;
-    }
-    inst->fd = fd;
-    inst->header = (nb_shm_header_t *)map;
-
-    if (created && nb_shm_init_header(inst->header) != NB_OK) {
-        nb_log_error("failed to initialize shared region %s", inst->name);
-        munmap(inst->header, inst->map_size);
-        inst->header = NULL;
-        close(fd);
-        inst->fd = -1;
-        shm_unlink(inst->name);
-        return NB_ERR_IO;
-    }
-
-    for (i = 0; i < 5000; i++) {
-        if (__atomic_load_n(&inst->header->initialized, __ATOMIC_ACQUIRE)) {
-            break;
-        }
-        usleep(1000);
-    }
-    if (!__atomic_load_n(&inst->header->initialized, __ATOMIC_ACQUIRE)) {
-        nb_log_error("shared region %s was not initialized in time", inst->name);
-        munmap(inst->header, inst->map_size);
-        inst->header = NULL;
-        close(fd);
-        inst->fd = -1;
-        return NB_ERR_TIMEOUT;
-    }
-    if (inst->header->magic != NB_SHM_MAGIC ||
-        inst->header->version != NB_SHM_VERSION ||
-        inst->header->slot_bytes != NB_SHM_SLOT_BYTES ||
-        inst->header->slot_count != NB_SHM_SLOT_COUNT) {
-        nb_log_error("shared region %s has an incompatible layout", inst->name);
-        munmap(inst->header, inst->map_size);
-        inst->header = NULL;
-        close(fd);
-        inst->fd = -1;
-        return NB_ERR_STATE;
-    }
-
-    /*
-     * The server owns the lifecycle. Starting a fresh server generation
-     * discards stale ring contents from an unclean previous run.
-     */
-    if (inst->self_id == 1) {
-        pthread_mutex_lock(&inst->header->req_lock);
-        inst->header->req.head = 0;
-        inst->header->req.tail = 0;
-        inst->header->req.dropped = 0;
-        pthread_mutex_unlock(&inst->header->req_lock);
-        pthread_mutex_lock(&inst->header->resp_lock);
-        inst->header->resp.head = 0;
-        inst->header->resp.tail = 0;
-        inst->header->resp.dropped = 0;
-        pthread_mutex_unlock(&inst->header->resp_lock);
-        nb_shm_drain_sem(&inst->header->req_sem);
-        nb_shm_drain_sem(&inst->header->resp_sem);
-    }
-    return NB_OK;
-}
-
-static void nb_shm_close_region(nb_shm_instance_t *inst)
-{
-    if (!inst) {
-        return;
-    }
-    if (inst->header) {
-        munmap(inst->header, inst->map_size);
-        inst->header = NULL;
-    }
-    if (inst->fd >= 0) {
-        close(inst->fd);
-        inst->fd = -1;
-    }
-    if (inst->self_id == 1 && inst->name[0]) {
-        shm_unlink(inst->name);
-    }
+    return (uint16_t)(uintptr_t)token;
 }
 
 static void nb_shm_fill_envelope(const nb_transport_message_t *message, nb_envelope_t *env)
@@ -307,61 +86,114 @@ static void nb_shm_fill_envelope(const nb_transport_message_t *message, nb_envel
     }
 }
 
-static int nb_shm_publish(nb_shm_instance_t *inst, int response,
-                          const nb_transport_message_t *message)
+/* 借 chunk → 编码 envelope，返回 chunk 偏移。失败时已回滚，无所有权泄漏。 */
+static int nb_shm_encode(nb_shm_instance_t *inst, const nb_transport_message_t *message,
+                         uint64_t *off_out)
 {
     nb_envelope_t env;
-    nb_shm_ring_t *ring;
-    pthread_mutex_t *lock;
-    sem_t *sem;
-    nb_shm_slot_t *slot;
+    uint64_t off;
+    uint8_t *data;
+    uint32_t cap;
     size_t need;
     size_t written;
 
-    if (!inst || !inst->header || !message) {
+    if (!inst || !inst->seg || !message || !off_out) {
         return NB_ERR_INVALID;
     }
     nb_shm_fill_envelope(message, &env);
     need = nb_envelope_size(&env);
-    if (need == 0 || need > NB_SHM_SLOT_BYTES) {
+    if (need == 0) {
+        return NB_ERR_INVALID;
+    }
+    /* 最大档都放不下才是 TOOBIG；否则失败只是暂时无空闲 chunk（AGAIN）。 */
+    if (need > nb_shm_class_bytes[NB_SHM_CLASS_COUNT - 1u]) {
         return NB_ERR_TOOBIG;
     }
-    ring = response ? &inst->header->resp : &inst->header->req;
-    lock = response ? &inst->header->resp_lock : &inst->header->req_lock;
-    sem = response ? &inst->header->resp_sem : &inst->header->req_sem;
-
-    pthread_mutex_lock(lock);
-    if (ring->head - ring->tail >= NB_SHM_SLOT_COUNT) {
-        ring->dropped++;
-        pthread_mutex_unlock(lock);
+    off = nb_shmseg_alloc(inst->seg, need);
+    if (off == 0) {
         return NB_ERR_AGAIN;
     }
-    slot = &ring->slots[ring->head % NB_SHM_SLOT_COUNT];
-    written = nb_envelope_encode(slot->data, NB_SHM_SLOT_BYTES, &env);
+    data = nb_shmseg_data(inst->seg, off);
+    cap = nb_shmseg_capacity(inst->seg, off);
+    if (!data || need > cap) {
+        nb_shmseg_chunk_free(inst->seg, off);
+        return NB_ERR_TOOBIG;
+    }
+    written = nb_envelope_encode(data, cap, &env);
     if (written != need) {
-        pthread_mutex_unlock(lock);
+        nb_shmseg_chunk_free(inst->seg, off);
         return NB_ERR_IO;
     }
-    slot->len = (uint32_t)written;
-    slot->reserved = 0;
-    slot->seq = ring->head;
-    ring->head++;
-    pthread_mutex_unlock(lock);
-    sem_post(sem);
+    nb_shmseg_set_length(inst->seg, off, (uint32_t)written);
+    *off_out = off;
     return NB_OK;
 }
 
-static void nb_shm_deliver(nb_shm_instance_t *inst, const uint8_t *buf, size_t len,
-                           int server)
+/* 编码后投递到单一队列：response 非 0 时投递给 client_id，否则作为请求。 */
+static int nb_shm_publish_queue(nb_shm_instance_t *inst, int response, uint16_t client_id,
+                                const nb_transport_message_t *message)
+{
+    uint64_t off = 0;
+    int rc = nb_shm_encode(inst, message, &off);
+
+    if (rc != NB_OK) {
+        return rc;
+    }
+    if (response ? (nb_shmseg_push_response(inst->seg, client_id, off) != 0)
+                 : (nb_shmseg_push_request(inst->seg, off) != 0)) {
+        nb_shmseg_chunk_free(inst->seg, off);
+        return NB_ERR_AGAIN;
+    }
+    return NB_OK;
+}
+
+/* 事件：编码后按 route（service.method）零拷贝扇出给所有订阅者。 */
+static int nb_shm_publish_event(nb_shm_instance_t *inst, const nb_transport_message_t *message)
+{
+    uint64_t off = 0;
+    int rc;
+
+    if (!message->route || !message->route[0]) {
+        return NB_ERR_INVALID;
+    }
+    rc = nb_shm_encode(inst, message, &off);
+    if (rc != NB_OK) {
+        return rc;
+    }
+    /* publish 接管 chunk 所有权（无人订阅或部分队列满都会内部回收）。 */
+    if (nb_shmseg_publish(inst->seg, message->route, off) != 0) {
+        return NB_ERR_IO;
+    }
+    return NB_OK;
+}
+
+/* 弹出 chunk → 解码 → 以 frame_owner 形式交给 core（零拷贝）。 */
+static void nb_shm_deliver(nb_shm_instance_t *inst, uint64_t off, uint16_t peer_port,
+                           void *reply_token)
 {
     nb_envelope_t env;
     nb_transport_message_t msg;
+    nb_buf_t *frame;
     char route_buf[NB_GLOBAL_MAX_ROUTE_BYTES];
-    uint16_t peer_port = server ? 2u : 1u;
+    uint8_t *data;
+    uint32_t len;
 
-    if (nb_envelope_decode(buf, len, &env) != NB_OK) {
+    data = nb_shmseg_data(inst->seg, off);
+    len = nb_shmseg_length(inst->seg, off);
+    if (!data || nb_envelope_decode(data, len, &env) != NB_OK) {
+        nb_shmseg_chunk_free(inst->seg, off);
         return;
     }
+    frame = nb_shmseg_wrap_rx(inst->seg, off);
+    if (!frame) {
+        nb_shmseg_chunk_free(inst->seg, off);
+        return;
+    }
+    if (!inst->options.on_receive) {
+        nb_buf_release(frame); /* 释放即归还 chunk */
+        return;
+    }
+
     memset(&msg, 0, sizeof(msg));
     msg.kind = env.kind;
     msg.flags = env.flags;
@@ -387,54 +219,38 @@ static void nb_shm_deliver(nb_shm_instance_t *inst, const uint8_t *buf, size_t l
         msg.stream.offset = env.stream_offset;
         msg.stream.total_size = env.stream_total_size;
     }
-    if (inst->options.on_receive) {
-        inst->options.on_receive(inst->options.receiver, NULL, inst->channel, peer_port, &msg);
-    }
+    msg.frame_owner = frame;
+    inst->options.on_receive(inst->options.receiver, reply_token, inst->channel, peer_port,
+                             &msg);
 }
 
 static void *nb_shm_thread_main(void *arg)
 {
     nb_shm_instance_t *inst = (nb_shm_instance_t *)arg;
-    uint8_t *scratch;
+    int server = inst->self_id == 1;
 
-    if (!inst || !inst->header) {
-        return NULL;
-    }
-    scratch = (uint8_t *)malloc(NB_SHM_SLOT_BYTES);
-    if (!scratch) {
-        return NULL;
-    }
     while (nb_atomic_load_acquire_u32(&inst->running) != 0u) {
-        int server = inst->self_id == 1;
-        nb_shm_ring_t *ring = server ? &inst->header->req : &inst->header->resp;
-        pthread_mutex_t *lock = server ? &inst->header->req_lock : &inst->header->resp_lock;
-        sem_t *sem = server ? &inst->header->req_sem : &inst->header->resp_sem;
+        uint64_t off;
 
-        nb_shm_wait_sem(sem);
+        (void)nb_shmseg_wait(inst->seg, NB_SHM_WAIT_MS);
         for (;;) {
-            nb_shm_slot_t *slot;
-            uint32_t len = 0;
+            if (server) {
+                uint16_t client = 0;
 
-            pthread_mutex_lock(lock);
-            if (ring->tail == ring->head) {
-                pthread_mutex_unlock(lock);
-                break;
-            }
-            slot = &ring->slots[ring->tail % NB_SHM_SLOT_COUNT];
-            len = slot->len;
-            if (len > 0 && len <= NB_SHM_SLOT_BYTES) {
-                memcpy(scratch, slot->data, len);
+                if (nb_shmseg_pop_request(inst->seg, &off, &client) != 0) {
+                    break;
+                }
+                nb_shm_deliver(inst, off, client, nb_shm_token(client));
             } else {
-                len = 0;
-            }
-            ring->tail++;
-            pthread_mutex_unlock(lock);
-            if (len > 0) {
-                nb_shm_deliver(inst, scratch, len, server);
+                uint16_t source = 0;
+
+                if (nb_shmseg_pop_response(inst->seg, &off, &source) != 0) {
+                    break;
+                }
+                nb_shm_deliver(inst, off, source ? source : 1u, NULL);
             }
         }
     }
-    free(scratch);
     return NULL;
 }
 
@@ -443,7 +259,6 @@ static int nb_shm_op_create(const nb_transport_provider_options_t *options,
 {
     nb_shm_instance_t *inst;
     nb_endpoint_t endpoint;
-    int rc;
 
     if (!options || !out || !options->endpoint) {
         return NB_ERR_INVALID;
@@ -453,7 +268,7 @@ static int nb_shm_op_create(const nb_transport_provider_options_t *options,
         strcmp(endpoint.scheme, "shm") != 0 || endpoint.port == 0) {
         return NB_ERR_INVALID;
     }
-    if (endpoint.port != 1 && endpoint.port < 2) {
+    if (endpoint.host[0] == '\0') {
         return NB_ERR_INVALID;
     }
     inst = (nb_shm_instance_t *)calloc(1, sizeof(*inst));
@@ -462,16 +277,11 @@ static int nb_shm_op_create(const nb_transport_provider_options_t *options,
     }
     inst->options = *options;
     inst->self_id = endpoint.port;
-    inst->fd = -1;
     nb_copy_str(inst->channel, sizeof(inst->channel), endpoint.host, "");
-    if (!inst->channel[0]) {
+    inst->seg = nb_shmseg_open(inst->channel, inst->self_id);
+    if (!inst->seg) {
         free(inst);
-        return NB_ERR_INVALID;
-    }
-    rc = nb_shm_open_region(inst);
-    if (rc != NB_OK) {
-        free(inst);
-        return rc;
+        return NB_ERR_IO;
     }
     *out = (nb_transport_instance_t *)inst;
     return NB_OK;
@@ -482,7 +292,7 @@ static int nb_shm_op_start(nb_transport_instance_t *instance)
     nb_shm_instance_t *inst = (nb_shm_instance_t *)instance;
     int rc;
 
-    if (!inst || !inst->header) {
+    if (!inst || !inst->seg) {
         return NB_ERR_INVALID;
     }
     if (inst->thread_started) {
@@ -506,8 +316,7 @@ static void nb_shm_op_stop(nb_transport_instance_t *instance)
         return;
     }
     nb_atomic_store_release_u32(&inst->running, 0u);
-    sem_post(&inst->header->req_sem);
-    sem_post(&inst->header->resp_sem);
+    nb_shmseg_wake(inst->seg);
     pthread_join(inst->thread, NULL);
     inst->thread_started = 0;
 }
@@ -520,7 +329,7 @@ static void nb_shm_op_destroy(nb_transport_instance_t *instance)
         return;
     }
     nb_shm_op_stop(instance);
-    nb_shm_close_region(inst);
+    nb_shmseg_close(inst->seg);
     free(inst);
 }
 
@@ -537,10 +346,14 @@ static int nb_shm_op_send(nb_transport_instance_t *instance,
     if (strcmp(host, inst->channel) != 0) {
         return NB_ERR_NOTFOUND;
     }
+    /* 事件走发布/订阅扇出：不区分 server/client 角色，也不看目标端口。 */
+    if (message->kind == KIND_EVENT) {
+        return nb_shm_publish_event(inst, message);
+    }
     if (inst->self_id == 1 || port != 1) {
         return NB_ERR_NOT_SUPPORTED;
     }
-    return nb_shm_publish(inst, 0, message);
+    return nb_shm_publish_queue(inst, 0, 0, message);
 }
 
 static int nb_shm_op_reply(nb_transport_instance_t *instance,
@@ -550,7 +363,7 @@ static int nb_shm_op_reply(nb_transport_instance_t *instance,
                            const nb_transport_message_t *message)
 {
     nb_shm_instance_t *inst = (nb_shm_instance_t *)instance;
-    (void)reply_token;
+    uint16_t client_id;
     (void)host;
     (void)port;
 
@@ -560,7 +373,47 @@ static int nb_shm_op_reply(nb_transport_instance_t *instance,
     if (inst->self_id != 1) {
         return NB_ERR_NOT_SUPPORTED;
     }
-    return nb_shm_publish(inst, 1, message);
+    client_id = nb_shm_token_id(reply_token);
+    if (client_id < 2u) {
+        return NB_ERR_INVALID;
+    }
+    return nb_shm_publish_queue(inst, 1, client_id, message);
+}
+
+/*
+ * service 方法注册即声明“本节点要接收该 route 的入站消息”。RPC 请求由
+ * server/client 角色决定队列，无需此表；事件发布则依赖这张订阅表做扇出。
+ */
+static int nb_shm_op_subscribe(nb_transport_instance_t *instance,
+                               const char *service,
+                               const char *method)
+{
+    nb_shm_instance_t *inst = (nb_shm_instance_t *)instance;
+    char topic[NB_GLOBAL_MAX_ROUTE_BYTES];
+
+    if (!inst || !inst->seg || !service || !method) {
+        return NB_ERR_INVALID;
+    }
+    if (nb_route_format(topic, sizeof(topic), service, method) != NB_OK) {
+        return NB_ERR_INVALID;
+    }
+    return nb_shmseg_subscribe(inst->seg, topic) == 0 ? NB_OK : NB_ERR_NOMEM;
+}
+
+static void nb_shm_op_unsubscribe(nb_transport_instance_t *instance,
+                                  const char *service,
+                                  const char *method)
+{
+    nb_shm_instance_t *inst = (nb_shm_instance_t *)instance;
+    char topic[NB_GLOBAL_MAX_ROUTE_BYTES];
+
+    if (!inst || !inst->seg || !service || !method) {
+        return;
+    }
+    if (nb_route_format(topic, sizeof(topic), service, method) != NB_OK) {
+        return;
+    }
+    (void)nb_shmseg_unsubscribe(inst->seg, topic);
 }
 
 static const nb_transport_provider_ops_t nb_g_shm_ops = {
@@ -570,8 +423,8 @@ static const nb_transport_provider_ops_t nb_g_shm_ops = {
     nb_shm_op_destroy,
     nb_shm_op_send,
     nb_shm_op_reply,
-    NULL,
-    NULL,
+    nb_shm_op_subscribe,
+    nb_shm_op_unsubscribe,
 };
 
 static const nb_transport_provider_t nb_g_shm_provider = {

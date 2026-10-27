@@ -104,6 +104,7 @@ typedef struct options {
     uint32_t max_msg_bytes;
     uint32_t backpressure_bytes;
     unsigned io_threads;
+    int use_sync;
     int use_dds;
     int dds_domain;
     int use_shm;
@@ -194,7 +195,8 @@ static void usage(const char *argv0)
                   "          [--transport udp|tcp] [--dds] [--dds-domain n] "
                   "[--shm] [--shm-channel name] [--io-threads n]\n"
                   "          [--max-requests n] [--payload-bytes n] [--expect-response-bytes n]\n"
-                  "          [--timeout-ms n] [--rate qps] [--window n] [--verify-response]\n"
+                  "          [--timeout-ms n] [--rate qps] [--window n] [--sync] "
+                  "[--verify-response]\n"
                   "          [--connect-timeout-seconds n] [--worker-id id] [--output path|-]\n"
                   "          [--mode static|mesh]\n"
                   "          [--discovery-port p] [--data-port p] [--max-msg-bytes n] [--bind ip] "
@@ -449,6 +451,8 @@ int main(int argc, char **argv)
             opt.rate = atof(argv[++i]);
         } else if (strcmp(a, "--window") == 0 && i + 1 < argc) {
             parse_u64(argv[++i], &opt.window);
+        } else if (strcmp(a, "--sync") == 0) {
+            opt.use_sync = 1;
         } else if (strcmp(a, "--verify-response") == 0) {
             opt.verify_response = 1;
         } else if (strcmp(a, "--discovery-port") == 0 && i + 1 < argc) {
@@ -640,7 +644,70 @@ int main(int argc, char **argv)
     }
 
     if (g_status == 0) {
-        if (opt.rate > 0.0) {
+        if (opt.use_sync) {
+            uint64_t index = 0;
+            while (now_ns() < deadline_ns &&
+                   (opt.max_requests == 0 || attempted < opt.max_requests)) {
+                nb_payload_t pl;
+                nb_response_t response;
+                uint64_t send_ns;
+                uint64_t latency_ns;
+                uint64_t us;
+                uint64_t hidx;
+                int verify_ok = 1;
+
+                if (opt.rate > 0.0) {
+                    uint64_t target =
+                        start_ns + (uint64_t)((double)index * 1000000000.0 / opt.rate);
+                    sleep_until_ns(target);
+                }
+
+                memset(&response, 0, sizeof(response));
+                pl.data = payload;
+                pl.len = opt.payload_bytes;
+                pl.encoding = 0;
+                send_ns = now_ns();
+                rc = nb_proxy_call_sync(
+                    proxy, opt.service, opt.method, &pl, &response, opt.timeout_ms, NULL);
+                latency_ns = now_ns() - send_ns;
+                attempted++;
+                peak_inflight = 1;
+
+                if (rc == NB_OK && opt.verify_response) {
+                    verify_ok =
+                        response.payload.len == opt.payload_bytes &&
+                        (opt.payload_bytes == 0 ||
+                         memcmp(response.payload.data, payload, opt.payload_bytes) == 0);
+                }
+                us = (latency_ns + 999ull) / 1000ull;
+                hidx = (uint64_t)lat_hist_index(us);
+                g_lat_hist[hidx]++;
+
+                if (rc == NB_OK && response.status == NB_OK && verify_ok &&
+                    (opt.expect_response_bytes == 0 ||
+                     response.payload.len == opt.expect_response_bytes)) {
+                    succeeded++;
+                    response_bytes += response.payload.len;
+                    if (lat_count == 0 || latency_ns < min_ns) {
+                        min_ns = latency_ns;
+                    }
+                    if (latency_ns > max_ns) {
+                        max_ns = latency_ns;
+                    }
+                    sum_ns += latency_ns;
+                    lat_count++;
+                } else {
+                    failed++;
+                    error_add(errors,
+                              &error_count,
+                              rc != NB_OK ? rc
+                                          : (response.status != NB_OK ? response.status
+                                                                      : NB_ERR_INVALID));
+                }
+                nb_response_release(&response);
+                index++;
+            }
+        } else if (opt.rate > 0.0) {
             uint64_t index = 0;
             while (now_ns() < deadline_ns &&
                    (opt.max_requests == 0 || attempted < opt.max_requests)) {
@@ -747,6 +814,7 @@ int main(int argc, char **argv)
         fprintf(out, "\"status\":\"%s\",", status);
         fprintf(out, "\"worker_id\":\"%s\",", opt.worker_id ? opt.worker_id : "");
         fprintf(out, "\"service\":\"%s\",\"method\":\"%s\",", opt.service, opt.method);
+        fprintf(out, "\"sync\":%s,", opt.use_sync ? "true" : "false");
         fprintf(out,
                 "\"attempted\":%llu,\"succeeded\":%llu,\"failed\":%llu,",
                 (unsigned long long)attempted,

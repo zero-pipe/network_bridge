@@ -33,6 +33,12 @@ typedef struct nb_transport_message {
     nb_stream_meta_t stream;
     const char *route;
     nb_payload_t payload;
+    /*
+     * 入站整帧所有权；NULL = 借用，仅回调内有效。provider 把共享内存 chunk
+     * 包装成 external nb_buf 放在这里，core 即可跨线程延长 payload 生命周期，
+     * 无需拷贝（见 nb_message_t.frame_owner）。
+     */
+    nb_buf_t *frame_owner;
 } nb_transport_message_t;
 
 typedef void (*transport_receive_fn)(void *receiver,

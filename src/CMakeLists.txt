@@ -67,6 +67,7 @@ set(NB_RPC_SOURCES
     transport/udp/udp.c
     transport/tcp/tcp.c
     transport/shm/shm.c
+    transport/shm/shm_segment.c
     ${CMAKE_SOURCE_DIR}/3rdparty/cjson/cJSON.c
 )
 

@@ -29,6 +29,9 @@ add_subdirectory(11_streaming)
 add_subdirectory(12_worker)
 add_subdirectory(13_metadata_cancel)
 add_subdirectory(14_dds_pubsub)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_subdirectory(15_shm)
+endif()
 
 set(NB_EXAMPLE_TARGETS
     example_01_hello_node
@@ -51,6 +54,9 @@ set(NB_EXAMPLE_TARGETS
 )
 if(NB_ENABLE_DDS)
     list(APPEND NB_EXAMPLE_TARGETS example_14_dds_pubsub)
+endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    list(APPEND NB_EXAMPLE_TARGETS example_15_shm_server example_15_shm_client)
 endif()
 install(TARGETS ${NB_EXAMPLE_TARGETS} RUNTIME DESTINATION bin)
 
