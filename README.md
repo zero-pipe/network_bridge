@@ -154,7 +154,7 @@ ZERO_RPC_SANITIZE  address|undefined|thread|address,undefined
 ## 约定
 
 - 服务/方法名用于路由，长度受 `NB_SERVICE_NAME_MAX` / `NB_METHOD_NAME_MAX` 限制。
-- 单条消息默认上限 1 MiB，UDP 每分片默认 1200 字节。
+- 单条消息默认上限 1 MiB，UDP 每分片默认 1440 字节（IPv4 1500 MTU 扣除 60 字节协议头）。
 - 请求/响应视图只在本次回调内有效；需要跨回调保存时请自行复制。
 - 发送侧 payload 在调用返回前复制，调用方可在返回后立即释放。
 - `nb_proxy_call_sync` 会阻塞，禁止在 poller 回调中使用。

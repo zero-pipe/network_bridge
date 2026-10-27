@@ -56,20 +56,27 @@ int nb_node_poller_index(const nb_node_t *node, ntk_poller *poller)
 static uint32_t nb_rand(void)
 {
     static uint32_t st;
-    uint32_t old;
-    uint32_t next;
+    uint32_t expected = nb_atomic_load_u32(&st);
 
-    do {
-        old = nb_atomic_load_u32(&st);
-        if (old == 0) {
-            old = (uint32_t)ntk_monotonic_ms() ^ 0x9e3779b9u;
+    for (;;) {
+        uint32_t cur = expected;
+        uint32_t next;
+
+        if (cur == 0) {
+            cur = (uint32_t)ntk_monotonic_ms() ^ 0x9e3779b9u;
+            if (cur == 0) {
+                cur = 0x9e3779b9u;
+            }
         }
-        next = old;
+        next = cur;
         next ^= next << 13;
         next ^= next >> 17;
         next ^= next << 5;
-    } while (!nb_atomic_cas_u32(&st, &old, next));
-    return next;
+        /* expected 必须保持共享状态本身；cur 只用于生成候选值。 */
+        if (nb_atomic_cas_u32(&st, &expected, next)) {
+            return next;
+        }
+    }
 }
 
 /* ---- 定长对象复用池 ---- */

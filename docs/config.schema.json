@@ -110,7 +110,7 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 65535,
-          "description": "UDP fragment size. Default 1200; normalized to 256..8192."
+          "description": "UDP fragment size. Default 1440 (IPv4 1500 MTU minus 60 bytes of IP/UDP/RTP/fragment headers); normalized to 256..8192."
         },
         "max_msg_bytes": {
           "type": "integer",

@@ -15,7 +15,7 @@
  * max_inflight              65536              0..N                              客户端 pending 上限
  * max_streams               64                 0..NB_STREAM_MAX_RECV_STREAMS     并发接收流上限
  * peer_rate_limit_pps       0(不限)            0..N                              每对端入站限速
- * frag_bytes                1200               256..8192                        UDP 分片
+ * frag_bytes                1440               256..8192                        UDP 分片
  * max_msg_bytes             1 MiB              ..NB_GLOBAL_MAX_MSG_BYTES_LIMIT   单条消息上限
  * backpressure_bytes        4 MiB              0..N                              出站高水位
  * rtcp_interval_ms          1000               0..N                              UDP RTCP 周期

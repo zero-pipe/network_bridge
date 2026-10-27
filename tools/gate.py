@@ -46,6 +46,16 @@ ARTIFACT_ROOT = ROOT / "artifacts" / "gate"
 IS_WINDOWS = os.name == "nt"
 ALL_TRANSPORTS = ("tcp", "udp", "dds", "shm")
 MIB = 1024 * 1024
+BENCH_SERVICE = "OrderService"
+BENCH_METHOD = "get"
+# Largest application payload that still fits one IPv4 UDP packet on a 1500 MTU:
+# 1500 - IP(20) - UDP(8) - RTP(12) - fragment(20) - frame(28)
+# - route TLV - deadline TLV.
+BENCH_PAYLOAD_BYTES = (
+    1500 - 20 - 8 - 12 - 20 - 28
+    - (4 + len(BENCH_SERVICE + "." + BENCH_METHOD))
+    - (4 + 4)
+)
 
 
 class GateError(RuntimeError):
@@ -524,8 +534,8 @@ def loadgen_command(binary: Path, transport: str, port: int, dds_domain: int,
         ])
     command.extend([
         "--mode", "static",
-        "--service", "OrderService",
-        "--method", "get",
+        "--service", BENCH_SERVICE,
+        "--method", BENCH_METHOD,
         "--duration-seconds", str(duration),
         "--payload-bytes", str(payload_bytes),
         "--expect-response-bytes", str(expect_bytes),
@@ -615,12 +625,14 @@ def gate_e2e(ctx: Context) -> Outcome:
         try:
             data, server_code = run_scenario(
                 ctx, transport, case_dir,
-                duration=20, payload_bytes=1360, expect_bytes=1360,
+                duration=20, payload_bytes=BENCH_PAYLOAD_BYTES,
+                expect_bytes=BENCH_PAYLOAD_BYTES,
                 max_requests=ctx.args.e2e_requests,
                 io_threads=2, handler_threads=1,
             )
             ok, messages, metrics = evaluate_result(
-                data, ctx.args.e2e_requests, 1360, "e2e.{}".format(transport))
+                data, ctx.args.e2e_requests, BENCH_PAYLOAD_BYTES,
+                "e2e.{}".format(transport))
             if server_code not in (None, 0):
                 ok = False
                 messages.append("server exit={}".format(server_code))
@@ -646,11 +658,12 @@ def gate_perf(ctx: Context) -> Outcome:
         try:
             data, server_code = run_scenario(
                 ctx, transport, case_dir,
-                duration=ctx.args.perf_duration, payload_bytes=1360, expect_bytes=1360,
+                duration=ctx.args.perf_duration, payload_bytes=BENCH_PAYLOAD_BYTES,
+                expect_bytes=BENCH_PAYLOAD_BYTES,
                 io_threads=6, handler_threads=2,
             )
             ok, messages, metrics = evaluate_result(
-                data, 1, 1360, "perf.{}".format(transport))
+                data, 1, BENCH_PAYLOAD_BYTES, "perf.{}".format(transport))
             if server_code not in (None, 0):
                 ok = False
                 messages.append("server exit={}".format(server_code))
@@ -781,7 +794,7 @@ class ResourceSampler(threading.Thread):
 
 
 def stability_waves(total_seconds: int, transport: str) -> List[Tuple[int, float, int]]:
-    payloads = (64, 1360, 8192, 65536)
+    payloads = (64, BENCH_PAYLOAD_BYTES, 8192, 65536)
     rates = (400.0, 200.0, 80.0, 20.0) if transport != "dds" else (250.0, 150.0, 60.0, 15.0)
     wave_seconds = max(2, total_seconds // len(payloads))
     return [(payloads[i], rates[i], wave_seconds) for i in range(len(payloads))]

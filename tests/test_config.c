@@ -80,6 +80,7 @@ static void test_defaults(void)
     memset(&cfg, 0, sizeof(cfg));
     CHECK(nb_config_load("{}", &cfg) == NB_OK);
     CHECK(cfg.node.transport.transport == NB_TRANSPORT_UDP);
+    CHECK(cfg.node.transport.frag_bytes == 1440);
     CHECK(cfg.node.mode == NB_MODE_MESH);
     CHECK(strcmp(cfg.name, "rpc") == 0);
     CHECK(strcmp(cfg.node.transport.bind_host, "0.0.0.0") == 0);

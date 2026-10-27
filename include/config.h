@@ -22,7 +22,7 @@
  *     "kind": "tcp",
  *     "bind_host": "0.0.0.0",
  *     "data_port": 42420,
- *     "frag_bytes": 1200,
+ *     "frag_bytes": 1440,
  *     "max_msg_bytes": 1048576,
  *     "backpressure_bytes": 4194304,
  *     "rtcp_interval_ms": 1000,
@@ -88,7 +88,7 @@ typedef struct nb_node_transport_config {
     nb_transport_kind_t transport;       /* 默认 binding 的传输，默认 UDP */
     const char *bind_host;               /* 绑定地址，默认 "0.0.0.0" */
     uint16_t data_port;                  /* 数据面端口，0 = 自动分配 */
-    uint16_t frag_bytes;                 /* UDP 每分片字节，0 = 默认 1200 */
+    uint16_t frag_bytes;                 /* UDP 每分片字节，0 = 默认 1440 */
     uint32_t max_msg_bytes;              /* 单条 envelope 上限，0 = 默认 1 MiB */
     uint32_t backpressure_bytes;         /* 出站高水位，0 = 默认 4 MiB */
     uint32_t rtcp_interval_ms;           /* UDP RTCP 间隔，0 = 默认 1000ms */

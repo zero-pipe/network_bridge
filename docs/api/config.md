@@ -89,7 +89,7 @@ URI 非法时返回 `NB_ERR_INVALID`，`_ex` 版本会给出 `path` 和 `reason`
 | `bind_host` | string | `"0.0.0.0"` | 默认绑定地址 |
 | `data_port` | uint | `0` | 默认数据端口，`0` 表示自动分配 |
 | `bindings` | array | 空 | 监听端点列表，元素见下 |
-| `frag_bytes` | uint | `1200` | UDP 每分片字节，范围 `256..8192` |
+| `frag_bytes` | uint | `1440` | UDP 每分片字节，按 IPv4 1500 MTU 扣除 60 字节协议头；范围 `256..8192` |
 | `max_msg_bytes` | uint | `1048576` | 单条消息上限，最大 `64 MiB` |
 | `backpressure_bytes` | uint | `4194304` | 出站高水位，`0` 使用默认值 |
 | `rtcp_interval_ms` | uint | `1000` | UDP RTCP 上报周期 |

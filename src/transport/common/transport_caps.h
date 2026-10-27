@@ -37,7 +37,16 @@
 #endif
 
 /* ---- UDP / 分片与批处理 ---- */
-#define NB_UDP_FRAG_DEFAULT_BYTES 1200 /* UDP 默认每分片 payload 字节 */
+/*
+ * IPv4 1500B MTU 下，单个 UDP 数据报的 envelope 分片预算：
+ * 1500 - 20(IP) - 8(UDP) - 12(RTP) - 20(分片头) = 1440。
+ */
+#define NB_UDP_IPV4_MTU_BYTES 1500
+#define NB_UDP_IPV4_HDR_BYTES 20
+#define NB_UDP_HDR_BYTES 8
+#define NB_UDP_WIRE_OVERHEAD_BYTES \
+    (NB_UDP_IPV4_HDR_BYTES + NB_UDP_HDR_BYTES + RTP_HDR_LEN + FRAG_HDR_LEN)
+#define NB_UDP_FRAG_DEFAULT_BYTES (NB_UDP_IPV4_MTU_BYTES - NB_UDP_WIRE_OVERHEAD_BYTES)
 #define NB_UDP_FRAG_MIN_BYTES 256
 #define NB_UDP_FRAG_MAX_BYTES 8192
 #define NB_UDP_PEERS_PER_IO 64
