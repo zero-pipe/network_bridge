@@ -1,10 +1,13 @@
-# network bridge framework
+# Network Bridge
 
-基于 [network-tool-kit](3rdparty/ntk) 的异步 RPC/消息运行时，内置 UDP 与 TCP 传输。
-上层只面对 `node / service / proxy / payload`，传输和序列化都是可替换实现细节。
+面向多源异构网络环境的通信框架，基于 [network-tool-kit](3rdparty/ntk) 构建。
+框架向上提供统一的 `node / service / proxy / payload` 抽象，向下通过可插拔 transport
+provider 接入 UDP、TCP、共享内存、Cyclone DDS 等异构链路，并在其上提供 RPC、消息
+传递、路由、服务发现和流式传输等通信能力。传输、序列化和寻址方式都是可替换实现细节。
 
 ## 特性
 
+- **多源异构接入**：通过统一 transport provider 接入 UDP、TCP、共享内存和 Cyclone DDS 等链路。
 - **三种调用形态**：`nb_proxy_call_async`、`nb_proxy_call_sync`、`nb_proxy_call_event`。
 - **默认不新增线程**：回调在 NTK poller 线程运行；阻塞 handler 可选 WORKER 或自定义
   EXECUTOR。
