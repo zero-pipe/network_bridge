@@ -100,16 +100,15 @@ static void nb_sync_response_cb(int status, const nb_response_t *resp, void *use
 
 /* ---- 同步调用 ---- */
 
-int nb_proxy_call_sync_with_metadata(nb_proxy_t *proxy,
-                                     const char *service,
-                                     const char *method,
-                                     const nb_payload_t *payload,
-                                     const nb_metadata_t *metadata,
-                                     nb_response_t *response,
-                                     uint64_t timeout_ms,
-                                     uint64_t *out_request_id)
+int nb_proxy_call_sync(nb_proxy_t *proxy,
+                       const char *service,
+                       const char *method,
+                       const nb_payload_t *payload,
+                       const nb_call_options_t *options,
+                       nb_response_t *response)
 {
     nb_sync_ctx_t *c;
+    nb_call_options_t local;
     uint64_t id = 0;
     int rc;
 
@@ -135,17 +134,23 @@ int nb_proxy_call_sync_with_metadata(nb_proxy_t *proxy,
     }
     c->refs = 2;
 
-    rc = nb_proxy_call_async_with_metadata(
-        proxy, service, method, payload, metadata, nb_sync_response_cb, c, timeout_ms, &id);
+    if (options) {
+        local = *options;
+    } else {
+        memset(&local, 0, sizeof(local));
+    }
+    local.out_request_id = &id;
+    rc = nb_proxy_call_async(proxy, service, method, payload, &local, nb_sync_response_cb, c);
     if (rc != NB_OK) {
         nb_sync_ctx_put(c);
         nb_sync_ctx_put(c);
         return rc;
     }
-    if (out_request_id) {
-        *out_request_id = id;
+    if (options && options->out_request_id) {
+        *options->out_request_id = id;
     }
-    if (ntk_sem_timedwait(c->sem, (unsigned)(timeout_ms ? timeout_ms : NB_DEFAULT_TIMEOUT_MS)) !=
+    if (ntk_sem_timedwait(c->sem,
+                          (unsigned)(local.timeout_ms ? local.timeout_ms : NB_DEFAULT_TIMEOUT_MS)) !=
         NTK_OK) {
         /* 取消未完成调用；回调（若仍会到达）会释放它的引用。 */
         (void)nb_proxy_cancel(proxy, id);
@@ -168,18 +173,6 @@ int nb_proxy_call_sync_with_metadata(nb_proxy_t *proxy,
     rc = c->status;
     nb_sync_ctx_put(c);
     return rc;
-}
-
-int nb_proxy_call_sync(nb_proxy_t *proxy,
-                       const char *service,
-                       const char *method,
-                       const nb_payload_t *payload,
-                       nb_response_t *response,
-                       uint64_t timeout_ms,
-                       uint64_t *out_request_id)
-{
-    return nb_proxy_call_sync_with_metadata(
-        proxy, service, method, payload, NULL, response, timeout_ms, out_request_id);
 }
 
 void nb_response_release(nb_response_t *response)

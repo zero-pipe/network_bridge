@@ -214,7 +214,12 @@ static int test_stub_and_sync(void)
     pl.data = "ping";
     pl.len = 4;
     pl.encoding = 0;
-    rc = nb_proxy_call_sync(proxy, "OrderService", "get", &pl, &response, 3000, NULL);
+    {
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+
+        opt.timeout_ms = 3000;
+        rc = nb_proxy_call_sync(proxy, "OrderService", "get", &pl, &opt, &response);
+    }
     if (rc != NB_OK) {
         nb_log_error("call_sync failed: %d", rc);
         failed = 1;
@@ -230,7 +235,10 @@ static int test_stub_and_sync(void)
     {
         int before = counter_read(&counter);
         uint64_t event_id = 0;
-        rc = nb_proxy_call_event(proxy, "OrderService", "get", &pl, &event_id);
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+
+        opt.out_request_id = &event_id;
+        rc = nb_proxy_call_event(proxy, "OrderService", "get", &pl, &opt);
         if (rc != NB_OK || event_id == 0) {
             nb_log_error("call_event failed: %d", rc);
             failed = 1;

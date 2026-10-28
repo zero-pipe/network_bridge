@@ -1,7 +1,13 @@
 #include <log.h>
 
+#include <elog.h>
+
+#include <stdarg.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define NB_LOG_MSG_MAX 768
 
 static uint8_t nb_log_level_from_env(void)
 {
@@ -128,3 +134,18 @@ bool nb_log_enabled(void)
     return nb_log_gate != 0;
 }
 #endif
+
+void nb_log_write(nb_log_level_t level, const char *tag, const char *format, ...)
+{
+    char buf[NB_LOG_MSG_MAX];
+    va_list ap;
+
+    if (!format) {
+        return;
+    }
+    va_start(ap, format);
+    vsnprintf(buf, sizeof(buf), format, ap);
+    va_end(ap);
+    /* 已格式化的整串交给后端，避免二次解析格式串；level 与 elog 等级取值一致。 */
+    elog_output((uint8_t)level, tag && tag[0] ? tag : "rpc", NULL, NULL, 0, "%s", buf);
+}

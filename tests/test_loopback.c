@@ -49,14 +49,17 @@ static int run_call(nb_proxy_t *proxy, client_state_t *st, const void *data, siz
 {
     int attempt;
     nb_payload_t pl;
+    nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+
     pl.data = data;
     pl.len = len;
     pl.encoding = 0;
+    opt.timeout_ms = 1000;
     for (attempt = 0; attempt < 40; attempt++) {
         int rc;
         st->status = -999;
         st->len = 0;
-        rc = nb_proxy_call_async(proxy, "echo", "ping", &pl, on_response, st, 1000, NULL);
+        rc = nb_proxy_call_async(proxy, "echo", "ping", &pl, &opt, on_response, st);
         if (rc != NB_OK) {
             return rc;
         }

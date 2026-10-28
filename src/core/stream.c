@@ -206,9 +206,9 @@ static void nb_stream_cancel_task_fn(void *user)
 int nb_proxy_open_client_stream(nb_proxy_t *proxy,
                       const char *service,
                       const char *method,
+                      const nb_call_options_t *options,
                       response_fn cb,
                       void *user,
-                      uint64_t timeout_ms,
                       nb_stream_t **out_stream)
 {
     nb_stream_t *stream;
@@ -226,7 +226,7 @@ int nb_proxy_open_client_stream(nb_proxy_t *proxy,
     stream->node = proxy->node;
     stream->cb = cb;
     stream->user = user;
-    stream->timeout_ms = timeout_ms;
+    stream->timeout_ms = options ? options->timeout_ms : 0;
     nb_copy_str(stream->service, sizeof(stream->service), service, "");
     nb_copy_str(stream->method, sizeof(stream->method), method, "");
     ntk_mutex_lock(proxy->node->id_lock);
@@ -258,10 +258,10 @@ int nb_proxy_open_client_stream(nb_proxy_t *proxy,
 int nb_proxy_open_bidi_stream(nb_proxy_t *proxy,
                            const char *service,
                            const char *method,
+                           const nb_call_options_t *options,
                            response_chunk_fn on_chunk,
                            stream_done_fn on_done,
                            void *user,
-                           uint64_t timeout_ms,
                            nb_stream_t **out_stream)
 {
     nb_stream_t *stream;
@@ -281,7 +281,7 @@ int nb_proxy_open_bidi_stream(nb_proxy_t *proxy,
     stream->chunk_cb = on_chunk;
     stream->done_cb = on_done;
     stream->user = user;
-    stream->timeout_ms = timeout_ms;
+    stream->timeout_ms = options ? options->timeout_ms : 0;
     nb_copy_str(stream->service, sizeof(stream->service), service, "");
     nb_copy_str(stream->method, sizeof(stream->method), method, "");
     ntk_mutex_lock(proxy->node->id_lock);

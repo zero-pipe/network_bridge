@@ -210,11 +210,15 @@ static int test_rpc_semantics(void)
     pl.encoding = 0;
     nb_metadata_init(&req_md);
     nb_metadata_set_string(&req_md, "k", "v");
+    {
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
 
-    if (nb_proxy_call_async_with_metadata(proxy, "sem", "echo", &pl, &req_md, on_response, &ok, 3000, NULL) !=
-        NB_OK) {
-        failed = 1;
-        goto cleanup;
+        opt.timeout_ms = 3000;
+        opt.metadata = &req_md;
+        if (nb_proxy_call_async(proxy, "sem", "echo", &pl, &opt, on_response, &ok) != NB_OK) {
+            failed = 1;
+            goto cleanup;
+        }
     }
     if (ntk_sem_timedwait(ok.sem, 3000) != NTK_OK || ok.status != NB_OK) {
         nb_log_error("[semantics] echo status=%d", ok.status);
@@ -229,10 +233,14 @@ static int test_rpc_semantics(void)
         failed = 1;
     }
 
-    if (nb_proxy_call_async_with_metadata(proxy, "sem", "deny", &pl, NULL, on_response, &denied, 3000, NULL) !=
-        NB_OK) {
-        failed = 1;
-        goto cleanup;
+    {
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+
+        opt.timeout_ms = 3000;
+        if (nb_proxy_call_async(proxy, "sem", "deny", &pl, &opt, on_response, &denied) != NB_OK) {
+            failed = 1;
+            goto cleanup;
+        }
     }
     if (ntk_sem_timedwait(denied.sem, 3000) != NTK_OK) {
         failed = 1;

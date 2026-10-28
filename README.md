@@ -40,6 +40,7 @@ int main(void)
     nb_node_t *node = NULL;
     nb_proxy_t *proxy = NULL;
     nb_payload_t payload = { "hi", 2, 0 };
+    nb_call_options_t options = NB_CALL_OPTIONS_INIT;
 
     nb_node_config_default(&cfg);
     cfg.name = "demo";
@@ -52,13 +53,13 @@ int main(void)
         return 1;
     }
 
+    options.timeout_ms = 1000;
     (void)nb_proxy_call_async(proxy,
                               "EchoService",
                               "echo",
                               &payload,
+                              &options,
                               on_response,
-                              NULL,
-                              1000,
                               NULL);
     (void)nb_node_run_once(node, 1000);
 

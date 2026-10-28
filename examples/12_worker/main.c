@@ -85,7 +85,12 @@ int main(void)
     request.encoding = 0;
     memset(&response, 0, sizeof(response));
     nb_log_info("calling worker handler, main thread will block for about 300ms");
-    rc = nb_proxy_call_sync(proxy, "WorkerService", "slow", &request, &response, 3000, NULL);
+    {
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+
+        opt.timeout_ms = 3000;
+        rc = nb_proxy_call_sync(proxy, "WorkerService", "slow", &request, &opt, &response);
+    }
     if (rc == NB_OK) {
         nb_log_info("worker response: %.*s",
                     (int)response.payload.len,

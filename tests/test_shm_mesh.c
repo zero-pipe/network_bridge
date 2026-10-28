@@ -135,8 +135,12 @@ int main(void)
     payload.data = "mesh-over-shm";
     payload.len = strlen((const char *)payload.data) + 1;
     payload.encoding = 0;
-    rc = nb_proxy_call_async(
-        proxy, "MeshEcho", "echo", &payload, on_response, &st, 3000, NULL);
+    {
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+
+        opt.timeout_ms = 3000;
+        rc = nb_proxy_call_async(proxy, "MeshEcho", "echo", &payload, &opt, on_response, &st);
+    }
     if (rc != NB_OK || ntk_sem_timedwait(st.sem, 4000) != NTK_OK) {
         nb_log_error("shm mesh call failed: %d", rc);
         failed = 1;

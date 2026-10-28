@@ -143,15 +143,16 @@ int main(void)
     request.encoding = 0;
     memset(&state, 0, sizeof(state));
 
-    rc = nb_proxy_call_async_with_metadata(proxy,
-                                "SemanticsService",
-                                "echo",
-                                &request,
-                                &metadata,
-                                on_echo,
-                                &state,
-                                2000,
-                                NULL);
+    nb_call_options_t echo_opt = NB_CALL_OPTIONS_INIT;
+    echo_opt.timeout_ms = 2000;
+    echo_opt.metadata = &metadata;
+    rc = nb_proxy_call_async(proxy,
+                             "SemanticsService",
+                             "echo",
+                             &request,
+                             &echo_opt,
+                             on_echo,
+                             &state);
     if (rc == NB_OK) {
         rc = wait_done(client, &state);
     }
@@ -165,14 +166,19 @@ int main(void)
     }
 
     memset(&state, 0, sizeof(state));
-    rc = nb_proxy_call_async(proxy,
-                             "SemanticsService",
-                             "slow",
-                             &request,
-                             on_slow,
-                             &state,
-                             3000,
-                             &request_id);
+    {
+        nb_call_options_t slow_opt = NB_CALL_OPTIONS_INIT;
+
+        slow_opt.timeout_ms = 3000;
+        slow_opt.out_request_id = &request_id;
+        rc = nb_proxy_call_async(proxy,
+                                 "SemanticsService",
+                                 "slow",
+                                 &request,
+                                 &slow_opt,
+                                 on_slow,
+                                 &state);
+    }
     if (rc == NB_OK) {
         rc = nb_proxy_cancel(proxy, request_id);
     }

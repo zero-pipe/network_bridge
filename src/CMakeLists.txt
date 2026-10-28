@@ -107,7 +107,8 @@ install(TARGETS rpc
 )
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/ DESTINATION include)
 
-target_link_libraries(rpc PUBLIC ntk elog nb_base)
+# elog 只是 log.c 的实现细节：静态库最终仍需链接，但不向使用者传播头文件路径。
+target_link_libraries(rpc PUBLIC ntk nb_base PRIVATE elog)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # shm_open()/sem_timedwait() live in librt on older glibc.

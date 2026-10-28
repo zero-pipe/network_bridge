@@ -75,6 +75,7 @@ int main(void)
     upload_state_t upload;
     response_state_t response;
     nb_chunk_t chunk;
+    nb_call_options_t stream_opt = NB_CALL_OPTIONS_INIT;
     char endpoint[64];
     int rc;
 
@@ -118,8 +119,9 @@ int main(void)
         rc = nb_proxy_set_target_uri(proxy, endpoint);
     }
     if (rc == NB_OK) {
+        stream_opt.timeout_ms = 3000;
         rc = nb_proxy_open_client_stream(
-            proxy, "UploadService", "chunk", on_response, &response, 3000, &stream);
+            proxy, "UploadService", "chunk", &stream_opt, on_response, &response, &stream);
     }
     if (rc != NB_OK) {
         nb_log_error("stream setup failed: %d (%s)", rc, nb_error_name(rc));

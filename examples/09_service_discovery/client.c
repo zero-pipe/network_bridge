@@ -58,7 +58,12 @@ int main(int argc, char **argv)
     request.len = strlen((const char *)request.data);
     request.encoding = 0;
     memset(&response, 0, sizeof(response));
-    rc = nb_proxy_call_sync(proxy, "DiscoveryService", "echo", &request, &response, 3000, NULL);
+    {
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+
+        opt.timeout_ms = 3000;
+        rc = nb_proxy_call_sync(proxy, "DiscoveryService", "echo", &request, &opt, &response);
+    }
     if (rc == NB_OK) {
         nb_log_info("discovered call response: %.*s",
                      (int)response.payload.len,

@@ -16,7 +16,10 @@
  *
  * Name suffix convention:
  *   _owned          takes an nb_owned_payload_t and takes ownership of it
- *   _with_metadata  carries an extra request/response metadata argument
+ *
+ * Every call form takes an optional nb_call_options_t carrying the timeout,
+ * request metadata, and correlation-id output; a NULL options pointer means
+ * all defaults.
  */
 
 #include <types.h>
@@ -32,6 +35,27 @@ typedef struct nb_proxy_options {
     uint8_t payload_encoding;         /* default encoding tag for requests; 0 = raw bytes */
     uint32_t prefer_stream_threshold; /* 0 = disabled; larger payloads prefer TCP */
 } nb_proxy_options_t;
+
+/* ---- Per-call options ---- */
+/*
+ * Options shared by every proxy call form. NULL options means all defaults.
+ *
+ *   timeout_ms      0 = NB_DEFAULT_TIMEOUT_MS for request forms; ignored by
+ *                   event forms (no response to wait for). Stream opens use it
+ *                   as the stream deadline.
+ *   metadata        request metadata; NULL = none. Read before the call
+ *                   returns and copied, so it may be released afterwards.
+ *   out_request_id  optional; receives the correlation id for nb_proxy_cancel.
+ *                   Not filled by the open_* stream forms, which allocate
+ *                   their own stream ids.
+ */
+typedef struct nb_call_options {
+    uint64_t timeout_ms;
+    const nb_metadata_t *metadata;
+    uint64_t *out_request_id;
+} nb_call_options_t;
+
+#define NB_CALL_OPTIONS_INIT { 0, NULL, NULL }
 
 /*
  * Client interceptor (the minimal gRPC unary client interceptor shape).
@@ -76,10 +100,8 @@ int nb_proxy_set_target_uri(nb_proxy_t *proxy, const char *endpoint);
 /* ---- Unary calls ---- */
 /*
  * Asynchronous request: discover, send, and return immediately; the response
- * or timeout arrives through cb (on the poller thread).
- * timeout_ms: 0 selects the default (NB_DEFAULT_TIMEOUT_MS).
- * out_request_id: when non-NULL, receives the correlation id for
- * nb_proxy_cancel.
+ * or timeout arrives through cb (on the poller thread). options may be NULL;
+ * see nb_call_options_t.
  *
  * Payload ownership: the framework copies the payload before returning
  * (including cross-thread calls); the caller may release payload->data as soon
@@ -89,69 +111,33 @@ int nb_proxy_call_async(nb_proxy_t *proxy,
                         const char *service,
                         const char *method,
                         const nb_payload_t *payload,
+                        const nb_call_options_t *options,
                         response_fn cb,
-                        void *user,
-                        uint64_t timeout_ms,
-                        uint64_t *out_request_id);
-/* Asynchronous request with request metadata. */
-int nb_proxy_call_async_with_metadata(nb_proxy_t *proxy,
-                                      const char *service,
-                                      const char *method,
-                                      const nb_payload_t *payload,
-                                      const nb_metadata_t *metadata,
-                                      response_fn cb,
-                                      void *user,
-                                      uint64_t timeout_ms,
-                                      uint64_t *out_request_id);
-
+                        void *user);
 int nb_proxy_call_async_owned(nb_proxy_t *proxy,
                               const char *service,
                               const char *method,
                               nb_owned_payload_t *payload,
+                              const nb_call_options_t *options,
                               response_fn cb,
-                              void *user,
-                              uint64_t timeout_ms,
-                              uint64_t *out_request_id);
-int nb_proxy_call_async_owned_with_metadata(nb_proxy_t *proxy,
-                                            const char *service,
-                                            const char *method,
-                                            nb_owned_payload_t *payload,
-                                            const nb_metadata_t *metadata,
-                                            response_fn cb,
-                                            void *user,
-                                            uint64_t timeout_ms,
-                                            uint64_t *out_request_id);
+                              void *user);
 
 /*
  * One-way event: send only, never wait for a response (EVENT). Delivery runs
  * on the node poller thread, or inline when the caller is already on a poller
- * or send-lane thread. out_request_id may be NULL; when non-NULL it receives
- * the event's correlation id. As with nb_proxy_call_async, the payload is
- * copied before returning and the caller may release it immediately.
+ * or send-lane thread. As with nb_proxy_call_async, the payload is copied
+ * before returning and the caller may release it immediately.
  */
 int nb_proxy_call_event(nb_proxy_t *proxy,
                         const char *service,
                         const char *method,
                         const nb_payload_t *payload,
-                        uint64_t *out_request_id);
-int nb_proxy_call_event_with_metadata(nb_proxy_t *proxy,
-                                      const char *service,
-                                      const char *method,
-                                      const nb_payload_t *payload,
-                                      const nb_metadata_t *metadata,
-                                      uint64_t *out_request_id);
-
+                        const nb_call_options_t *options);
 int nb_proxy_call_event_owned(nb_proxy_t *proxy,
                               const char *service,
                               const char *method,
                               nb_owned_payload_t *payload,
-                              uint64_t *out_request_id);
-int nb_proxy_call_event_owned_with_metadata(nb_proxy_t *proxy,
-                                            const char *service,
-                                            const char *method,
-                                            nb_owned_payload_t *payload,
-                                            const nb_metadata_t *metadata,
-                                            uint64_t *out_request_id);
+                              const nb_call_options_t *options);
 
 /*
  * Synchronous request: block until a response, error, or timeout. On success
@@ -162,17 +148,8 @@ int nb_proxy_call_sync(nb_proxy_t *proxy,
                        const char *service,
                        const char *method,
                        const nb_payload_t *payload,
-                       nb_response_t *response,
-                       uint64_t timeout_ms,
-                       uint64_t *out_request_id);
-int nb_proxy_call_sync_with_metadata(nb_proxy_t *proxy,
-                                     const char *service,
-                                     const char *method,
-                                     const nb_payload_t *payload,
-                                     const nb_metadata_t *metadata,
-                                     nb_response_t *response,
-                                     uint64_t timeout_ms,
-                                     uint64_t *out_request_id);
+                       const nb_call_options_t *options,
+                       nb_response_t *response);
 
 /* Release the response buffer filled by nb_proxy_call_sync and zero it. */
 void nb_response_release(nb_response_t *response);
@@ -182,34 +159,35 @@ void nb_response_release(nb_response_t *response);
 int nb_proxy_cancel(nb_proxy_t *proxy, uint64_t request_id);
 
 /* ---- Streaming calls ---- */
-/* Server streaming: a unary request with a chunked response, until NB_STREAM_LAST. */
+/* Server streaming: a unary request with a chunked response, until NB_STREAM_LAST.
+ * options supplies the timeout and, optionally, out_request_id. */
 int nb_proxy_call_server_stream(nb_proxy_t *proxy,
                                 const char *service,
                                 const char *method,
                                 const nb_payload_t *payload,
+                                const nb_call_options_t *options,
                                 response_chunk_fn on_chunk,
                                 stream_done_fn on_done,
-                                void *user,
-                                uint64_t timeout_ms,
-                                uint64_t *out_request_id);
+                                void *user);
 
 /* Client streaming: request chunks are sent via nb_proxy_stream_send and a
- * single response arrives through cb. */
+ * single response arrives through cb. options is used for the timeout only. */
 int nb_proxy_open_client_stream(nb_proxy_t *proxy,
                                 const char *service,
                                 const char *method,
+                                const nb_call_options_t *options,
                                 response_fn cb,
                                 void *user,
-                                uint64_t timeout_ms,
                                 nb_stream_t **out_stream);
-/* Bidirectional streaming: request chunks are sent while response chunks arrive. */
+/* Bidirectional streaming: request chunks are sent while response chunks arrive.
+ * options is used for the timeout only. */
 int nb_proxy_open_bidi_stream(nb_proxy_t *proxy,
                               const char *service,
                               const char *method,
+                              const nb_call_options_t *options,
                               response_chunk_fn on_chunk,
                               stream_done_fn on_done,
                               void *user,
-                              uint64_t timeout_ms,
                               nb_stream_t **out_stream);
 
 /*

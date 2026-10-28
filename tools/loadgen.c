@@ -341,17 +341,20 @@ static void ed_issue(void *user)
         }
         {
             nb_payload_t pl;
+            nb_call_options_t call_opt = NB_CALL_OPTIONS_INIT;
+
             pl.data = g_payload;
             pl.len = g_opt.payload_bytes;
             pl.encoding = 0;
+            call_opt.timeout_ms = g_opt.timeout_ms;
+            call_opt.out_request_id = &id;
             rc = nb_proxy_call_async(g_proxy,
                                   g_opt.service,
                                   g_opt.method,
                                   &pl,
+                                  &call_opt,
                                   ed_resp,
-                                  (void *)(uintptr_t)now_ns(),
-                                  g_opt.timeout_ms,
-                                  &id);
+                                  (void *)(uintptr_t)now_ns());
         }
         if (rc != NB_OK) {
             g_failed++;
@@ -609,13 +612,17 @@ int main(int argc, char **argv)
         int warmed = 0;
         while (now_ns() < wdeadline) {
             nb_payload_t pl;
+            nb_call_options_t call_opt = NB_CALL_OPTIONS_INIT;
+
             pl.data = payload;
             pl.len = opt.payload_bytes;
             pl.encoding = 0;
             co.status = -999;
             co.send_ns = now_ns();
+            call_opt.timeout_ms = opt.timeout_ms;
+            call_opt.out_request_id = &id;
             rc = nb_proxy_call_async(
-                proxy, opt.service, opt.method, &pl, on_response, &co, opt.timeout_ms, &id);
+                proxy, opt.service, opt.method, &pl, &call_opt, on_response, &co);
             if (rc != NB_OK) {
                 nb_log_error("nb_proxy_call_async failed: %d", rc);
                 nb_node_destroy(node);
@@ -667,8 +674,13 @@ int main(int argc, char **argv)
                 pl.len = opt.payload_bytes;
                 pl.encoding = 0;
                 send_ns = now_ns();
-                rc = nb_proxy_call_sync(
-                    proxy, opt.service, opt.method, &pl, &response, opt.timeout_ms, NULL);
+                {
+                    nb_call_options_t call_opt = NB_CALL_OPTIONS_INIT;
+
+                    call_opt.timeout_ms = opt.timeout_ms;
+                    rc = nb_proxy_call_sync(
+                        proxy, opt.service, opt.method, &pl, &call_opt, &response);
+                }
                 latency_ns = now_ns() - send_ns;
                 attempted++;
                 peak_inflight = 1;
@@ -723,8 +735,14 @@ int main(int argc, char **argv)
                 co.resp_len = 0;
                 co.verify_ok = 1;
                 co.send_ns = now_ns();
-                rc = nb_proxy_call_async(
-                    proxy, opt.service, opt.method, &pl, on_response, &co, opt.timeout_ms, &id);
+                {
+                    nb_call_options_t call_opt = NB_CALL_OPTIONS_INIT;
+
+                    call_opt.timeout_ms = opt.timeout_ms;
+                    call_opt.out_request_id = &id;
+                    rc = nb_proxy_call_async(
+                        proxy, opt.service, opt.method, &pl, &call_opt, on_response, &co);
+                }
                 attempted++;
                 if (rc != NB_OK) {
                     failed++;

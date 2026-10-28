@@ -128,8 +128,13 @@ int main(void)
     }
     memcpy(nb_buf_data(buf), "move-request", 12);
     nb_owned_payload_init(&request, buf, 0, 12, 0);
-    rc = nb_proxy_call_async_owned(
-        proxy, "MoveService", "work", &request, on_response, NULL, 2000, NULL);
+    {
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+
+        opt.timeout_ms = 2000;
+        rc = nb_proxy_call_async_owned(
+            proxy, "MoveService", "work", &request, &opt, on_response, NULL);
+    }
     if (rc != NB_OK || request.buf != NULL) {
         nb_log_error("call_async_move failed: rc=%d buf=%p", rc, (void *)request.buf);
         failed = 1;

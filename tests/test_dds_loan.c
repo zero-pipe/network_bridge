@@ -162,23 +162,33 @@ int main(void)
     pl.len = sizeof(pattern);
     pl.encoding = 0;
 
+    nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+    opt.timeout_ms = 5000;
+
     /* 预热：DDS 发现可能尚未收敛，重试直到拿到真实响应。 */
-    for (int attempt = 0; attempt < 100 && !worker_resp.status && !inline_resp.status; ++attempt) {
-        client_state_t warm;
-        memset(&warm, 0, sizeof(warm));
-        warm.pattern = pattern;
-        warm.sem = ntk_sem_create(0);
-        if (!warm.sem) {
-            failed = 1;
-            goto done;
+    {
+        nb_call_options_t warm_opt = NB_CALL_OPTIONS_INIT;
+
+        warm_opt.timeout_ms = 500;
+        for (int attempt = 0; attempt < 100 && !worker_resp.status && !inline_resp.status;
+             ++attempt) {
+            client_state_t warm;
+            memset(&warm, 0, sizeof(warm));
+            warm.pattern = pattern;
+            warm.sem = ntk_sem_create(0);
+            if (!warm.sem) {
+                failed = 1;
+                goto done;
+            }
+            (void)nb_proxy_call_async(
+                proxy, "LoanService", "inline", &pl, &warm_opt, on_response, &warm);
+            (void)ntk_sem_timedwait(warm.sem, 600);
+            ntk_sem_destroy(warm.sem);
+            if (warm.status == NB_OK) {
+                break;
+            }
+            ntk_sleep_ms(50);
         }
-        (void)nb_proxy_call_async(proxy, "LoanService", "inline", &pl, on_response, &warm, 500, NULL);
-        (void)ntk_sem_timedwait(warm.sem, 600);
-        ntk_sem_destroy(warm.sem);
-        if (warm.status == NB_OK) {
-            break;
-        }
-        ntk_sleep_ms(50);
     }
 
     inline_resp.sem = ntk_sem_create(0);
@@ -189,7 +199,7 @@ int main(void)
     }
 
     if (nb_proxy_call_async(
-            proxy, "LoanService", "inline", &pl, on_response, &inline_resp, 5000, NULL) != NB_OK) {
+            proxy, "LoanService", "inline", &pl, &opt, on_response, &inline_resp) != NB_OK) {
         nb_log_error("inline call failed");
         failed = 1;
         goto done;
@@ -209,7 +219,7 @@ int main(void)
     }
 
     if (nb_proxy_call_async(
-            proxy, "LoanService", "worker", &pl, on_response, &worker_resp, 5000, NULL) != NB_OK) {
+            proxy, "LoanService", "worker", &pl, &opt, on_response, &worker_resp) != NB_OK) {
         nb_log_error("worker call failed");
         failed = 1;
         goto done;

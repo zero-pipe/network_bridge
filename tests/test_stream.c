@@ -144,6 +144,7 @@ static int run_case(nb_transport_kind_t transport, const char *label, uint16_t s
     upload_state_t upload;
     client_state_t cst;
     const char *expect = "hello world!";
+    nb_call_options_t stream_opt = NB_CALL_OPTIONS_INIT;
     int failed = 0;
 
     memset(&scfg, 0, sizeof(scfg));
@@ -191,12 +192,13 @@ static int run_case(nb_transport_kind_t transport, const char *label, uint16_t s
     }
 
     (void)nb_node_wait_for_service(client, "upload", 5000);
+    stream_opt.timeout_ms = 3000;
 
     memset(&cst, 0, sizeof(cst));
     cst.sem = ntk_sem_create(0);
     if (!cst.sem) {
         failed = 1;
-    } else if (nb_proxy_open_client_stream(proxy, "upload", "chunk", on_response, &cst, 3000, &stream) !=
+    } else if (nb_proxy_open_client_stream(proxy, "upload", "chunk", &stream_opt, on_response, &cst, &stream) !=
                NB_OK) {
         nb_log_error("[%s] open failed", label);
         failed = 1;
@@ -254,7 +256,6 @@ static int run_case(nb_transport_kind_t transport, const char *label, uint16_t s
     /* 下载方向：服务端流式响应，客户端按 chunk 接收。 */
     {
         download_client_t dc;
-        uint64_t req_id = 0;
         memset(&dc, 0, sizeof(dc));
         dc.sem = ntk_sem_create(0);
         if (!dc.sem) {
@@ -263,11 +264,10 @@ static int run_case(nb_transport_kind_t transport, const char *label, uint16_t s
                                      "upload",
                                      "download",
                                      NULL,
+                                     &stream_opt,
                                      on_download_chunk,
                                      on_download_done,
-                                     &dc,
-                                     3000,
-                                     &req_id) != NB_OK) {
+                                     &dc) != NB_OK) {
             nb_log_error("[%s] call_stream failed", label);
             failed = 1;
         } else if (ntk_sem_timedwait(dc.sem, 3000) != NTK_OK) {
@@ -296,7 +296,7 @@ static int run_case(nb_transport_kind_t transport, const char *label, uint16_t s
         cc.sem = ntk_sem_create(0);
         if (!cc.sem) {
             failed = 1;
-        } else if (nb_proxy_open_client_stream(proxy, "upload", "chunk", on_response, &cc, 3000, &s2) != NB_OK) {
+        } else if (nb_proxy_open_client_stream(proxy, "upload", "chunk", &stream_opt, on_response, &cc, &s2) != NB_OK) {
             nb_log_error("[%s] cancel open failed", label);
             failed = 1;
         } else {
@@ -330,7 +330,7 @@ static int run_case(nb_transport_kind_t transport, const char *label, uint16_t s
         bc.sem = ntk_sem_create(0);
         if (!bc.sem ||
             nb_proxy_open_bidi_stream(
-                proxy, "upload", "chat", on_bidi_chunk, on_download_done, &bc, 3000, &bidi) != NB_OK) {
+                proxy, "upload", "chat", &stream_opt, on_bidi_chunk, on_download_done, &bc, &bidi) != NB_OK) {
             nb_log_error("[%s] bidi open failed", label);
             failed = 1;
         } else {

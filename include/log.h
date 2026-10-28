@@ -2,14 +2,11 @@
 #define NB_LOG_H
 
 /*
- * Thin logging macros over elog. nb_log_* short-circuit when logging is
- * disabled; nb_node_create installs the configured switch and level.
- *
- * This header includes <elog.h>, so consumers need the easylogger headers on
- * their include path.
+ * Logging facade. nb_log_* short-circuit when logging is disabled; the backend
+ * stays an implementation detail, so consumers only include this header and do
+ * not depend on a third-party logger. nb_node_create installs the configured
+ * switch and level.
  */
-
-#include <elog.h>
 
 #include <types.h>
 
@@ -20,7 +17,7 @@
 extern "C" {
 #endif
 
-/* Initialize elog on first use; thread-safe and idempotent. */
+/* Initialize the backend on first use; thread-safe and idempotent. */
 void nb_log_init(void);
 
 /*
@@ -30,8 +27,18 @@ void nb_log_init(void);
  */
 void nb_log_configure(bool enabled, nb_log_level_t level);
 
-/* Whether logging is currently enabled; the first call initializes elog. */
+/* Whether logging is currently enabled; the first call initializes the backend. */
 bool nb_log_enabled(void);
+
+/*
+ * Emit one log record. Use the nb_log_* macros instead of calling this
+ * directly. The formatted message is truncated at an internal fixed-size
+ * buffer (768 bytes including the terminator).
+ */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((format(printf, 3, 4)))
+#endif
+void nb_log_write(nb_log_level_t level, const char *tag, const char *format, ...);
 
 #ifdef __cplusplus
 }
@@ -41,32 +48,16 @@ bool nb_log_enabled(void);
 #define NB_LOG_TAG "rpc"
 #endif
 
-#define nb_log_debug(...)                            \
-    do {                                              \
-        if (nb_log_enabled()) {                      \
-            elog_debug(NB_LOG_TAG, __VA_ARGS__);     \
-        }                                             \
+#define NB_LOG_AT_(level_, ...)                           \
+    do {                                                  \
+        if (nb_log_enabled()) {                           \
+            nb_log_write((level_), NB_LOG_TAG, __VA_ARGS__); \
+        }                                                 \
     } while (0)
 
-#define nb_log_info(...)                            \
-    do {                                             \
-        if (nb_log_enabled()) {                     \
-            elog_info(NB_LOG_TAG, __VA_ARGS__);     \
-        }                                            \
-    } while (0)
-
-#define nb_log_warn(...)                            \
-    do {                                             \
-        if (nb_log_enabled()) {                     \
-            elog_warn(NB_LOG_TAG, __VA_ARGS__);     \
-        }                                            \
-    } while (0)
-
-#define nb_log_error(...)                           \
-    do {                                             \
-        if (nb_log_enabled()) {                     \
-            elog_error(NB_LOG_TAG, __VA_ARGS__);    \
-        }                                            \
-    } while (0)
+#define nb_log_debug(...) NB_LOG_AT_(NB_LOG_LEVEL_DEBUG, __VA_ARGS__)
+#define nb_log_info(...)  NB_LOG_AT_(NB_LOG_LEVEL_INFO, __VA_ARGS__)
+#define nb_log_warn(...)  NB_LOG_AT_(NB_LOG_LEVEL_WARN, __VA_ARGS__)
+#define nb_log_error(...) NB_LOG_AT_(NB_LOG_LEVEL_ERROR, __VA_ARGS__)
 
 #endif /* NB_LOG_H */

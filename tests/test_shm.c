@@ -72,15 +72,17 @@ static int run_call(nb_proxy_t *proxy, shm_client_state_t *st,
 
     for (attempt = 0; attempt < 50; attempt++) {
         nb_payload_t payload;
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
         int rc;
 
         payload.data = data;
         payload.len = len;
         payload.encoding = 0;
+        opt.timeout_ms = 2000;
         st->status = -999;
         st->len = 0;
         rc = nb_proxy_call_async(
-            proxy, "echo", "ping", &payload, on_response, st, 2000, NULL);
+            proxy, "echo", "ping", &payload, &opt, on_response, st);
         if (rc != NB_OK) {
             return rc;
         }

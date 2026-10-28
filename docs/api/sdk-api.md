@@ -75,23 +75,27 @@ memcpy(nb_buf_data(buf), "hello", 5);
 nb_owned_payload_t request;
 nb_owned_payload_init(&request, buf, 0, 5, 0);
 
-rc = nb_proxy_call_async_owned(proxy, "Svc", "method", &request, on_response, NULL, 1000, NULL);
+nb_call_options_t options = NB_CALL_OPTIONS_INIT;
+options.timeout_ms = 1000;
+rc = nb_proxy_call_async_owned(proxy, "Svc", "method", &request, &options, on_response, NULL);
 /* 返回后 request.buf 已置 NULL；即使失败，所有权也已由框架接管或释放。 */
 ```
 
-- `nb_proxy_call_async_owned` / `nb_proxy_call_event_owned`：客户端请求。
+- `nb_proxy_call_async_owned` / `nb_proxy_call_event_owned`：客户端请求，metadata 经 options 传入。
 - `nb_stub_call_owned` / `nb_stub_call_event_owned_with_metadata`：底层 stub。
 - `nb_reply_owned`：服务端回复。
 
 Owned API 在入口接管 `payload->buf`；旧 `nb_payload_t` API 的借用+复制语义保持不变。
-不带 metadata 的 `_owned` 和带 metadata 的 `_owned_with_metadata` 都存在。缓冲区由 `nb_base` 的
-`nb_buf_*` 管理，唯一所有权路径默认不做原子引用计数。
+proxy 层 metadata 统一走 `nb_call_options_t`；stub 层保留独立的 `_with_metadata` 变体。
+缓冲区由 `nb_base` 的 `nb_buf_*` 管理，唯一所有权路径默认不做原子引用计数。
 
 ### 同步调用
 
 ```c
 nb_response_t response = {0};
-int rc = nb_proxy_call_sync(proxy, "OrderService", "get", &request, &response, 3000, NULL);
+nb_call_options_t options = NB_CALL_OPTIONS_INIT;
+options.timeout_ms = 3000;
+int rc = nb_proxy_call_sync(proxy, "OrderService", "get", &request, &options, &response);
 /* 使用 response.payload */
 nb_response_release(&response);
 ```
@@ -188,8 +192,23 @@ nb_proxy_t *proxy = NULL;
 nb_proxy_create(node, NULL, &proxy);
 
 nb_payload_t request = { "hello", 5, 0 };
-nb_proxy_call_async(proxy, "EchoService", "echo", &request, on_response, user, 1000, NULL);
+nb_call_options_t options = NB_CALL_OPTIONS_INIT;
+options.timeout_ms = 1000;
+
+nb_proxy_call_async(proxy, "EchoService", "echo", &request, &options, on_response, user);
 ```
+
+所有调用形态共用一个 `nb_call_options_t`：
+
+```c
+typedef struct nb_call_options {
+    uint64_t timeout_ms;              /* 0 = 默认值；event 忽略；流打开作为流超时 */
+    const nb_metadata_t *metadata;    /* 请求 metadata；NULL = 无，调用返回前复制 */
+    uint64_t *out_request_id;         /* 可选，回填相关 id 供 nb_proxy_cancel 使用 */
+} nb_call_options_t;
+```
+
+`options` 传 `NULL` 等价于全默认值；可用 `NB_CALL_OPTIONS_INIT` 初始化后逐字段覆盖。
 
 三种形态：
 
@@ -197,19 +216,22 @@ nb_proxy_call_async(proxy, "EchoService", "echo", &request, on_response, user, 1
 - `nb_proxy_call_sync`：阻塞等待并写出 `nb_response_t`。
 - `nb_proxy_call_event`：单向事件，不等待响应。
 
-带 metadata 的变体为 `_with_metadata` 版本。metadata 使用固定容量容器，二进制 value 可安全传输。
+metadata 通过 `nb_call_options_t.metadata` 传入，使用固定容量容器，二进制 value 可安全传输。
 
 流式调用：
 
 - `nb_proxy_call_server_stream`：普通请求，响应分片。
 - `nb_proxy_open_client_stream` / `nb_proxy_open_bidi_stream`：打开客户端请求流。
 - `nb_proxy_stream_send` / `nb_proxy_stream_cancel` / `nb_proxy_stream_destroy`。
+- 流打开只用 options 的 `timeout_ms`；chunk 自带的 metadata 走 `nb_chunk_t.metadata`。
 
 取消：
 
 ```c
 uint64_t request_id = 0;
-nb_proxy_call_async(..., &request_id);
+nb_call_options_t options = NB_CALL_OPTIONS_INIT;
+options.out_request_id = &request_id;
+nb_proxy_call_async(proxy, "Svc", "method", &request, &options, on_response, user);
 nb_proxy_cancel(proxy, request_id);
 ```
 

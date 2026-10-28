@@ -121,7 +121,7 @@ typedef enum nb_node_mode {
     NB_MODE_STATIC = 1
 } nb_node_mode_t;
 
-/* Log severity; values match the elog levels used by log.h. */
+/* Log severity; monotonically increasing (0=assert .. 5=verbose). */
 typedef enum nb_log_level {
     NB_LOG_LEVEL_ASSERT = 0,
     NB_LOG_LEVEL_ERROR = 1,
@@ -227,9 +227,9 @@ typedef void (*stream_done_fn)(int status, void *user);
  * matching library and rebuild consumers when upgrading.
  */
 #define NB_VERSION_MAJOR 0
-#define NB_VERSION_MINOR 1
+#define NB_VERSION_MINOR 2
 #define NB_VERSION_PATCH 0
-#define NB_VERSION_STRING "0.1.0"
+#define NB_VERSION_STRING "0.2.0"
 
 /* ---- Defaults and limits ---- */
 #ifndef NB_DISCOVERY_PORT

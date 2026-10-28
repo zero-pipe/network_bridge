@@ -202,30 +202,29 @@ int nb_proxy_set_interceptor(nb_proxy_t *proxy, const nb_proxy_interceptor_t *in
     return NB_OK;
 }
 
-int nb_proxy_call_async_with_metadata(nb_proxy_t *proxy,
+int nb_proxy_call_async(nb_proxy_t *proxy,
                         const char *service,
                         const char *method,
                         const nb_payload_t *payload,
-                        const nb_metadata_t *metadata,
+                        const nb_call_options_t *options,
                         response_fn cb,
-                        void *user,
-                        uint64_t timeout_ms,
-                        uint64_t *out_request_id)
+                        void *user)
 {
-    const nb_metadata_t *use_meta = metadata;
+    const nb_metadata_t *use_meta = options ? options->metadata : NULL;
     nb_metadata_t meta;
     nb_proxy_cb_ctx_t *ctx = NULL;
     response_fn use_cb = cb;
     void *use_user = user;
-    uint64_t timeout = timeout_ms;
+    uint64_t timeout = options ? options->timeout_ms : 0;
+    uint64_t *out_request_id = options ? options->out_request_id : NULL;
     int rc;
 
     if (!proxy || !proxy->node || !proxy->stub || !service || !method || !cb) {
         return NB_ERR_INVALID;
     }
     if (proxy->has_interceptor && proxy->interceptor.before) {
-        if (metadata) {
-            meta = *metadata;
+        if (use_meta) {
+            meta = *use_meta;
         } else {
             nb_metadata_init(&meta);
         }
@@ -264,35 +263,21 @@ int nb_proxy_call_async_with_metadata(nb_proxy_t *proxy,
     return rc;
 }
 
-int nb_proxy_call_async(nb_proxy_t *proxy,
-                     const char *service,
-                     const char *method,
-                     const nb_payload_t *payload,
-                     response_fn cb,
-                     void *user,
-                     uint64_t timeout_ms,
-                     uint64_t *out_request_id)
+int nb_proxy_call_async_owned(nb_proxy_t *proxy,
+                              const char *service,
+                              const char *method,
+                              nb_owned_payload_t *payload,
+                              const nb_call_options_t *options,
+                              response_fn cb,
+                              void *user)
 {
-    return nb_proxy_call_async_with_metadata(
-        proxy, service, method, payload, NULL, cb, user, timeout_ms, out_request_id);
-}
-
-int nb_proxy_call_async_owned_with_metadata(nb_proxy_t *proxy,
-                            const char *service,
-                            const char *method,
-                            nb_owned_payload_t *payload,
-                            const nb_metadata_t *metadata,
-                            response_fn cb,
-                            void *user,
-                            uint64_t timeout_ms,
-                            uint64_t *out_request_id)
-{
-    const nb_metadata_t *use_meta = metadata;
+    const nb_metadata_t *use_meta = options ? options->metadata : NULL;
     nb_metadata_t meta;
     nb_proxy_cb_ctx_t *ctx = NULL;
     response_fn use_cb = cb;
     void *use_user = user;
-    uint64_t timeout = timeout_ms;
+    uint64_t timeout = options ? options->timeout_ms : 0;
+    uint64_t *out_request_id = options ? options->out_request_id : NULL;
     int rc;
 
     if (!proxy || !proxy->node || !proxy->stub || !service || !method || !cb) {
@@ -300,8 +285,8 @@ int nb_proxy_call_async_owned_with_metadata(nb_proxy_t *proxy,
         return NB_ERR_INVALID;
     }
     if (proxy->has_interceptor && proxy->interceptor.before) {
-        if (metadata) {
-            meta = *metadata;
+        if (use_meta) {
+            meta = *use_meta;
         } else {
             nb_metadata_init(&meta);
         }
@@ -342,27 +327,14 @@ int nb_proxy_call_async_owned_with_metadata(nb_proxy_t *proxy,
     return rc;
 }
 
-int nb_proxy_call_async_owned(nb_proxy_t *proxy,
-                         const char *service,
-                         const char *method,
-                         nb_owned_payload_t *payload,
-                         response_fn cb,
-                         void *user,
-                         uint64_t timeout_ms,
-                         uint64_t *out_request_id)
-{
-    return nb_proxy_call_async_owned_with_metadata(
-        proxy, service, method, payload, NULL, cb, user, timeout_ms, out_request_id);
-}
-
-int nb_proxy_call_event_with_metadata(nb_proxy_t *proxy,
+int nb_proxy_call_event(nb_proxy_t *proxy,
                         const char *service,
                         const char *method,
                         const nb_payload_t *payload,
-                        const nb_metadata_t *metadata,
-                        uint64_t *out_request_id)
+                        const nb_call_options_t *options)
 {
-    const nb_metadata_t *use_meta = metadata;
+    const nb_metadata_t *use_meta = options ? options->metadata : NULL;
+    uint64_t *out_request_id = options ? options->out_request_id : NULL;
     nb_metadata_t meta;
     int rc;
     if (!proxy || !proxy->node || !proxy->stub || !service || !method) {
@@ -370,8 +342,8 @@ int nb_proxy_call_event_with_metadata(nb_proxy_t *proxy,
     }
     if (proxy->has_interceptor && proxy->interceptor.before) {
         uint64_t timeout = 0;
-        if (metadata) {
-            meta = *metadata;
+        if (use_meta) {
+            meta = *use_meta;
         } else {
             nb_metadata_init(&meta);
         }
@@ -385,23 +357,14 @@ int nb_proxy_call_event_with_metadata(nb_proxy_t *proxy,
         proxy->stub, service, method, payload, use_meta, out_request_id);
 }
 
-int nb_proxy_call_event(nb_proxy_t *proxy,
-                     const char *service,
-                     const char *method,
-                     const nb_payload_t *payload,
-                     uint64_t *out_request_id)
+int nb_proxy_call_event_owned(nb_proxy_t *proxy,
+                              const char *service,
+                              const char *method,
+                              nb_owned_payload_t *payload,
+                              const nb_call_options_t *options)
 {
-    return nb_proxy_call_event_with_metadata(proxy, service, method, payload, NULL, out_request_id);
-}
-
-int nb_proxy_call_event_owned_with_metadata(nb_proxy_t *proxy,
-                            const char *service,
-                            const char *method,
-                            nb_owned_payload_t *payload,
-                            const nb_metadata_t *metadata,
-                            uint64_t *out_request_id)
-{
-    const nb_metadata_t *use_meta = metadata;
+    const nb_metadata_t *use_meta = options ? options->metadata : NULL;
+    uint64_t *out_request_id = options ? options->out_request_id : NULL;
     nb_metadata_t meta;
     int rc;
 
@@ -411,8 +374,8 @@ int nb_proxy_call_event_owned_with_metadata(nb_proxy_t *proxy,
     }
     if (proxy->has_interceptor && proxy->interceptor.before) {
         uint64_t timeout = 0;
-        if (metadata) {
-            meta = *metadata;
+        if (use_meta) {
+            meta = *use_meta;
         } else {
             nb_metadata_init(&meta);
         }
@@ -425,15 +388,6 @@ int nb_proxy_call_event_owned_with_metadata(nb_proxy_t *proxy,
     }
     return nb_stub_call_event_owned_with_metadata(
         proxy->stub, service, method, payload, use_meta, out_request_id);
-}
-
-int nb_proxy_call_event_owned(nb_proxy_t *proxy,
-                         const char *service,
-                         const char *method,
-                         nb_owned_payload_t *payload,
-                         uint64_t *out_request_id)
-{
-    return nb_proxy_call_event_owned_with_metadata(proxy, service, method, payload, NULL, out_request_id);
 }
 
 /* ---- 调用控制 ---- */
@@ -466,11 +420,10 @@ int nb_proxy_call_server_stream(nb_proxy_t *proxy,
                                 const char *service,
                                 const char *method,
                                 const nb_payload_t *payload,
+                                const nb_call_options_t *options,
                                 response_chunk_fn on_chunk,
                                 stream_done_fn on_done,
-                                void *user,
-                                uint64_t timeout_ms,
-                                uint64_t *out_request_id)
+                                void *user)
 {
     if (!proxy || !proxy->node || !proxy->stub || !service || !method || !on_chunk || !on_done) {
         return NB_ERR_INVALID;
@@ -484,8 +437,8 @@ int nb_proxy_call_server_stream(nb_proxy_t *proxy,
                             on_done,
                             1,
                             user,
-                            timeout_ms,
-                            out_request_id,
+                            options ? options->timeout_ms : 0,
+                            options ? options->out_request_id : NULL,
                             NULL);
 }
 

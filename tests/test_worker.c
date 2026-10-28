@@ -308,21 +308,29 @@ static int run_case(nb_transport_kind_t kind, const char *label)
     pl.data = "slow-payload";
     pl.len = (size_t)strlen("slow-payload") + 1;
     pl.encoding = 0;
-    if (nb_proxy_call_async(proxy, "pool", "slow", &pl, on_response, &slow, 5000, NULL) != NB_OK) {
-        nb_log_error("[%s] slow call failed", label);
-        failed = 1;
-        goto cleanup;
+    {
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+
+        opt.timeout_ms = 5000;
+        if (nb_proxy_call_async(proxy, "pool", "slow", &pl, &opt, on_response, &slow) != NB_OK) {
+            nb_log_error("[%s] slow call failed", label);
+            failed = 1;
+            goto cleanup;
+        }
     }
     /* 模拟动态内存：调用返回后立刻释放，框架应已拷贝。 */
     {
         char *dyn = (char *)malloc(pl.len);
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+
         if (!dyn) {
             failed = 1;
             goto cleanup;
         }
         memcpy(dyn, "fast-payload", pl.len);
         pl.data = dyn;
-        if (nb_proxy_call_async(proxy, "pool", "fast", &pl, on_response, &fast, 5000, NULL) != NB_OK) {
+        opt.timeout_ms = 5000;
+        if (nb_proxy_call_async(proxy, "pool", "fast", &pl, &opt, on_response, &fast) != NB_OK) {
             free(dyn);
             nb_log_error("[%s] fast call failed", label);
             failed = 1;
@@ -440,10 +448,15 @@ static int run_fallback_case(nb_transport_kind_t kind, const char *label)
     pl.data = "fallback-payload";
     pl.len = (size_t)strlen("fallback-payload") + 1;
     pl.encoding = 0;
-    if (nb_proxy_call_async(proxy, "fallback", "slow", &pl, on_response, &state, 5000, NULL) != NB_OK) {
-        nb_log_error("[%s] fallback call failed", label);
-        failed = 1;
-        goto cleanup;
+    {
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+
+        opt.timeout_ms = 5000;
+        if (nb_proxy_call_async(proxy, "fallback", "slow", &pl, &opt, on_response, &state) != NB_OK) {
+            nb_log_error("[%s] fallback call failed", label);
+            failed = 1;
+            goto cleanup;
+        }
     }
     if (ntk_sem_timedwait(state.sem, 3000) != NTK_OK) {
         nb_log_error("[%s] fallback call timeout", label);
@@ -656,10 +669,16 @@ static int run_overload_case(nb_transport_kind_t kind, const char *label)
     pl.data = "overload-payload";
     pl.len = (size_t)strlen("overload-payload") + 1;
     pl.encoding = 0;
-    if (nb_proxy_call_async(proxy, "overload", "block", &pl, on_response, &first, 5000, NULL) != NB_OK) {
-        nb_log_error("[%s] first call failed", label);
-        failed = 1;
-        goto cleanup;
+    {
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+
+        opt.timeout_ms = 5000;
+        if (nb_proxy_call_async(proxy, "overload", "block", &pl, &opt, on_response, &first) !=
+            NB_OK) {
+            nb_log_error("[%s] first call failed", label);
+            failed = 1;
+            goto cleanup;
+        }
     }
     if (ntk_sem_timedwait(block.started, 3000) != NTK_OK) {
         nb_log_error("[%s] worker did not start", label);
@@ -667,10 +686,16 @@ static int run_overload_case(nb_transport_kind_t kind, const char *label)
         goto cleanup;
     }
 
-    if (nb_proxy_call_async(proxy, "overload", "block", &pl, on_response, &second, 5000, NULL) != NB_OK) {
-        nb_log_error("[%s] second call failed", label);
-        failed = 1;
-        goto cleanup;
+    {
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+
+        opt.timeout_ms = 5000;
+        if (nb_proxy_call_async(proxy, "overload", "block", &pl, &opt, on_response, &second) !=
+            NB_OK) {
+            nb_log_error("[%s] second call failed", label);
+            failed = 1;
+            goto cleanup;
+        }
     }
     if (ntk_sem_timedwait(second.sem, 2000) != NTK_OK) {
         nb_log_error("[%s] overloaded call was not rejected", label);
@@ -826,10 +851,16 @@ static int run_executor_case(nb_transport_kind_t kind, const char *label)
     pl.data = "executor-payload";
     pl.len = (size_t)strlen("executor-payload") + 1;
     pl.encoding = 0;
-    if (nb_proxy_call_async(proxy, "exec", "custom", &pl, on_response, &custom, 5000, NULL) != NB_OK) {
-        nb_log_error("[%s] custom call failed", label);
-        failed = 1;
-        goto cleanup;
+    {
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+
+        opt.timeout_ms = 5000;
+        if (nb_proxy_call_async(proxy, "exec", "custom", &pl, &opt, on_response, &custom) !=
+            NB_OK) {
+            nb_log_error("[%s] custom call failed", label);
+            failed = 1;
+            goto cleanup;
+        }
     }
     if (ntk_sem_timedwait(custom.sem, 3000) != NTK_OK) {
         nb_log_error("[%s] custom call timeout", label);
@@ -847,10 +878,16 @@ static int run_executor_case(nb_transport_kind_t kind, const char *label)
         failed = 1;
     }
 
-    if (nb_proxy_call_async(proxy, "exec", "reject", &pl, on_response, &rejected, 5000, NULL) != NB_OK) {
-        nb_log_error("[%s] reject call failed", label);
-        failed = 1;
-        goto cleanup;
+    {
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+
+        opt.timeout_ms = 5000;
+        if (nb_proxy_call_async(proxy, "exec", "reject", &pl, &opt, on_response, &rejected) !=
+            NB_OK) {
+            nb_log_error("[%s] reject call failed", label);
+            failed = 1;
+            goto cleanup;
+        }
     }
     if (ntk_sem_timedwait(rejected.sem, 3000) != NTK_OK) {
         nb_log_error("[%s] reject call timeout", label);
@@ -1002,11 +1039,16 @@ static int run_deadline_case(const char *label)
     pl.encoding = 0;
 
     /* 1) deadline 传播：worker 里读到的两个视图应一致且非 0。 */
-    if (nb_proxy_call_async(proxy, "deadline", "probe", &pl, on_response, &probe_resp, 3000, NULL) !=
-        NB_OK) {
-        nb_log_error("[%s] probe call failed", label);
-        failed = 1;
-        goto cleanup;
+    {
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+
+        opt.timeout_ms = 3000;
+        if (nb_proxy_call_async(proxy, "deadline", "probe", &pl, &opt, on_response, &probe_resp) !=
+            NB_OK) {
+            nb_log_error("[%s] probe call failed", label);
+            failed = 1;
+            goto cleanup;
+        }
     }
     if (ntk_sem_timedwait(probe_resp.sem, 3000) != NTK_OK || probe_resp.status != NB_OK) {
         nb_log_error("[%s] probe timeout/status=%d", label, probe_resp.status);
@@ -1020,22 +1062,32 @@ static int run_deadline_case(const char *label)
     }
 
     /* 2) 占住唯一 worker，再发一个短 deadline 的请求排在其后。 */
-    if (nb_proxy_call_async(proxy, "deadline", "block", &pl, on_response, &block_resp, 5000, NULL) !=
-        NB_OK) {
-        nb_log_error("[%s] block call failed", label);
-        failed = 1;
-        goto cleanup;
+    {
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+
+        opt.timeout_ms = 5000;
+        if (nb_proxy_call_async(proxy, "deadline", "block", &pl, &opt, on_response, &block_resp) !=
+            NB_OK) {
+            nb_log_error("[%s] block call failed", label);
+            failed = 1;
+            goto cleanup;
+        }
     }
     if (ntk_sem_timedwait(block.started, 3000) != NTK_OK) {
         nb_log_error("[%s] block handler did not start", label);
         failed = 1;
         goto cleanup;
     }
-    if (nb_proxy_call_async(proxy, "deadline", "queued", &pl, on_response, &queued_resp, 60, NULL) !=
-        NB_OK) {
-        nb_log_error("[%s] queued call failed", label);
-        failed = 1;
-        goto cleanup;
+    {
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+
+        opt.timeout_ms = 60;
+        if (nb_proxy_call_async(proxy, "deadline", "queued", &pl, &opt, on_response, &queued_resp) !=
+            NB_OK) {
+            nb_log_error("[%s] queued call failed", label);
+            failed = 1;
+            goto cleanup;
+        }
     }
     if (ntk_sem_timedwait(queued_resp.sem, 2000) != NTK_OK) {
         nb_log_error("[%s] queued deadline did not fire", label);
@@ -1181,11 +1233,16 @@ static int run_cancel_case(const char *label)
     pl.encoding = 0;
 
     /* 占住唯一 worker。 */
-    if (nb_proxy_call_async(proxy, "cancel", "block", &pl, on_response, &block_resp, 5000, NULL) !=
-        NB_OK) {
-        nb_log_error("[%s] block call failed", label);
-        failed = 1;
-        goto cleanup;
+    {
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+
+        opt.timeout_ms = 5000;
+        if (nb_proxy_call_async(proxy, "cancel", "block", &pl, &opt, on_response, &block_resp) !=
+            NB_OK) {
+            nb_log_error("[%s] block call failed", label);
+            failed = 1;
+            goto cleanup;
+        }
     }
     if (ntk_sem_timedwait(block.started, 3000) != NTK_OK) {
         nb_log_error("[%s] block handler did not start", label);
@@ -1194,18 +1251,30 @@ static int run_cancel_case(const char *label)
     }
 
     /* 第二个请求排在 worker 队列里。 */
-    if (nb_proxy_call_async(
-            proxy, "cancel", "queued", &pl, on_response, &queued_resp, 5000, &queued_id) != NB_OK) {
-        nb_log_error("[%s] queued call failed", label);
-        failed = 1;
-        goto cleanup;
+    {
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+
+        opt.timeout_ms = 5000;
+        opt.out_request_id = &queued_id;
+        if (nb_proxy_call_async(proxy, "cancel", "queued", &pl, &opt, on_response, &queued_resp) !=
+            NB_OK) {
+            nb_log_error("[%s] queued call failed", label);
+            failed = 1;
+            goto cleanup;
+        }
     }
     /* TCP 有序：ping 响应返回说明 queued 已被服务端接收并派发。 */
-    if (nb_proxy_call_async(proxy, "cancel", "ping", &pl, on_response, &ping_resp, 3000, NULL) != NB_OK ||
-        ntk_sem_timedwait(ping_resp.sem, 3000) != NTK_OK || ping_resp.status != NB_OK) {
-        nb_log_error("[%s] ping before cancel failed status=%d", label, ping_resp.status);
-        failed = 1;
-        goto cleanup;
+    {
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+
+        opt.timeout_ms = 3000;
+        if (nb_proxy_call_async(proxy, "cancel", "ping", &pl, &opt, on_response, &ping_resp) !=
+                NB_OK ||
+            ntk_sem_timedwait(ping_resp.sem, 3000) != NTK_OK || ping_resp.status != NB_OK) {
+            nb_log_error("[%s] ping before cancel failed status=%d", label, ping_resp.status);
+            failed = 1;
+            goto cleanup;
+        }
     }
 
     if (nb_proxy_cancel(proxy, queued_id) != NB_OK) {
@@ -1224,10 +1293,13 @@ static int run_cancel_case(const char *label)
     /* 再 ping 一次，确保服务端 poller 已处理 CANCEL。 */
     {
         client_state_t ping2;
+        nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
+
         memset(&ping2, 0, sizeof(ping2));
         ping2.sem = ntk_sem_create(0);
+        opt.timeout_ms = 3000;
         if (!ping2.sem ||
-            nb_proxy_call_async(proxy, "cancel", "ping", &pl, on_response, &ping2, 3000, NULL) != NB_OK ||
+            nb_proxy_call_async(proxy, "cancel", "ping", &pl, &opt, on_response, &ping2) != NB_OK ||
             ntk_sem_timedwait(ping2.sem, 3000) != NTK_OK || ping2.status != NB_OK) {
             nb_log_error("[%s] ping after cancel failed status=%d", label, ping2.status);
             failed = 1;
