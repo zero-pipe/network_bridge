@@ -457,6 +457,8 @@ def metrics_from_result(data: Dict[str, Any]) -> Dict[str, Any]:
         "min_us": float(latency.get("min", 0.0) or 0.0),
         "mean_us": float(latency.get("mean", 0.0) or 0.0),
         "max_us": float(latency.get("max", 0.0) or 0.0),
+        "slow_samples": int(data.get("slow_samples", 0) or 0),
+        "slow_threshold_us": float(data.get("slow_threshold_us", 0.0) or 0.0),
         "timeouts": int(node_metrics.get("timeouts", 0) or 0),
         "retries": int(node_metrics.get("retries", 0) or 0),
         "udp_retransmissions": int(node_metrics.get("udp_retransmissions", 0) or 0),

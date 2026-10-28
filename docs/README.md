@@ -6,6 +6,7 @@
 - [错误码](api/error-codes.md)：稳定数值、名称、描述与重试语义。
 - [示例索引](examples.md)：按场景查找可运行示例。
 - [测试与门禁](testing.md)：unit / e2e / perf / stability / fuzz 的统一入口与判定。
+- [低延迟与尖峰治理](performance.md)：延迟测量口径、尖峰归因实验、绑核与内联分发的实测收益。
 
 配置文件的编辑器校验使用 [`config.schema.json`](config.schema.json)。
 

@@ -105,6 +105,8 @@ typedef struct options {
     uint32_t backpressure_bytes;
     unsigned io_threads;
     int use_sync;
+    const char *spike_log;        /* 尖峰样本落盘路径（诊断用，NULL 表示关闭） */
+    uint64_t spike_threshold_us;  /* 记录阈值，默认 1000us */
     int use_dds;
     int dds_domain;
     int use_shm;
@@ -132,6 +134,68 @@ static int g_status;
 static const uint8_t *g_expect_data;
 static size_t g_expect_len;
 
+/* ---- 尖峰日志（诊断用）----
+ * 把延迟超过阈值的样本连同样本发出的时刻一起落盘，用于判断尖峰是周期性的
+ * 还是孤立的，以及与外部事件对齐。记录点只会在一个线程里执行（异步模式在
+ * poller 线程、同步模式在主线程），因此使用普通计数即可。 */
+#define SPIKE_MAX_SAMPLES 8192
+typedef struct {
+    uint64_t send_ns;
+    uint64_t latency_ns;
+} spike_sample_t;
+
+static spike_sample_t g_spikes[SPIKE_MAX_SAMPLES];
+static unsigned g_spike_used;
+static unsigned g_spike_dropped;
+static unsigned g_slow_total;
+static int g_spike_enabled;
+static uint64_t g_spike_threshold_ns = 1000000ull;
+static const char *g_spike_path;
+static uint64_t g_spike_t0_ns;
+
+static void spike_record(uint64_t send_ns, uint64_t latency_ns)
+{
+    unsigned slot;
+    if (latency_ns < g_spike_threshold_ns) {
+        return;
+    }
+    g_slow_total++;
+    if (!g_spike_enabled) {
+        return;
+    }
+    slot = g_spike_used++;
+    if (slot >= SPIKE_MAX_SAMPLES) {
+        g_spike_dropped++;
+        return;
+    }
+    g_spikes[slot].send_ns = send_ns;
+    g_spikes[slot].latency_ns = latency_ns;
+}
+
+static void spike_log_write(void)
+{
+    FILE *f;
+    unsigned i;
+    unsigned n;
+    if (!g_spike_enabled || !g_spike_path) {
+        return;
+    }
+    f = fopen(g_spike_path, "w");
+    if (!f) {
+        return;
+    }
+    n = g_spike_used > SPIKE_MAX_SAMPLES ? SPIKE_MAX_SAMPLES : g_spike_used;
+    fprintf(f, "t_us,latency_us\n");
+    for (i = 0; i < n; i++) {
+        fprintf(f, "%.3f,%.3f\n",
+                (double)(g_spikes[i].send_ns - g_spike_t0_ns) / 1000.0,
+                (double)g_spikes[i].latency_ns / 1000.0);
+    }
+    fprintf(f, "# dropped=%u threshold_us=%.0f\n", g_spike_dropped,
+            (double)g_spike_threshold_ns / 1000.0);
+    fclose(f);
+}
+
 static void on_response(int status, const nb_response_t *resp, void *user)
 {
     callout_t *co = (callout_t *)user;
@@ -139,6 +203,7 @@ static void on_response(int status, const nb_response_t *resp, void *user)
     co->app_status = resp ? resp->status : status;
     co->resp_len = (status == NB_OK && resp) ? resp->payload.len : 0;
     co->latency_ns = now_ns() - co->send_ns;
+    spike_record(co->send_ns, co->latency_ns);
     co->verify_ok = 1;
     if (g_expect_data && status == NB_OK && resp) {
         co->verify_ok = (resp->payload.len == g_expect_len &&
@@ -195,8 +260,8 @@ static void usage(const char *argv0)
                   "          [--transport udp|tcp] [--dds] [--dds-domain n] "
                   "[--shm] [--shm-channel name] [--io-threads n]\n"
                   "          [--max-requests n] [--payload-bytes n] [--expect-response-bytes n]\n"
-                  "          [--timeout-ms n] [--rate qps] [--window n] [--sync] "
-                  "[--verify-response]\n"
+                  "          [--timeout-ms n] [--rate qps] [--window n] [--sync]\n"
+                  "          [--spike-log path] [--spike-threshold-us n] [--verify-response]\n"
                   "          [--connect-timeout-seconds n] [--worker-id id] [--output path|-]\n"
                   "          [--mode static|mesh]\n"
                   "          [--discovery-port p] [--data-port p] [--max-msg-bytes n] [--bind ip] "
@@ -256,6 +321,7 @@ static void ed_resp(int status, const nb_response_t *resp, void *user)
     int inline_cb = g_in_issue;
     uint64_t send_ns = (uint64_t)(uintptr_t)user;
     uint64_t lat = now_ns() - send_ns;
+    spike_record(send_ns, lat);
     uint64_t us = (lat + 999ull) / 1000ull;
     uint64_t hidx = (uint64_t)lat_hist_index(us);
     int ok;
@@ -470,6 +536,12 @@ int main(int argc, char **argv)
             opt.frag_bytes = (uint16_t)atoi(argv[++i]);
         } else if (strcmp(a, "--bind") == 0 && i + 1 < argc) {
             opt.bind = argv[++i];
+        } else if (strcmp(a, "--spike-log") == 0 && i + 1 < argc) {
+            opt.spike_log = argv[++i];
+        } else if (strcmp(a, "--spike-threshold-us") == 0 && i + 1 < argc) {
+            uint64_t v = 0;
+            parse_u64(argv[++i], &v);
+            opt.spike_threshold_us = v;
         } else if (strcmp(a, "--peer") == 0 && i + 1 < argc) {
             char *pair = argv[++i];
             colon = strrchr(pair, ':');
@@ -500,6 +572,12 @@ int main(int argc, char **argv)
             usage(argv[0]);
             return 1;
         }
+    }
+
+    g_spike_path = opt.spike_log;
+    g_spike_enabled = opt.spike_log != NULL;
+    if (opt.spike_threshold_us > 0) {
+        g_spike_threshold_ns = opt.spike_threshold_us * 1000ull;
     }
 
     nb_node_config_default(&cfg);
@@ -644,6 +722,7 @@ int main(int argc, char **argv)
 
     memset(g_lat_hist, 0, sizeof(g_lat_hist));
     start_ns = now_ns();
+    g_spike_t0_ns = start_ns;
     deadline_ns = start_ns + opt.duration_seconds * 1000000000ull;
     if (opt.verify_response) {
         g_expect_data = payload;
@@ -682,6 +761,7 @@ int main(int argc, char **argv)
                         proxy, opt.service, opt.method, &pl, &call_opt, &response);
                 }
                 latency_ns = now_ns() - send_ns;
+                spike_record(send_ns, latency_ns);
                 attempted++;
                 peak_inflight = 1;
 
@@ -839,6 +919,8 @@ int main(int argc, char **argv)
                 (unsigned long long)succeeded,
                 (unsigned long long)failed);
         fprintf(out, "\"peak_inflight\":%llu,", (unsigned long long)peak_inflight);
+        fprintf(out, "\"slow_samples\":%u,\"slow_threshold_us\":%.0f,", g_slow_total,
+                (double)g_spike_threshold_ns / 1000.0);
         fprintf(out, "\"response_bytes\":%llu,", (unsigned long long)response_bytes);
         fprintf(out,
                 "\"expected_response_bytes\":%llu,",
@@ -916,6 +998,7 @@ int main(int argc, char **argv)
     if (out != stdout) {
         fclose(out);
     }
+    spike_log_write();
     free(payload);
     ntk_sem_destroy(sem);
     nb_proxy_destroy(proxy);
