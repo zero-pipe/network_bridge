@@ -78,6 +78,10 @@ struct nb_node {
     ntk_poller_pool *pool;
     ntk_poller *io_pollers[NB_TRANSPORT_MAX_IO];      /* 出站分片：按 request_id 固定到某个 poller */
     unsigned io_count;                                /* io_pollers 有效个数（>= 1） */
+    /* 专用发送通道：把发布循环与接收/分发的 io poller 隔离（send_lanes>0 时创建）。 */
+    ntk_poller_pool *send_pool;
+    ntk_poller *send_poller;                          /* send_pool 的 0 号 poller */
+    unsigned send_lanes;
     nb_pending_t *pending_lanes[NB_TRANSPORT_MAX_IO]; /* 每 poller 的 pending lane（owner-only 访问） */
     ntk_mutex *pending_lock;                          /* 保护 pending_hash 的跨 poller 查找 */
     ntk_timer *pending_timers[NB_TRANSPORT_MAX_IO];   /* 每 poller 的 pending 超时/重传定时器 */
@@ -129,7 +133,11 @@ uint64_t nb_now_ms(void);
 ntk_poller *nb_node_pick_poller(const nb_node_t *node, uint64_t key);
 /* poller 在 node 出站分片中的下标；找不到返回 -1。 */
 int nb_node_poller_index(const nb_node_t *node, ntk_poller *poller);
+/* 当前线程是否为 node 的专用发送通道线程。 */
+int nb_node_is_send_thread(const nb_node_t *node);
 void nb_node_on_message(nb_node_t *node, nb_transport_t *transport, nb_message_t *message);
+/* 按目标端点选配传输（scheme / kind / CUSTOM host 匹配）；无匹配返回 NULL。 */
+nb_transport_t *nb_node_find_transport(nb_node_t *node, const nb_endpoint_t *target);
 int nb_node_send(nb_node_t *node, const nb_endpoint_t *target, const nb_message_t *message);
 /* 组装 "service.method" 路由并发送一次调用（stub/proxy/重传共用）。 */
 int nb_node_send_call(nb_node_t *node, const nb_stub_request_t *request);

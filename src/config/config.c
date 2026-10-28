@@ -349,6 +349,7 @@ typedef struct nb_cfg_runtime_in {
     uint32_t max_inflight;
     uint32_t max_streams;
     uint32_t peer_rate_limit_pps;
+    uint32_t send_lanes;
 } nb_cfg_runtime_in_t;
 
 typedef struct nb_cfg_transport_in {
@@ -393,6 +394,7 @@ typedef struct nb_cfg_binding_in {
     char *name;
     char *endpoint;
     char *intra_process;
+    uint32_t poll_us;
 } nb_cfg_binding_in_t;
 
 /* 用显式结构体字段偏移描述每个子对象，交给 codec_json 填充。 */
@@ -412,6 +414,7 @@ static const nb_codec_json_model_t nb_g_runtime_model[] = {
       offsetof(nb_cfg_runtime_in_t, peer_rate_limit_pps),
       0,
       { 0 } },
+    { NB_CODEC_JSON_U32, "send_lanes", offsetof(nb_cfg_runtime_in_t, send_lanes), 0, { 0 } },
 };
 
 static const nb_codec_json_model_t nb_g_transport_model[] = {
@@ -489,6 +492,7 @@ static const nb_codec_json_model_t nb_g_binding_model[] = {
       offsetof(nb_cfg_binding_in_t, intra_process),
       0,
       { 0 } },
+    { NB_CODEC_JSON_U32, "poll_us", offsetof(nb_cfg_binding_in_t, poll_us), 0, { 0 } },
 };
 
 #define CFG_MODEL_N(model_) (sizeof(model_) / sizeof((model_)[0]))
@@ -833,6 +837,7 @@ static int nb_fill_bindings(nb_config_doc_t *out, const cJSON *bindings, nb_conf
         view->name = binding->name;
         view->endpoint = binding->endpoint;
         view->intra_process = intra;
+        view->poll_us = parsed.poll_us;
         if (cJSON_IsObject(item) &&
             nb_cfg_load_qos(item, &view->qos, err, "transport.bindings.qos") != NB_OK) {
             rc = NB_ERR_INVALID;
@@ -985,6 +990,7 @@ static int nb_apply_config(nb_config_doc_t *out,
     node->runtime.max_inflight = rt->max_inflight;
     node->runtime.max_streams = rt->max_streams;
     node->runtime.peer_rate_limit_pps = rt->peer_rate_limit_pps;
+    node->runtime.send_lanes = (unsigned)rt->send_lanes;
 
     /* transport */
     if (tp->kind && nb_cfg_transport_kind(tp->kind, &kind) != NB_OK) {

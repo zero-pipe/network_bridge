@@ -52,6 +52,11 @@ int nb_node_poller_index(const nb_node_t *node, ntk_poller *poller)
     return -1;
 }
 
+int nb_node_is_send_thread(const nb_node_t *node)
+{
+    return node && node->send_poller && ntk_poller_is_current_thread(node->send_poller);
+}
+
 /* 线程安全 xorshift：CAS 推进共享种子，避免并发 nb_node_create 时竞争/重复 id。 */
 static uint32_t nb_rand(void)
 {
@@ -219,6 +224,7 @@ int nb_node_create(const nb_node_config_t *cfg, nb_node_t **out)
     nb_copy_str(node->discovery_host, sizeof(node->discovery_host), cfg->discovery.broadcast_host, NULL);
     node->discovery_port = cfg->discovery.port;
     node->io_threads = cfg->runtime.io_threads;
+    node->send_lanes = cfg->runtime.send_lanes;
     node->hello_interval_ms = cfg->discovery.hello_interval_ms;
     node->node_ttl_ms = cfg->discovery.node_ttl_ms;
     node->mode = cfg->mode;
@@ -332,6 +338,37 @@ int nb_node_create(const nb_node_config_t *cfg, nb_node_t **out)
     }
 
     /*
+     * 可选专用发送通道：一组独立 poller 线程，只跑 nb_node_post_send 提交的
+     * 发布循环，与接收/分发的 io poller 隔离。发送循环在其上调用
+     * nb_proxy_call_event 会命中 inline 快路径，省掉每次发送的跨线程入队+唤醒。
+     */
+    if (cfg->runtime.send_lanes > 0) {
+        ntk_poller_pool_opts_t sopts;
+        ntk_buf_pool_opts bopts;
+
+        memset(&sopts, 0, sizeof(sopts));
+        sopts.size = cfg->runtime.send_lanes;
+        sopts.thread_priority = NTK_THREAD_PRIO_NORMAL;
+        node->send_pool = ntk_poller_pool_create(&sopts);
+        if (!node->send_pool || ntk_poller_pool_start(node->send_pool) != NTK_OK) {
+            nb_node_destroy(node);
+            return NB_ERR_IO;
+        }
+        memset(&bopts, 0, sizeof(bopts));
+        bopts.max_per_bucket = NB_MEM_BUF_POOL_MAX_PER_BUCKET;
+        bopts.thread_safe = 0;
+        if (ntk_poller_pool_attach_buf_pools(node->send_pool, &bopts) != NTK_OK) {
+            nb_node_destroy(node);
+            return NB_ERR_NOMEM;
+        }
+        node->send_poller = ntk_poller_pool_at(node->send_pool, 0);
+        if (!node->send_poller) {
+            nb_node_destroy(node);
+            return NB_ERR_IO;
+        }
+    }
+
+    /*
      * 可选 handler 线程池：把注册为 *_worker 的业务 handler 移出 poller，
      * 避免单个阻塞 handler 卡死整条 poller。回复经 ntk_poller_async 回投。
      */
@@ -365,6 +402,7 @@ int nb_node_create(const nb_node_config_t *cfg, nb_node_t **out)
                                   cfg->transport.data_port,
                                   NULL,
                                   NB_INTRA_OFF,
+                                  0,
                                   &cfg->transport.qos) != NB_OK) {
             nb_node_destroy(node);
             return NB_ERR_IO;
@@ -437,6 +475,16 @@ void nb_node_destroy(nb_node_t *node)
             }
         }
     }
+    /* 专用发送通道同样先停线程、排空残留的发布任务，再拆传输。 */
+    if (node->send_pool) {
+        unsigned pi;
+        unsigned pn = ntk_poller_pool_size(node->send_pool);
+
+        ntk_poller_pool_stop(node->send_pool);
+        for (pi = 0; pi < pn; pi++) {
+            ntk_poller_process_pending(ntk_poller_pool_at(node->send_pool, pi));
+        }
+    }
     /* 回投的回复任务已排空，任务头可安全回收。 */
     nb_obj_pool_destroy(&node->reply_task_pool);
     /*
@@ -507,6 +555,11 @@ void nb_node_destroy(nb_node_t *node)
             }
         }
         node->transport_count = 0;
+    }
+    if (node->send_pool) {
+        ntk_poller_pool_destroy(node->send_pool);
+        node->send_pool = NULL;
+        node->send_poller = NULL;
     }
     if (node->pool) {
         ntk_poller_pool_destroy(node->pool);
@@ -807,6 +860,26 @@ int nb_node_post(nb_node_t *node, void (*fn)(void *user), void *user)
     t->fn = fn;
     t->user = user;
     if (ntk_poller_async(node->poller, nb_post_trampoline, t, 1) != NTK_OK) {
+        nb_poller_free(t);
+        return NB_ERR_IO;
+    }
+    return NB_OK;
+}
+
+int nb_node_post_send(nb_node_t *node, void (*fn)(void *user), void *user)
+{
+    nb_post_task_t *t;
+    if (!node || !fn || !node->send_poller) {
+        return NB_ERR_INVALID;
+    }
+    t = (nb_post_task_t *)nb_poller_alloc(sizeof(*t));
+    if (!t) {
+        return NB_ERR_NOMEM;
+    }
+    memset(t, 0, sizeof(*t));
+    t->fn = fn;
+    t->user = user;
+    if (ntk_poller_async(node->send_poller, nb_post_trampoline, t, 1) != NTK_OK) {
         nb_poller_free(t);
         return NB_ERR_IO;
     }

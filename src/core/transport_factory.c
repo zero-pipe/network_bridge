@@ -109,6 +109,7 @@ int nb_node_transport_add(nb_node_t *node,
                           uint16_t port,
                           const char *path,
                           nb_intra_process_t intra_process,
+                          uint32_t poll_us,
                           const nb_qos_t *qos)
 {
     nb_transport_t *transport;
@@ -170,6 +171,7 @@ int nb_node_transport_add(nb_node_t *node,
         options.user = transport;
         options.on_receive = nb_provider_on_receive;
         options.intra_process = intra_process;
+        options.poll_us = poll_us;
         nb_qos_inherit(&effective_qos, qos);
         options.qos = effective_qos;
         if (provider->ops->create(&options, &instance) != NB_OK || !instance) {
@@ -220,5 +222,6 @@ int nb_node_transport_add_binding(nb_node_t *node, const nb_binding_config_t *bi
                                  endpoint.port,
                                  endpoint.path,
                                  binding->intra_process,
+                                 binding->poll_us,
                                  &binding->qos);
 }

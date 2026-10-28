@@ -35,6 +35,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #if defined(__linux__)
 
@@ -50,6 +51,8 @@ typedef struct nb_shm_instance {
     pthread_t thread;
     uint32_t running;
     int thread_started;
+    /* 0 = 阻塞等待（sem_timedwait）；N = 空闲前先自旋 N 微秒再阻塞。 */
+    uint32_t poll_us;
 } nb_shm_instance_t;
 
 /* 用指针宽度承载回程 client id：入站时放 reply_token，回复时取回。 */
@@ -232,22 +235,55 @@ static void nb_shm_deliver(nb_shm_instance_t *inst, uint64_t off, uint16_t sourc
     inst->options.on_receive(inst->options.user, reply_token, &msg);
 }
 
+static uint64_t nb_shm_now_us(void)
+{
+    struct timespec ts;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000ull + (uint64_t)ts.tv_nsec / 1000ull;
+}
+
+static void nb_shm_drain(nb_shm_instance_t *inst)
+{
+    for (;;) {
+        uint64_t off;
+        uint16_t source = 0;
+
+        if (nb_shmseg_pop(inst->seg, &off, &source) != 0) {
+            break;
+        }
+        nb_shm_deliver(inst, off, source, nb_shm_token(source));
+    }
+}
+
 static void *nb_shm_thread_main(void *arg)
 {
     nb_shm_instance_t *inst = (nb_shm_instance_t *)arg;
 
     while (nb_atomic_load_acquire_u32(&inst->running) != 0u) {
-        uint64_t off;
+        if (inst->poll_us != 0u) {
+            /* 混合模式：有数据继续排空；空闲超过 poll_us 后退回阻塞等待。 */
+            uint64_t idle_until = nb_shm_now_us() + inst->poll_us;
 
-        (void)nb_shmseg_wait(inst->seg, NB_SHM_WAIT_MS);
-        for (;;) {
-            uint16_t source = 0;
+            for (;;) {
+                uint64_t off;
+                uint16_t source = 0;
 
-            if (nb_shmseg_pop(inst->seg, &off, &source) != 0) {
-                break;
+                if (nb_shmseg_pop(inst->seg, &off, &source) == 0) {
+                    nb_shm_deliver(inst, off, source, nb_shm_token(source));
+                    idle_until = nb_shm_now_us() + inst->poll_us;
+                    continue;
+                }
+                if (nb_shm_now_us() >= idle_until) {
+                    break;
+                }
+#if defined(__x86_64__) || defined(__i386__)
+                __builtin_ia32_pause();
+#endif
             }
-            nb_shm_deliver(inst, off, source, nb_shm_token(source));
         }
+        (void)nb_shmseg_wait(inst->seg, NB_SHM_WAIT_MS);
+        nb_shm_drain(inst);
     }
     return NULL;
 }
@@ -276,6 +312,14 @@ static int nb_shm_op_create(const nb_transport_provider_options_t *options,
     inst->options = *options;
     inst->self_id = endpoint.port;
     nb_copy_str(inst->channel, sizeof(inst->channel), endpoint.host, "");
+    inst->poll_us = options->poll_us;
+    {
+        /* Env var keeps overriding the binding config for ops/benchmark tuning. */
+        const char *poll_env = getenv("NB_SHM_POLL_US");
+        if (poll_env && poll_env[0]) {
+            inst->poll_us = (uint32_t)strtoul(poll_env, NULL, 10);
+        }
+    }
     inst->seg = nb_shmseg_open(inst->channel, inst->self_id);
     if (!inst->seg) {
         free(inst);

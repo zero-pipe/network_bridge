@@ -562,7 +562,8 @@ static int nb_stub_call_event_impl(nb_stub_t *stub,
         return NB_ERR_TOOBIG;
     }
     id = nb_stub_next_id(stub->node);
-    if (ntk_poller_is_current_thread(nb_node_pick_poller(stub->node, id))) {
+    if (nb_node_is_send_thread(stub->node) ||
+        ntk_poller_is_current_thread(nb_node_pick_poller(stub->node, id))) {
         nb_stub_event_now(
             stub, id, service, method, data, len, encoding, metadata_buf, metadata_len, owner);
         if (out_request_id) {

@@ -18,6 +18,7 @@ int nb_node_transport_add(nb_node_t *node,
                           uint16_t port,
                           const char *path,
                           nb_intra_process_t intra_process,
+                          uint32_t poll_us,
                           const nb_qos_t *qos);
 
 /* 按 binding 配置创建并启动传输（推荐入口）。 */

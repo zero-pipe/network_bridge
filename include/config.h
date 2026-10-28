@@ -17,7 +17,8 @@
  *     "handler_max_concurrency": 64,
  *     "max_inflight": 65536,
  *     "max_streams": 64,
- *     "peer_rate_limit_pps": 0
+ *     "peer_rate_limit_pps": 0,
+ *     "send_lanes": 0
  *   },
  *   "transport": {
  *     "kind": "tcp",
@@ -77,6 +78,10 @@ typedef struct nb_binding_config {
     const char *name;                 /* provider/binding name, e.g. "tcp" */
     const char *endpoint;             /* URI, e.g. tcp://127.0.0.1:8080 */
     nb_intra_process_t intra_process; /* provider-local event fast path */
+    /* Provider busy-poll window in microseconds; 0 blocks on wakeup. Honored by
+     * the shm provider: after draining, keep polling this long before falling
+     * back to a blocking wait. Trades one core's idle for lower tail latency. */
+    uint32_t poll_us;
     nb_qos_t qos;                     /* provider QoS; zero = inherit */
 } nb_binding_config_t;
 
@@ -90,6 +95,7 @@ typedef struct nb_node_runtime_config {
     uint32_t max_inflight;            /* max pending client calls; 0 = 65536 */
     uint32_t max_streams;             /* max concurrent inbound streams; 0 = 64 */
     uint32_t peer_rate_limit_pps;     /* per-peer requests/sec cap; 0 = unlimited */
+    unsigned send_lanes;              /* dedicated send-lane poller threads; 0 = none */
 } nb_node_runtime_config_t;
 
 /* Transport and link tuning. */

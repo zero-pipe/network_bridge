@@ -204,7 +204,8 @@ static void test_binding_config(void)
     const char *json = "{\"name\":\"dual\",\"mode\":\"static\","
                        "\"transport\":{\"bindings\":["
                        "{\"name\":\"tcp\",\"endpoint\":\"tcp://127.0.0.1:8080\"},"
-                       "{\"name\":\"udp\",\"endpoint\":\"udp://127.0.0.1:8081\"}]},"
+                       "{\"name\":\"udp\",\"endpoint\":\"udp://127.0.0.1:8081\","
+                       "\"poll_us\":250}]},"
                        "\"routes\":[{\"service\":\"order\","
                        "\"endpoint\":\"tcp://127.0.0.1:9000\"}]}";
     nb_config_doc_t cfg;
@@ -213,6 +214,8 @@ static void test_binding_config(void)
     CHECK(cfg.binding_count == 2);
     CHECK(strcmp(cfg.binding_configs[0].name, "tcp") == 0);
     CHECK(strcmp(cfg.binding_configs[1].endpoint, "udp://127.0.0.1:8081") == 0);
+    CHECK(cfg.binding_configs[0].poll_us == 0);
+    CHECK(cfg.binding_configs[1].poll_us == 250);
     CHECK(cfg.node.transport.binding_count == 2);
     CHECK(cfg.node.transport.bindings == cfg.binding_configs);
     CHECK(cfg.route_count == 1);

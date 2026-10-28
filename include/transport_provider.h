@@ -32,6 +32,9 @@ typedef struct nb_transport_provider_options {
     void *user;                      /* passed back to on_receive */
     transport_receive_fn on_receive; /* inbound message callback */
     nb_intra_process_t intra_process; /* provider-local event fast path */
+    /* Busy-poll window in microseconds after draining; 0 = blocking wait. Only
+     * providers with an inspectable local queue (shm) honor this; others ignore. */
+    uint32_t poll_us;
     nb_qos_t qos;                    /* provider QoS; zero = provider default */
 } nb_transport_provider_options_t;
 

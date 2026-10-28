@@ -50,6 +50,11 @@
           "type": "integer",
           "minimum": 0,
           "description": "Per-peer inbound request limit per second. 0 means unlimited."
+        },
+        "send_lanes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Dedicated send-lane poller threads, isolated from the io pollers that receive and dispatch. Run publish loops via nb_node_post_send so nb_proxy_call_event takes the inline send fast path. 0 disables."
         }
       },
       "additionalProperties": true
@@ -98,6 +103,11 @@
                     "type": "string",
                     "enum": ["off", "auto", "only"],
                     "description": "DDS event in-process fast path."
+                  },
+                  "poll_us": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Busy-poll window in microseconds after draining before falling back to a blocking wait (shm). 0 blocks on wakeup."
                   }
                 },
                 "additionalProperties": true

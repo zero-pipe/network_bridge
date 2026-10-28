@@ -76,6 +76,12 @@ URI 非法时返回 `NB_ERR_INVALID`，传入 error 输出参数时会给出 `pa
 | `max_inflight` | uint | `65536` | 客户端未完成调用上限 |
 | `max_streams` | uint | `64` | 并发接收流上限，上限 `NB_STREAM_MAX_RECV_STREAMS` |
 | `peer_rate_limit_pps` | uint | `0` | 每对端每秒请求上限，`0` 表示不限 |
+| `send_lanes` | uint | `0` | 专用发送通道线程数，与接收/分发的 io poller 隔离；`0` 表示关闭 |
+
+`send_lanes > 0` 时用 `nb_node_post_send()` 提交发布循环，循环内
+`nb_proxy_call_event()` 会走 inline 快路径，省掉每条事件的跨线程入队与唤醒；
+适合高吞吐 pub 端。总线程数 = `io_threads + send_lanes`，可按需把一部分核从
+`io_threads` 挪给 `send_lanes`。
 
 未配置 `handler_threads` 时，WORKER 方法退化为 INLINE 并告警。`handler_max_concurrency`
 超限时新请求返回 `NB_ERR_OVERLOAD` 或 `NB_ERR_AGAIN`（按调用路径）。
@@ -99,6 +105,12 @@ URI 非法时返回 `NB_ERR_INVALID`，传入 error 输出参数时会给出 `pa
 用于 DDS 事件发布订阅的进程内快路径。`only` 不创建 DDS event writer/reader，
 直接把消息指针投递给同 provider 的本地订阅者；`auto` 本地投递后仍走 DDS。
 每个 binding 也可以带自己的 `qos` 对象；未设置时继承 `transport.qos`。
+
+`bindings` 还支持 `poll_us` 字段（uint，单位微秒），只对 `shm` provider 生效：
+排空本地队列后继续自旋轮询这么久，空闲超时才退回阻塞等待。`0`（默认）始终阻塞
+在唤醒上。适合低尾延迟场景，代价是占用一个核的 idle 时间，通常需要配合 `send_lanes`
+或把 `io_threads` 少配一个。运行期可用环境变量 `NB_SHM_POLL_US` 覆盖各 binding 的
+配置，便于压测/临时调参。
 
 `bindings` 元素支持两种写法：
 

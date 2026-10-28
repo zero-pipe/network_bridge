@@ -68,6 +68,15 @@ int nb_node_wait_for_service(nb_node_t *node, const char *service, uint64_t time
 int nb_node_post(nb_node_t *node, void (*handler)(void *user), void *user);
 int nb_node_post_delay(nb_node_t *node, uint64_t delay_ms, void (*handler)(void *user), void *user);
 
+/*
+ * Post a task to the node's dedicated send lane (requires
+ * runtime.send_lanes > 0). Use it to run a publish loop: nb_proxy_call_event
+ * called inside the task takes the inline send fast path (no cross-thread
+ * post), and the send lane is isolated from the io pollers that receive and
+ * dispatch requests. Returns NB_ERR_INVALID when send_lanes == 0.
+ */
+int nb_node_post_send(nb_node_t *node, void (*handler)(void *user), void *user);
+
 /* ---- Blocking run ---- */
 /* Run the poller loop for at most timeout_ms; returns NB_ERR_TIMEOUT. */
 int nb_node_run_once(nb_node_t *node, uint64_t timeout_ms);
