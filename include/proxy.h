@@ -8,9 +8,11 @@
  * only one of them. Discovery and routing happen inside the framework; the
  * proxy only sends payloads and routes responses back to callbacks.
  *
- * Threading contract: call_async / call_event may be called from any thread
- * (they post to the poller internally); call_sync blocks until a response and
- * must not be used inside a poller callback.
+ * Threading contract: call_async / call_event may be called from any thread.
+ * When the caller is already on one of the node's poller threads (or on its
+ * dedicated send lane, see nb_node_post_send) the send runs inline on that
+ * thread; otherwise it is posted to a poller. call_sync blocks until a
+ * response and must not be used inside a poller callback.
  *
  * Name suffix convention:
  *   _owned          takes an nb_owned_payload_t and takes ownership of it
@@ -48,7 +50,8 @@ typedef struct nb_proxy_interceptor {
     void (*after)(void *user, int status, const nb_response_t *resp);
 } nb_proxy_interceptor_t;
 
-/* Install/clear the client interceptor; NULL clears it. */
+/* Install/clear the client interceptor; NULL clears it. The struct is copied;
+ * user and the callbacks must stay valid for the proxy's lifetime. */
 int nb_proxy_set_interceptor(nb_proxy_t *proxy, const nb_proxy_interceptor_t *interceptor);
 
 /* ---- Lifecycle ---- */
@@ -120,8 +123,9 @@ int nb_proxy_call_async_owned_with_metadata(nb_proxy_t *proxy,
                                             uint64_t *out_request_id);
 
 /*
- * One-way event: send only, never wait for a response (EVENT). Sending happens
- * on the poller thread. out_request_id may be NULL; when non-NULL it receives
+ * One-way event: send only, never wait for a response (EVENT). Delivery runs
+ * on the node poller thread, or inline when the caller is already on a poller
+ * or send-lane thread. out_request_id may be NULL; when non-NULL it receives
  * the event's correlation id. As with nb_proxy_call_async, the payload is
  * copied before returning and the caller may release it immediately.
  */

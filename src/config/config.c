@@ -249,7 +249,7 @@ void nb_node_log_config_default(nb_node_log_config_t *cfg)
         return;
     }
     memset(cfg, 0, sizeof(*cfg));
-    cfg->level = NB_NODE_LOG_INFO;
+    cfg->level = NB_LOG_LEVEL_INFO;
 }
 
 void nb_node_config_default(nb_node_config_t *cfg)
@@ -337,7 +337,7 @@ void nb_node_config_normalize(nb_node_config_t *cfg)
     if (!cfg->metrics.sample_every) {
         cfg->metrics.sample_every = NB_DEFAULT_METRICS_SAMPLE_EVERY;
     }
-    /* log.level: 0 是合法的 NB_NODE_LOG_ASSERT，不能当作“未设置”。 */
+    /* log.level: 0 是合法的 NB_LOG_LEVEL_ASSERT，不能当作“未设置”。 */
 }
 
 /* ---- 模型驱动的解析中间结构 ---- */
@@ -615,12 +615,12 @@ static int nb_cfg_log_level(const char *text, nb_log_level_t *out)
         const char *name;
         nb_log_level_t level;
     } levels[] = {
-        { "assert", NB_NODE_LOG_ASSERT },
-        { "error", NB_NODE_LOG_ERROR },
-        { "warn", NB_NODE_LOG_WARN },
-        { "info", NB_NODE_LOG_INFO },
-        { "debug", NB_NODE_LOG_DEBUG },
-        { "verbose", NB_NODE_LOG_VERBOSE },
+        { "assert", NB_LOG_LEVEL_ASSERT },
+        { "error", NB_LOG_LEVEL_ERROR },
+        { "warn", NB_LOG_LEVEL_WARN },
+        { "info", NB_LOG_LEVEL_INFO },
+        { "debug", NB_LOG_LEVEL_DEBUG },
+        { "verbose", NB_LOG_LEVEL_VERBOSE },
     };
     size_t i;
     if (!text) {

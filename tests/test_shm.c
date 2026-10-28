@@ -299,7 +299,7 @@ int main(void)
                 break;
             }
             memcpy(data, expect, sizeof(expect));
-            if (nb_publisher_publish_loan(loan, (uint32_t)sizeof(expect), NULL) != NB_OK) {
+            if (nb_publisher_publish_loan(loan, (uint32_t)sizeof(expect), 0, NULL) != NB_OK) {
                 failed = 1;
                 break;
             }

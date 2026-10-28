@@ -176,6 +176,7 @@ WORKER 需要 `runtime.handler_threads > 0`；未配置时退化为 INLINE 并�
 
 - `nb_service_set_interceptor` 在 handler 前执行，非 `NB_OK` 直接短路回复。
 - `nb_call_deadline_ms` 读取客户端传播的绝对 deadline。
+- `nb_call_request_id` 读取请求的 correlation id，便于日志与追踪。
 - `nb_call_canceled` 支持 handler 协作式退出。
 
 ## Proxy 与 Stub
@@ -230,7 +231,7 @@ uint32_t cap = 0;
 
 if (nb_publisher_loan(pub, "TopicService", "chat", len, &loan, &data, &cap) == NB_OK) {
     memcpy(data, my_bytes, len);                 /* 直接写段内内存 */
-    nb_publisher_publish_loan(loan, len, NULL);  /* 补 envelope 前缀并扇出 */
+    nb_publisher_publish_loan(loan, len, 0, NULL); /* 补 envelope 前缀并扇出 */
 } else {
     /* NB_ERR_NOT_SUPPORTED：目标传输不支持；NB_ERR_AGAIN：暂无可借 chunk，稍后重试 */
 }
@@ -238,6 +239,8 @@ if (nb_publisher_loan(pub, "TopicService", "chat", len, &loan, &data, &cap) == N
 
 - loan 在借出时就把目标传输固定下来（经 proxy 的固定端点或服务发现解析），因此
   `publish_loan` 不再查路由；只支持 EVENT 发布。
+- `publish_loan` 的 `encoding` 为 0 时沿用 publisher 的默认 `payload_encoding`，
+  与普通 event 路径的规则一致。
 - `nb_publisher_publish_loan` 无论成败都接管 loan；未发布想放弃时调用
   `nb_publisher_loan_release`。loan 是线程私有的，不要跨线程传递。
 - `cap` 可能大于请求的 `capacity`（按段内 size class 向上取整），实际写入不要超过 `len`。
@@ -376,6 +379,12 @@ nb_log_info("started node=%s", nb_node_name(node));
 
 每个 `create`、`start`、`call` 都应检查返回值。错误码的稳定名称、描述、可重试标记见
 [错误码](error-codes.md)。
+
+## 版本与兼容性
+
+头文件 API 在版本间保持源码兼容，但不保证二进制兼容：结构体布局可能随版本演化。
+升级时请用匹配版本的库重新编译调用方。`NB_VERSION_STRING`（`types.h`）给出头文件
+API 版本。
 
 ## 示例
 

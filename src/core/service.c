@@ -777,6 +777,11 @@ uint64_t nb_call_deadline_ms(const nb_call_t *call)
     return call ? call->deadline_ms : 0;
 }
 
+uint32_t nb_call_request_id(const nb_call_t *call)
+{
+    return call ? call->msg_id : 0;
+}
+
 bool nb_call_canceled(const nb_call_t *call)
 {
     if (!call) {

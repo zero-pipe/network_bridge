@@ -67,7 +67,7 @@ static void test_nested(void)
     CHECK(cfg.node.metrics.sample_every == 5);
     CHECK(cfg.node.metrics.disable_per_peer_stats == 1);
     CHECK(cfg.node.log.disable == 1);
-    CHECK(cfg.node.log.level == NB_NODE_LOG_DEBUG);
+    CHECK(cfg.node.log.level == NB_LOG_LEVEL_DEBUG);
     CHECK(strcmp(cfg.node.log.file, "rpc.log") == 0);
     CHECK(cfg.route_count == 1);
     CHECK(strcmp(cfg.routes[0].service, "echo") == 0);
@@ -86,7 +86,7 @@ static void test_defaults(void)
     CHECK(strcmp(cfg.node.transport.bind_host, "0.0.0.0") == 0);
     CHECK(strcmp(cfg.node.discovery.broadcast_host, "255.255.255.255") == 0);
     CHECK(cfg.node.metrics.sample_every == 1);
-    CHECK(cfg.node.log.level == NB_NODE_LOG_INFO);
+    CHECK(cfg.node.log.level == NB_LOG_LEVEL_INFO);
     CHECK(cfg.binding_count == 0);
     CHECK(cfg.peer_count == 0);
     CHECK(cfg.route_count == 0);
@@ -291,15 +291,15 @@ static void test_defaults_api(void)
     CHECK(strcmp(cfg.transport.bind_host, "0.0.0.0") == 0);
     CHECK(strcmp(cfg.discovery.broadcast_host, "255.255.255.255") == 0);
     CHECK(cfg.metrics.sample_every == 1);
-    CHECK(cfg.log.level == NB_NODE_LOG_INFO);
+    CHECK(cfg.log.level == NB_LOG_LEVEL_INFO);
 }
 
 static void test_log_switch(void)
 {
     CHECK(nb_log_enabled() == 1);
-    nb_log_configure(0, NB_NODE_LOG_ERROR);
+    nb_log_configure(0, NB_LOG_LEVEL_ERROR);
     CHECK(nb_log_enabled() == 0);
-    nb_log_configure(1, NB_NODE_LOG_INFO);
+    nb_log_configure(1, NB_LOG_LEVEL_INFO);
     CHECK(nb_log_enabled() == 1);
 }
 

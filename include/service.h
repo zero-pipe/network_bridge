@@ -175,6 +175,9 @@ int nb_service_set_interceptor(nb_service_t *service, service_interceptor_fn int
  * the client set no timeout.
  */
 uint64_t nb_call_deadline_ms(const nb_call_t *call);
+/* Correlation id of the request (matches the client's request_id), for logging
+ * and tracing. */
+uint32_t nb_call_request_id(const nb_call_t *call);
 /*
  * Best-effort client cancellation check. Cancellation cannot preempt a running
  * handler, but a handler may poll this to exit early; queued worker jobs are

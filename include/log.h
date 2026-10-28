@@ -4,6 +4,9 @@
 /*
  * Thin logging macros over elog. nb_log_* short-circuit when logging is
  * disabled; nb_node_create installs the configured switch and level.
+ *
+ * This header includes <elog.h>, so consumers need the easylogger headers on
+ * their include path.
  */
 
 #include <elog.h>

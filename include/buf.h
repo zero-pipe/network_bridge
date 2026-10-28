@@ -18,7 +18,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "alloc.h"
+#include <alloc.h>
 
 #ifdef __cplusplus
 extern "C" {

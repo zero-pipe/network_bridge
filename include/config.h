@@ -142,7 +142,7 @@ typedef enum nb_node_log_sink {
 
 typedef struct nb_node_log_config {
     bool disable;             /* true disables logging */
-    nb_log_level_t level;     /* default NB_NODE_LOG_INFO */
+    nb_log_level_t level;     /* default NB_LOG_LEVEL_INFO */
     nb_node_log_sink_t sink_kind; /* reserved: no effect yet */
     const char *file;         /* reserved: log file path */
 } nb_node_log_config_t;
@@ -218,7 +218,7 @@ void nb_binding_config_default(nb_binding_config_t *config);
  * Normalize: replace 0/NULL fields with defaults and clamp values to their
  * valid range. nb_node_create applies this to a copy of the incoming config,
  * so callers that build nb_node_config_t directly need no fallback of their
- * own. log.level == 0 is a valid NB_NODE_LOG_ASSERT and is not rewritten.
+ * own. log.level == 0 is a valid NB_LOG_LEVEL_ASSERT and is not rewritten.
  */
 void nb_node_config_normalize(nb_node_config_t *config);
 

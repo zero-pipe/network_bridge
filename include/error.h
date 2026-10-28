@@ -11,7 +11,7 @@
  *   -1000   application-defined codes start here
  *
  * NB_ERROR_TABLE is the single source of truth for the code values, stable
- * names, human-readable descriptions and retry hints. src/util/error.c expands
+ * names, human-readable descriptions and retry hints. src/utils/error.c expands
  * the same table into the lookup helpers, so values and strings cannot drift.
  */
 

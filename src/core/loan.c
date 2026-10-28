@@ -90,7 +90,10 @@ int nb_publisher_loan(nb_publisher_t *pub,
     return NB_OK;
 }
 
-int nb_publisher_publish_loan(nb_loan_t *loan, uint32_t length, uint64_t *out_request_id)
+int nb_publisher_publish_loan(nb_loan_t *loan,
+                              uint32_t length,
+                              uint8_t encoding,
+                              uint64_t *out_request_id)
 {
     nb_message_t msg;
     uint64_t id;
@@ -111,7 +114,7 @@ int nb_publisher_publish_loan(nb_loan_t *loan, uint32_t length, uint64_t *out_re
     msg.route = loan->route;
     msg.payload.data = loan->data;
     msg.payload.len = length;
-    msg.payload.encoding = loan->encoding;
+    msg.payload.encoding = encoding ? encoding : loan->encoding;
     /* send_loan 无论成败都接管 chunk 所有权，句柄不再可用。 */
     rc = nb_transport_send_loan(loan->transport, loan->route, loan->handle, &msg);
     free(loan);

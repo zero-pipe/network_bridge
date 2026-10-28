@@ -15,7 +15,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "buf.h"
+#include <buf.h>
 
 #ifdef __cplusplus
 extern "C" {

@@ -16,9 +16,11 @@
  *       Reserve a writable payload area of at least `capacity` bytes.
  *       *data points into provider memory and *cap is the actual writable
  *       capacity (>= capacity). Fill it, then publish.
- *   nb_publisher_publish_loan(loan, length, &request_id)
+ *   nb_publisher_publish_loan(loan, length, encoding, &request_id)
  *       Encode the envelope around data[0..length) and publish it as an
- *       EVENT. Takes ownership of the loan in every case.
+ *       EVENT. encoding 0 inherits the publisher's default payload_encoding
+ *       (same rule as nb_proxy_call_event). Takes ownership of the loan in
+ *       every case.
  *   nb_publisher_loan_release(loan)
  *       Return an unpublished loan without sending anything.
  *
@@ -47,7 +49,10 @@ int nb_publisher_loan(nb_publisher_t *pub,
                       nb_loan_t **out_loan,
                       uint8_t **out_data,
                       uint32_t *out_capacity);
-int nb_publisher_publish_loan(nb_loan_t *loan, uint32_t length, uint64_t *out_request_id);
+int nb_publisher_publish_loan(nb_loan_t *loan,
+                              uint32_t length,
+                              uint8_t encoding,
+                              uint64_t *out_request_id);
 void nb_publisher_loan_release(nb_loan_t *loan);
 
 #endif /* NB_PUBLISH_H */

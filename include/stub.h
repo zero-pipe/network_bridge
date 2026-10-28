@@ -35,7 +35,9 @@ typedef enum nb_stub_kind {
     NB_STUB_CANCEL = 2   /* control-plane cancel; does not wait for a response */
 } nb_stub_kind_t;
 
-/* Immutable description of one call plus a fill-in target endpoint. */
+/* Immutable description of one call plus a fill-in target endpoint.
+ * metadata/metadata_len carry the encoded nb_metadata wire form (see
+ * nb_metadata_encode); the proxy layer fills them from nb_metadata_t. */
 typedef struct nb_stub_request {
     const char *service;
     const char *method;
@@ -71,7 +73,8 @@ void nb_stub_destroy(nb_stub_t *stub);
 nb_node_t *nb_stub_node(const nb_stub_t *stub);
 
 /* ---- Calls ---- */
-/* One-way send (EVENT). Does not wait for a response; the send runs on the
+/* One-way send (EVENT). Does not wait for a response. Runs inline on the
+ * caller when it is already on a poller/send-lane thread, otherwise on the
  * node poller thread. */
 int nb_stub_call_event(nb_stub_t *stub,
                        const char *service,

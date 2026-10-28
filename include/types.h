@@ -72,6 +72,8 @@ typedef struct nb_stream nb_stream_t;
 /* ---- Stream flags and chunks ---- */
 #define NB_STREAM_FIRST 0x01u
 #define NB_STREAM_LAST 0x02u
+/* Internal control flag sent by nb_proxy_stream_cancel; applications do not
+ * set it on chunks. */
 #define NB_STREAM_CANCEL 0x04u
 
 /* One-way data chunk. data is valid only for the duration of the callback or
@@ -121,12 +123,12 @@ typedef enum nb_node_mode {
 
 /* Log severity; values match the elog levels used by log.h. */
 typedef enum nb_log_level {
-    NB_NODE_LOG_ASSERT = 0,
-    NB_NODE_LOG_ERROR = 1,
-    NB_NODE_LOG_WARN = 2,
-    NB_NODE_LOG_INFO = 3,
-    NB_NODE_LOG_DEBUG = 4,
-    NB_NODE_LOG_VERBOSE = 5
+    NB_LOG_LEVEL_ASSERT = 0,
+    NB_LOG_LEVEL_ERROR = 1,
+    NB_LOG_LEVEL_WARN = 2,
+    NB_LOG_LEVEL_INFO = 3,
+    NB_LOG_LEVEL_DEBUG = 4,
+    NB_LOG_LEVEL_VERBOSE = 5
 } nb_log_level_t;
 
 /* ---- Payload views ---- */
@@ -217,6 +219,17 @@ typedef struct nb_response {
 typedef void (*response_fn)(int status, const nb_response_t *resp, void *user);
 typedef void (*response_chunk_fn)(int status, const nb_chunk_t *chunk, void *user);
 typedef void (*stream_done_fn)(int status, void *user);
+
+/* ---- Version ---- */
+/*
+ * API version of these headers. Struct layouts and enum values are not
+ * guaranteed to be binary-compatible across versions: link against the
+ * matching library and rebuild consumers when upgrading.
+ */
+#define NB_VERSION_MAJOR 0
+#define NB_VERSION_MINOR 1
+#define NB_VERSION_PATCH 0
+#define NB_VERSION_STRING "0.1.0"
 
 /* ---- Defaults and limits ---- */
 #ifndef NB_DISCOVERY_PORT
