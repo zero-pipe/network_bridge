@@ -1,11 +1,11 @@
 /* 覆盖新增抽象：service_table、message_view、stub 与 sync 便捷层。 */
-#include <client.h>
-#include <extensions.h>
-#include <server.h>
+#include <nb/client.h>
+#include <nb/extensions.h>
+#include <nb/server.h>
 #include <platform.h>
 
 #define NB_LOG_TAG "test"
-#include <log.h>
+#include <nb/log.h>
 
 #include <thread/sync.h>
 
@@ -63,7 +63,7 @@ static int test_message_view(void)
         failed = 1;
     }
     nb_message_view_release(&view);
-    if (view.data != NULL || view.len != 0 || view.internal != NULL) {
+    if (view.data != NULL || view.len != 0 || view.owner != NULL) {
         nb_log_error("release did not clear view");
         failed = 1;
     }
@@ -72,7 +72,7 @@ static int test_message_view(void)
         failed = 1;
     }
     nb_message_view_set_borrowed(&view, borrowed, sizeof(borrowed) - 1);
-    if (view.internal != NULL) {
+    if (view.owner != NULL) {
         nb_log_error("borrowed view should not own memory");
         failed = 1;
     }
@@ -234,7 +234,7 @@ static int test_stub_and_sync(void)
     /* proxy 的单向事件入口：同一 node 既可作为 service 也可作为 client。 */
     {
         int before = counter_read(&counter);
-        uint64_t event_id = 0;
+        nb_request_id_t event_id = 0;
         nb_call_options_t opt = NB_CALL_OPTIONS_INIT;
 
         opt.out_request_id = &event_id;

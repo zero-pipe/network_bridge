@@ -6,8 +6,8 @@
  * 并登记到 node->transports[]。从 node.c 拆出，聚焦“装配”职责。
  */
 
-#include <types.h>
-#include <config.h>
+#include <nb/types.h>
+#include <nb/config.h>
 
 #include <stdint.h>
 

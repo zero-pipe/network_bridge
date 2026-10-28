@@ -47,7 +47,7 @@ core 不感知具体 scheme 的私有地址格式。
 ## Message
 
 `nb_message_t` 同时是 core 内部消息和公开 provider SPI 消息（公开头
-`include/message.h`）。此前 provider 侧另有一份结构并在 `transport_factory.c`
+`include/nb/message.h`）。此前 provider 侧另有一份结构并在 `transport_factory.c`
 手工逐字段复制，新增字段容易漏传；现在只有一份定义：
 
 - 入站：provider 填 `peer`、route、payload、metadata、stream，
@@ -58,7 +58,7 @@ core 不感知具体 scheme 的私有地址格式。
 
 ## QoS
 
-`nb_qos_t`（`include/qos.h`）对齐 DDS 策略，字段缺省为 INHERIT，避免覆盖
+`nb_qos_t`（`include/nb/qos.h`）对齐 DDS 策略，字段缺省为 INHERIT，避免覆盖
 provider 默认值。当前映射：
 
 - reliability / durability / history / depth

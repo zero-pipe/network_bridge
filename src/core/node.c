@@ -1,7 +1,7 @@
 /* 节点：生命周期、传输装配、线程/发现配置与阻塞运行（分发见 nb_dispatch.c）。 */
 #include "node_internal.h"
 
-#include <config.h>
+#include <nb/config.h>
 
 #include "metric_macros.h"
 #include "defaults.h"
@@ -9,7 +9,7 @@
 #include "transport_factory.h"
 #include "util.h"
 
-#include <log.h>
+#include <nb/log.h>
 
 #include <signal.h>
 #include <stdio.h>
@@ -199,6 +199,14 @@ int nb_node_create(const nb_node_config_t *cfg, nb_node_t **out)
     local = *cfg;
     nb_node_config_normalize(&local);
     cfg = &local;
+    if (!cfg->transport.bind_host[0]) {
+        return NB_ERR_INVALID;
+    }
+    if (nb_str_fits(cfg->name, NB_NAME_MAX) != NB_OK ||
+        nb_str_fits(cfg->transport.bind_host, NB_HOST_MAX) != NB_OK ||
+        nb_str_fits(cfg->discovery.broadcast_host, NB_HOST_MAX) != NB_OK) {
+        return NB_ERR_TOOBIG;
+    }
     if (nb_qos_validate(&cfg->transport.qos) != NB_OK) {
         return NB_ERR_INVALID;
     }
@@ -427,6 +435,23 @@ int nb_node_create(const nb_node_config_t *cfg, nb_node_t **out)
                 node->io_pollers[i], nb_tick_interval_ms(), 1, nb_pending_timer_cb, node);
         }
     }
+    {
+        size_t i;
+        for (i = 0; i < cfg->peer_count; i++) {
+            if (nb_node_add_discovery_peer(node, cfg->peers[i].host, cfg->peers[i].port) !=
+                NB_OK) {
+                nb_node_destroy(node);
+                return NB_ERR_INVALID;
+            }
+        }
+        for (i = 0; i < cfg->route_count; i++) {
+            if (nb_node_add_static_route_uri(
+                    node, cfg->routes[i].service, cfg->routes[i].endpoint) != NB_OK) {
+                nb_node_destroy(node);
+                return NB_ERR_INVALID;
+            }
+        }
+    }
     node->started = 1;
 
     if (node->mode == NB_MODE_MESH) {
@@ -649,14 +674,20 @@ size_t nb_node_binding_count(const nb_node_t *node)
 
 int nb_node_binding_endpoint(const nb_node_t *node, size_t index, char *out, size_t cap)
 {
+    size_t len;
+
     if (!node || index >= node->transport_count || !node->transports[index]) {
         return NB_ERR_NOTFOUND;
     }
     if (!out || cap == 0 || !node->transports[index]->endpoint_uri[0]) {
         return NB_ERR_INVALID;
     }
-    nb_copy_str(out, cap, node->transports[index]->endpoint_uri, "");
-    return out[0] ? NB_OK : NB_ERR_TOOBIG;
+    len = strlen(node->transports[index]->endpoint_uri);
+    if (len >= cap) {
+        return NB_ERR_TOOBIG;
+    }
+    memcpy(out, node->transports[index]->endpoint_uri, len + 1);
+    return NB_OK;
 }
 
 /* ---- 指标与对端质量 ---- */
@@ -761,20 +792,29 @@ int nb_node_add_discovery_peer(nb_node_t *node, const char *ip, uint16_t discove
 {
     int i;
     int added = 0;
-    if (!node || !ip || !discovery_port) {
+    if (!node || !ip || !ip[0] || !discovery_port) {
         return NB_ERR_INVALID;
+    }
+    if (strlen(ip) >= NB_HOST_MAX) {
+        return NB_ERR_TOOBIG;
     }
     if (!node->discovery.targets_lock) {
         return NB_ERR_INVALID;
     }
     ntk_mutex_lock(node->discovery.targets_lock);
     for (i = 0; i < NB_DISCOVERY_MAX_TARGETS; i++) {
+        if (node->discovery.targets[i].used &&
+            node->discovery.targets[i].port == discovery_port &&
+            strcmp(node->discovery.targets[i].ip, ip) == 0) {
+            ntk_mutex_unlock(node->discovery.targets_lock);
+            return NB_ERR_ALREADY;
+        }
         if (!node->discovery.targets[i].used) {
             node->discovery.targets[i].used = 1;
             nb_copy_str(node->discovery.targets[i].ip,
-                         sizeof(node->discovery.targets[i].ip),
-                         ip,
-                         "127.0.0.1");
+                        sizeof(node->discovery.targets[i].ip),
+                        ip,
+                        NULL);
             node->discovery.targets[i].port = discovery_port;
             added = 1;
             break;
@@ -793,11 +833,17 @@ int nb_node_add_discovery_peer(nb_node_t *node, const char *ip, uint16_t discove
 int nb_node_add_static_route(
     nb_node_t *node, const char *service, const char *ip, uint16_t port, nb_transport_kind_t transport)
 {
+    if (!node || !service || !ip) {
+        return NB_ERR_INVALID;
+    }
     return nb_route_set(&node->routes, service, ip, port, transport);
 }
 
 int nb_node_add_static_route_uri(nb_node_t *node, const char *service, const char *endpoint)
 {
+    if (!node || !service || !endpoint) {
+        return NB_ERR_INVALID;
+    }
     return nb_route_add_endpoint(&node->routes, service, endpoint, 1);
 }
 
@@ -927,15 +973,9 @@ static void nb_signal_handler(int signo)
 int nb_node_run_once(nb_node_t *node, uint64_t timeout_ms)
 {
     uint64_t deadline;
-    int installed = 0;
     if (!node) {
         return NB_ERR_INVALID;
     }
-    if (!nb_g_signal && signal(SIGINT, nb_signal_handler) != SIG_ERR) {
-        (void)signal(SIGTERM, nb_signal_handler);
-        installed = 1;
-    }
-    (void)installed;
     deadline = nb_now_ms() + timeout_ms;
     while (!nb_g_signal) {
         if (timeout_ms && nb_now_ms() >= deadline) {
@@ -946,7 +986,19 @@ int nb_node_run_once(nb_node_t *node, uint64_t timeout_ms)
     return NB_OK;
 }
 
+int nb_node_run_until_signal(nb_node_t *node)
+{
+    if (!node) {
+        return NB_ERR_INVALID;
+    }
+    if (signal(SIGINT, nb_signal_handler) == SIG_ERR) {
+        return NB_ERR_IO;
+    }
+    (void)signal(SIGTERM, nb_signal_handler);
+    return nb_node_run_once(node, 0);
+}
+
 int nb_node_run(nb_node_t *node)
 {
-    return nb_node_run_once(node, 0);
+    return nb_node_run_until_signal(node);
 }

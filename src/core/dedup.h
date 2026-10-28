@@ -14,7 +14,7 @@
  * 访问用每分片一把锁，热路径无全局争用。
  */
 
-#include <types.h>
+#include <nb/types.h>
 
 #include <ntk.h>
 

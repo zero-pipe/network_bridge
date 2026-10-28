@@ -64,8 +64,19 @@ int nb_route_set(nb_route_table_t *table,
                   nb_transport_kind_t transport)
 {
     nb_route_t *r;
-    if (!table || !service || !ip || !port) {
+    if (!table || !service || !service[0] || !ip || !port) {
         return NB_ERR_INVALID;
+    }
+    if (strchr(service, '.') != NULL) {
+        return NB_ERR_INVALID;
+    }
+    if (strlen(service) >= NB_SERVICE_NAME_MAX) {
+        return NB_ERR_TOOBIG;
+    }
+    /* A host/port pair can only be a UDP or TCP endpoint. Provider schemes
+     * must be registered by URI so their path/authority is preserved. */
+    if (transport != NB_TRANSPORT_UDP && transport != NB_TRANSPORT_TCP) {
+        return NB_ERR_NOT_SUPPORTED;
     }
     if (table->lock) {
         ntk_mutex_lock((ntk_mutex *)table->lock);
@@ -105,8 +116,14 @@ int nb_route_add_endpoint(nb_route_table_t *table,
     nb_route_t *r;
     size_t i;
     if (!table || !service || !service[0] || nb_endpoint_parse(uri, &endpoint) != NB_OK ||
-        endpoint.port == 0) {
+        (nb_endpoint_is_network(&endpoint) && endpoint.port == 0)) {
         return NB_ERR_INVALID;
+    }
+    if (strchr(service, '.') != NULL) {
+        return NB_ERR_INVALID;
+    }
+    if (strlen(service) >= NB_SERVICE_NAME_MAX) {
+        return NB_ERR_TOOBIG;
     }
     if (table->lock) {
         ntk_mutex_lock((ntk_mutex *)table->lock);
@@ -124,8 +141,7 @@ int nb_route_add_endpoint(nb_route_table_t *table,
     }
     for (i = 0; i < r->endpoint_count; i++) {
         nb_endpoint_t *existing = &r->endpoints[i];
-        if (existing->port == endpoint.port && strcmp(existing->scheme, endpoint.scheme) == 0 &&
-            strcmp(existing->host, endpoint.host) == 0) {
+        if (nb_endpoint_equal(existing, &endpoint)) {
             r->is_static = is_static || r->is_static;
             if (table->lock) {
                 ntk_mutex_unlock((ntk_mutex *)table->lock);

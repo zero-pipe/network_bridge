@@ -5,10 +5,10 @@
  * 注意：rpc 核心仍是异步的；nb_proxy_call_sync 只是阻塞等待，禁止在
  * poller 线程回调里使用。
  */
-#include <client.h>
+#include <nb/client.h>
 
 #define NB_LOG_TAG "example"
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdio.h>
 #include <stdlib.h>

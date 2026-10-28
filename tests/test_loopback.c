@@ -1,10 +1,10 @@
-#include <client.h>
-#include <server.h>
+#include <nb/client.h>
+#include <nb/server.h>
 #include <platform.h>
 #include <thread/sem.h>
 
 #define NB_LOG_TAG "test"
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdio.h>
 #include <string.h>

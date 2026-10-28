@@ -12,14 +12,14 @@
  * 如果将来把 DDS loan 直接当作 frame_owner 跨线程传递而没有正确的生命周期管理，
  * WORKER 用例会读到被 dds_return_loan 复用/释放的数据而失败。
  */
-#include <client.h>
-#include <server.h>
-#include <dds.h>
+#include <nb/client.h>
+#include <nb/server.h>
+#include <nb/dds.h>
 #include <platform.h>
 #include <thread/sem.h>
 
 #define NB_LOG_TAG "test"
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -124,7 +124,7 @@ int main(void)
         nb_log_error("dds register failed");
         return 1;
     }
-    snprintf(endpoint, sizeof(endpoint), "dds://%d:1", NB_LOAN_DOMAIN);
+    snprintf(endpoint, sizeof(endpoint), "dds://%d", NB_LOAN_DOMAIN);
     memset(&binding, 0, sizeof(binding));
     binding.name = "dds";
     binding.endpoint = endpoint;

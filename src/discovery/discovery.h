@@ -7,8 +7,8 @@
  * 它实现 nb_registry_backend_ops_t，把发现结果写入 node registry。
  */
 
-#include <types.h>
-#include <endpoint.h>
+#include <nb/types.h>
+#include <nb/endpoint.h>
 
 #include <stddef.h>
 #include <stdint.h>

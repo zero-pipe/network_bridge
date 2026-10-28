@@ -7,14 +7,14 @@
 #include "poller_alloc.h"
 #include "util.h"
 
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdlib.h>
 #include <string.h>
 
 typedef struct nb_stub_task {
     nb_stub_t *stub;
-    uint64_t id;
+    nb_request_id_t id;
     uint64_t timeout_ms;
     response_fn cb;
     response_chunk_fn chunk_cb;
@@ -34,7 +34,7 @@ typedef struct nb_stub_task {
 
 typedef struct nb_stub_resend_task {
     nb_node_t *node;
-    uint64_t id;
+    nb_request_id_t id;
 } nb_stub_resend_task_t;
 
 static void nb_stub_task_free(nb_stub_task_t *task);
@@ -129,7 +129,7 @@ static int nb_stub_save_replay(nb_pending_t *p,
 static void nb_stub_call_now(nb_stub_t *stub,
                           nb_stub_task_t *owner,
                           nb_buf_t *buf_owner,
-                          uint64_t id,
+                          nb_request_id_t id,
                           const char *service,
                           const char *method,
                           const uint8_t *data,
@@ -259,7 +259,7 @@ static void nb_stub_call_now(nb_stub_t *stub,
 }
 
 static void nb_stub_event_now(nb_stub_t *stub,
-                           uint64_t id,
+                           nb_request_id_t id,
                            const char *service,
                            const char *method,
                            const uint8_t *data,
@@ -335,11 +335,11 @@ static void nb_stub_call_task_fn(void *user)
     nb_stub_task_free(t);
 }
 
-static uint64_t nb_stub_next_id(nb_node_t *node)
+static nb_request_id_t nb_stub_next_id(nb_node_t *node)
 {
-    uint64_t id;
+    nb_request_id_t id;
     ntk_mutex_lock(node->id_lock);
-    id = (uint64_t)(uint32_t)(node->next_request_id++);
+    id = (nb_request_id_t)(node->next_request_id++);
     ntk_mutex_unlock(node->id_lock);
     return id ? id : 1;
 }
@@ -360,7 +360,7 @@ static void nb_stub_task_free(nb_stub_task_t *task)
 
 /* 创建一次调用的任务快照（service/method/payload 全部深拷贝）。 */
 static nb_stub_task_t *nb_stub_task_create(nb_stub_t *stub,
-                                         uint64_t id,
+                                         nb_request_id_t id,
                                          const char *service,
                                          const char *method,
                                          const uint8_t *data,
@@ -531,10 +531,10 @@ static int nb_stub_call_event_impl(nb_stub_t *stub,
                                const nb_payload_t *payload,
                                nb_owned_payload_t *move,
                                const nb_metadata_t *metadata,
-                               uint64_t *out_request_id)
+                               nb_request_id_t *out_request_id)
 {
     nb_stub_task_t *t;
-    uint64_t id;
+    nb_request_id_t id;
     const uint8_t *data = NULL;
     size_t len = 0;
     uint8_t encoding = 0;
@@ -592,7 +592,7 @@ int nb_stub_call_event_with_metadata(nb_stub_t *stub,
                        const char *method,
                        const nb_payload_t *payload,
                        const nb_metadata_t *metadata,
-                       uint64_t *out_request_id)
+                       nb_request_id_t *out_request_id)
 {
     return nb_stub_call_event_impl(
         stub, service, method, payload, NULL, metadata, out_request_id);
@@ -603,7 +603,7 @@ int nb_stub_call_event_owned_with_metadata(nb_stub_t *stub,
                             const char *method,
                             nb_owned_payload_t *payload,
                             const nb_metadata_t *metadata,
-                            uint64_t *out_request_id)
+                            nb_request_id_t *out_request_id)
 {
     return nb_stub_call_event_impl(
         stub, service, method, NULL, payload, metadata, out_request_id);
@@ -613,7 +613,7 @@ int nb_stub_call_event(nb_stub_t *stub,
                     const char *service,
                     const char *method,
                     const nb_payload_t *payload,
-                    uint64_t *out_request_id)
+                    nb_request_id_t *out_request_id)
 {
     return nb_stub_call_event_with_metadata(stub, service, method, payload, NULL, out_request_id);
 }
@@ -629,11 +629,11 @@ static int nb_stub_call_impl(nb_stub_t *stub,
                              int streaming,
                              void *user,
                              uint64_t timeout_ms,
-                             uint64_t *out_request_id,
+                             nb_request_id_t *out_request_id,
                              const nb_metadata_t *metadata)
 {
     nb_stub_task_t *t;
-    uint64_t id;
+    nb_request_id_t id;
     const uint8_t *data = NULL;
     size_t len = 0;
     uint8_t encoding = 0;
@@ -724,7 +724,7 @@ int nb_stub_call_ex(nb_stub_t *stub,
                      int streaming,
                      void *user,
                      uint64_t timeout_ms,
-                     uint64_t *out_request_id,
+                     nb_request_id_t *out_request_id,
                      const nb_metadata_t *metadata)
 {
     return nb_stub_call_impl(stub,
@@ -753,7 +753,7 @@ int nb_stub_call_owned(nb_stub_t *stub,
                        bool streaming,
                        void *user,
                        uint64_t timeout_ms,
-                       uint64_t *out_request_id)
+                       nb_request_id_t *out_request_id)
 {
     return nb_stub_call_impl(stub,
                              service,
@@ -770,6 +770,32 @@ int nb_stub_call_owned(nb_stub_t *stub,
                              metadata);
 }
 
+int nb_stub_call_owned_ex(nb_stub_t *stub,
+                          const char *service,
+                          const char *method,
+                          nb_owned_payload_t *payload,
+                          const nb_stub_call_options_t *options)
+{
+    static const nb_stub_call_options_t defaults = NB_STUB_CALL_OPTIONS_INIT;
+    const nb_stub_call_options_t *o = options ? options : &defaults;
+
+    if (!o->cb && !o->chunk_cb) {
+        return NB_ERR_INVALID;
+    }
+    return nb_stub_call_owned(stub,
+                              service,
+                              method,
+                              payload,
+                              o->metadata,
+                              o->cb,
+                              o->chunk_cb,
+                              o->done_cb,
+                              o->streaming,
+                              o->user,
+                              o->timeout_ms,
+                              o->out_request_id);
+}
+
 int nb_stub_call_async(nb_stub_t *stub,
                     const char *service,
                     const char *method,
@@ -777,7 +803,7 @@ int nb_stub_call_async(nb_stub_t *stub,
                     response_fn cb,
                     void *user,
                     uint64_t timeout_ms,
-                    uint64_t *out_request_id)
+                    nb_request_id_t *out_request_id)
 {
     return nb_stub_call_ex(
         stub, service, method, payload, cb, NULL, NULL, 0, user, timeout_ms, out_request_id, NULL);
@@ -791,7 +817,7 @@ int nb_stub_call_async_with_metadata(nb_stub_t *stub,
                        response_fn cb,
                        void *user,
                        uint64_t timeout_ms,
-                       uint64_t *out_request_id)
+                       nb_request_id_t *out_request_id)
 {
     return nb_stub_call_ex(stub,
                             service,

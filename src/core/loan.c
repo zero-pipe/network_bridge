@@ -5,7 +5,7 @@
  * 编码＋扇出，跳过普通 send 路径里把 payload 拷进 chunk 的那一次 memcpy。
  * 句柄由 core 分配、publish/release 归还，额度来自 provider 的段内 chunk。
  */
-#include <publish.h>
+#include <nb/publish.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -25,12 +25,12 @@ struct nb_loan {
 };
 
 /* 事件 id 只用于关联，分配方式与 stub 的 nb_stub_next_id 保持一致。 */
-static uint64_t nb_loan_next_id(nb_node_t *node)
+static nb_request_id_t nb_loan_next_id(nb_node_t *node)
 {
-    uint64_t id;
+    nb_request_id_t id;
 
     ntk_mutex_lock(node->id_lock);
-    id = (uint64_t)(uint32_t)(node->next_request_id++);
+    id = (nb_request_id_t)(node->next_request_id++);
     ntk_mutex_unlock(node->id_lock);
     return id ? id : 1;
 }
@@ -93,10 +93,10 @@ int nb_publisher_loan(nb_publisher_t *pub,
 int nb_publisher_publish_loan(nb_loan_t *loan,
                               uint32_t length,
                               uint8_t encoding,
-                              uint64_t *out_request_id)
+                              nb_request_id_t *out_request_id)
 {
     nb_message_t msg;
-    uint64_t id;
+    nb_request_id_t id;
     int rc;
 
     if (!loan) {
@@ -110,7 +110,7 @@ int nb_publisher_publish_loan(nb_loan_t *loan,
     id = nb_loan_next_id(loan->node);
     memset(&msg, 0, sizeof(msg));
     msg.kind = NB_MSG_KIND_EVENT;
-    msg.request_id = (uint32_t)id;
+    msg.request_id = id;
     msg.route = loan->route;
     msg.payload.data = loan->data;
     msg.payload.len = length;

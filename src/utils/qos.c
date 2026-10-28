@@ -1,5 +1,5 @@
-#include <qos.h>
-#include <error.h>
+#include <nb/qos.h>
+#include <nb/error.h>
 
 #include <string.h>
 

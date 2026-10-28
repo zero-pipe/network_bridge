@@ -2,10 +2,10 @@
 #include "node_access.h"
 #include "pending.h"
 
-#include <node.h>
+#include <nb/node.h>
 
 #define NB_LOG_TAG "test"
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdio.h>
 #include <string.h>

@@ -3,18 +3,18 @@
  *
  * 用法：example_08_config_client [config.json]
  */
-#include <client.h>
-#include <config.h>
+#include <nb/client.h>
+#include <nb/config.h>
 
 #define NB_LOG_TAG "example"
-#include <log.h>
+#include <nb/log.h>
 
 #include <string.h>
 
 int main(int argc, char **argv)
 {
     const char *path = argc > 1 ? argv[1] : "client.json";
-    nb_config_doc_t cfg;
+    nb_config_doc_t *cfg = NULL;
     nb_config_error_t err;
     nb_node_t *node = NULL;
     nb_proxy_t *proxy = NULL;
@@ -28,7 +28,8 @@ int main(int argc, char **argv)
             "load config failed: %s (%d) path=%s reason=%s", path, rc, err.path, err.reason);
         return 1;
     }
-    rc = nb_node_create_from_config(&cfg, &node);
+    rc = nb_node_create_from_config(cfg, &node);
+    nb_config_doc_destroy(cfg);
     if (rc == NB_OK) {
         rc = nb_proxy_create(node, NULL, &proxy);
     }

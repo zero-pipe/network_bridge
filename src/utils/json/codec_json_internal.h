@@ -25,6 +25,18 @@ int nb_codec_json_fill_object(const struct cJSON *node,
                               size_t model_count,
                               void *obj);
 
+/*
+ * Same as nb_codec_json_fill_object, but on failure stores the model key of
+ * the field that failed in *failed_key (NULL when the failure is not tied to a
+ * field). This lets config report "runtime.io_threads" instead of just
+ * "runtime".
+ */
+int nb_codec_json_fill_object_ex(const struct cJSON *node,
+                                 const nb_codec_json_model_t *model,
+                                 size_t model_count,
+                                 void *obj,
+                                 const char **failed_key);
+
 #ifdef __cplusplus
 }
 #endif

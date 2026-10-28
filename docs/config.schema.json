@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://network-bridge.local/config.schema.json",
   "title": "network bridge framework configuration",
-  "description": "JSON configuration accepted by nb_config_parse and nb_config_parse_file.",
+  "description": "JSON configuration accepted by nb_config_parse and nb_config_parse_file. String enums are lowercase and case-sensitive. Unknown fields are ignored (nb_config_parse logs a warning).",
   "type": "object",
   "properties": {
     "name": {
@@ -12,8 +12,8 @@
     },
     "mode": {
       "type": "string",
-      "enum": ["mesh", "static", "MESH", "STATIC"],
-      "description": "Discovery mode. Default: mesh."
+      "enum": ["mesh", "static"],
+      "description": "Discovery mode. Default: mesh. static is equivalent to discovery.disable=true."
     },
     "runtime": {
       "type": "object",
@@ -21,8 +21,8 @@
         "io_threads": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 1024,
-          "description": "Poller threads. 0 means hardware concurrency; normalized to IO_MAX (8)."
+          "maximum": 8,
+          "description": "Poller threads. 0 means hardware concurrency; values above NB_TRANSPORT_MAX_IO (8) are rejected."
         },
         "handler_threads": {
           "type": "integer",
@@ -54,6 +54,7 @@
         "send_lanes": {
           "type": "integer",
           "minimum": 0,
+          "maximum": 64,
           "description": "Dedicated send-lane poller threads, isolated from the io pollers that receive and dispatch. Run publish loops via nb_node_post_send so nb_proxy_call_event takes the inline send fast path. 0 disables."
         }
       },
@@ -64,8 +65,8 @@
       "properties": {
         "kind": {
           "type": "string",
-          "pattern": "^([uU][dD][pP]|[tT][cC][pP])$",
-          "description": "Default transport when no explicit bindings are given."
+          "enum": ["udp", "tcp"],
+          "description": "Default transport when no explicit bindings are given. Default: udp."
         },
         "bind_host": {
           "type": "string",
@@ -85,6 +86,7 @@
             "oneOf": [
               {
                 "type": "string",
+                "maxLength": 255,
                 "description": "Endpoint URI such as tcp://127.0.0.1:42420."
               },
               {
@@ -93,7 +95,7 @@
                 "properties": {
                   "name": {
                     "type": "string",
-                    "maxLength": 31
+                    "maxLength": 15
                   },
                   "endpoint": {
                     "type": "string",
@@ -108,6 +110,9 @@
                     "type": "integer",
                     "minimum": 0,
                     "description": "Busy-poll window in microseconds after draining before falling back to a blocking wait (shm). 0 blocks on wakeup."
+                  },
+                  "qos": {
+                    "$ref": "#/$defs/qos"
                   }
                 },
                 "additionalProperties": true
@@ -118,15 +123,17 @@
         },
         "frag_bytes": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 65535,
-          "description": "UDP fragment size. Default 1440 (IPv4 1500 MTU minus 60 bytes of IP/UDP/RTP/fragment headers); normalized to 256..8192."
+          "anyOf": [
+            { "const": 0 },
+            { "minimum": 256, "maximum": 8192 }
+          ],
+          "description": "UDP fragment size. 0 uses the default 1440 (IPv4 1500 MTU minus 60 bytes of headers); otherwise 256..8192."
         },
         "max_msg_bytes": {
           "type": "integer",
           "minimum": 0,
           "maximum": 67108864,
-          "description": "Maximum envelope size. Default 1 MiB."
+          "description": "Maximum envelope size. Default 1 MiB; maximum 64 MiB."
         },
         "backpressure_bytes": {
           "type": "integer",
@@ -141,6 +148,9 @@
         "disable_rtcp": {
           "type": "boolean",
           "description": "Set true to disable RTCP."
+        },
+        "qos": {
+          "$ref": "#/$defs/qos"
         }
       },
       "additionalProperties": true
@@ -150,8 +160,8 @@
       "properties": {
         "mode": {
           "type": "string",
-          "enum": ["mesh", "static", "off", "none", "MESH", "STATIC", "OFF", "NONE"],
-          "description": "Mesh enables discovery; static/off/none disable it."
+          "enum": ["mesh", "static", "off", "none"],
+          "description": "mesh enables discovery; static/off/none disable it. A top-level mode of static always disables discovery."
         },
         "broadcast": {
           "type": "string",
@@ -193,10 +203,6 @@
           "type": "integer",
           "minimum": 0,
           "description": "Latency sampling interval. 0 or 1 means every call."
-        },
-        "disable_per_peer_stats": {
-          "type": "boolean",
-          "description": "Disable per-peer link statistics."
         }
       },
       "additionalProperties": true
@@ -212,15 +218,6 @@
           "type": "string",
           "enum": ["assert", "error", "warn", "info", "debug", "verbose"],
           "description": "Log level. Default: info."
-        },
-        "sink_kind": {
-          "type": "string",
-          "description": "Reserved output backend selector."
-        },
-        "file": {
-          "type": "string",
-          "maxLength": 63,
-          "description": "Reserved log file path."
         }
       },
       "additionalProperties": true

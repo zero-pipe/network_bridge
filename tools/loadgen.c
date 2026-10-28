@@ -4,14 +4,14 @@
  *
  * 形状：单进程单"热连接"，同一时刻 1 个 outstanding RPC（对齐 gRPC 单 channel）。
  */
-#include <client.h>
-#include <dds.h>
-#include <shm.h>
+#include <nb/client.h>
+#include <nb/dds.h>
+#include <nb/shm.h>
 #include <platform.h>
 #include <thread/sem.h>
 
 #define NB_LOG_TAG "loadgen"
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -321,7 +321,7 @@ static void ed_issue(void *user)
     g_in_issue = 1;
     for (;;) {
         uint64_t limit = g_window ? g_window : 1;
-        uint64_t id = 0;
+        nb_request_id_t id = 0;
         int rc;
         g_pause = 0;
         if (now_ns() >= g_deadline_ns ||
@@ -540,7 +540,7 @@ int main(int argc, char **argv)
             nb_log_error("dds provider register failed");
             return 1;
         }
-        snprintf(dds_endpoint, sizeof(dds_endpoint), "dds://%d:1", opt.dds_domain);
+        snprintf(dds_endpoint, sizeof(dds_endpoint), "dds://%d", opt.dds_domain);
         memset(&dds_binding, 0, sizeof(dds_binding));
         dds_binding.name = "dds";
         dds_binding.endpoint = dds_endpoint;
@@ -608,7 +608,7 @@ int main(int argc, char **argv)
     /* 预热：等发现收敛（NOTFOUND 视为尚未发现，继续重试）。 */
     {
         uint64_t wdeadline = now_ns() + (uint64_t)opt.connect_timeout_seconds * 1000000000ull;
-        uint64_t id = 0;
+        nb_request_id_t id = 0;
         int warmed = 0;
         while (now_ns() < wdeadline) {
             nb_payload_t pl;
@@ -723,7 +723,7 @@ int main(int argc, char **argv)
             uint64_t index = 0;
             while (now_ns() < deadline_ns &&
                    (opt.max_requests == 0 || attempted < opt.max_requests)) {
-                uint64_t id = 0;
+                nb_request_id_t id = 0;
                 uint64_t us;
                 uint64_t target = start_ns + (uint64_t)((double)index * 1000000000.0 / opt.rate);
                 nb_payload_t pl;

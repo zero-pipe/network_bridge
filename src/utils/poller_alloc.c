@@ -12,7 +12,7 @@
  */
 #include "poller_alloc.h"
 
-#include <alloc.h>
+#include <nb/alloc.h>
 
 #include <ntk.h>
 

@@ -5,14 +5,14 @@
  * 请求/响应队列、provider 线程与 chunk 池完全按真实部署路径运行，覆盖多客户端
  * 对同一 server 的并发回投。跨进程覆盖由 benchmark 工具（--shm）与质量门禁提供。
  */
-#include <client.h>
-#include <server.h>
-#include <shm.h>
+#include <nb/client.h>
+#include <nb/server.h>
+#include <nb/shm.h>
 #include <platform.h>
 #include <thread/sem.h>
 
 #define NB_LOG_TAG "test"
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdio.h>
 #include <string.h>

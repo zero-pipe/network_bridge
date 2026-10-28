@@ -5,12 +5,12 @@
  * NB_SERVICE_EXEC_WORKER. The handler sleeps on a worker thread, not on the
  * poller thread that owns the transport.
  */
-#include <client.h>
-#include <server.h>
+#include <nb/client.h>
+#include <nb/server.h>
 #include <platform.h>
 
 #define NB_LOG_TAG "example"
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdio.h>
 #include <string.h>

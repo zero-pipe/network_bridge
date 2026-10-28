@@ -2,10 +2,10 @@
  * 06 Static Route：服务端。对应 fastcall-c 的 06_static_route。
  * TCP 127.0.0.1:42420，注册 OrderService.get（同步风格）。
  */
-#include <server.h>
+#include <nb/server.h>
 
 #define NB_LOG_TAG "example"
-#include <log.h>
+#include <nb/log.h>
 
 #include <string.h>
 

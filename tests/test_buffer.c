@@ -1,6 +1,6 @@
-#include <buf.h>
-#include <alloc.h>
-#include <error.h>
+#include <nb/buf.h>
+#include <nb/alloc.h>
+#include <nb/error.h>
 
 #include <stdint.h>
 #include <stdio.h>

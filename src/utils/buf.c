@@ -1,7 +1,7 @@
 #include "buf.h"
 #include "atomic.h"
 
-#include <error.h>
+#include <nb/error.h>
 
 #include <string.h>
 

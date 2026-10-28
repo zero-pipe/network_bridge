@@ -5,13 +5,13 @@
  * publisher is an ordinary proxy using the one-way event call. Topics are
  * derived by the DDS provider as <method>_evt.
  */
-#include <client.h>
-#include <server.h>
-#include <dds.h>
+#include <nb/client.h>
+#include <nb/server.h>
+#include <nb/dds.h>
 #include <platform.h>
 
 #define NB_LOG_TAG "example"
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -60,7 +60,7 @@ int main(void)
 
     memset(&binding, 0, sizeof(binding));
     binding.name = "dds";
-    binding.endpoint = "dds://0:1";
+    binding.endpoint = "dds://0";
     binding.intra_process = NB_INTRA_ONLY;
 
     nb_node_config_default(&cfg);
@@ -81,7 +81,7 @@ int main(void)
         rc = nb_proxy_create(node, NULL, &pub);
     }
     if (rc == NB_OK) {
-        rc = nb_proxy_set_target_uri(pub, "dds://0:1");
+        rc = nb_proxy_set_target_uri(pub, "dds://0");
     }
     if (rc != NB_OK) {
         nb_log_error("dds pub/sub setup failed: %d (%s)", rc, nb_error_name(rc));

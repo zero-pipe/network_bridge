@@ -15,7 +15,7 @@
 #include "util.h"
 
 #define NB_LOG_TAG "udp"
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdio.h>
 #include <stdlib.h>

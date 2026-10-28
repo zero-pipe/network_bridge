@@ -1,10 +1,10 @@
 /* registry / selector：service instance 隔离、多 endpoint 轮询、删除与过期。 */
-#include <runtime.h>
+#include <nb/runtime.h>
 
 #include "registry.h"
 
 #define NB_LOG_TAG "test"
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdio.h>
 #include <string.h>

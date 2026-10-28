@@ -11,7 +11,7 @@
  * 本伞头保留给"用得多、不想逐个 include"的场景，并声明跨模块的少量函数。
  */
 
-#include <types.h>
+#include <nb/types.h>
 
 #include <stddef.h>
 #include <stdint.h>

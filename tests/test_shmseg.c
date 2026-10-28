@@ -8,7 +8,7 @@
 #include "shm_segment.h"
 
 #define NB_LOG_TAG "test"
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdio.h>
 #include <string.h>

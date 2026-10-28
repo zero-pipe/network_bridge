@@ -6,7 +6,7 @@
  *
  * Applications that want the complete API can include <nb.h>. Projects that
  * prefer a minimal include set should keep using the role headers:
- * <runtime.h>, <server.h>, <client.h>, <transport.h>, <extensions.h>.
+ * <nb/runtime.h>, <nb/server.h>, <nb/client.h>, <nb/transport.h>, <nb/extensions.h>.
  *
  * Compatibility: headers are kept source-compatible across releases, but
  * struct layouts are not guaranteed to be binary-compatible; link consumers
@@ -14,21 +14,21 @@
  * in types.h identifies the header API level.
  */
 
-#include <runtime.h>
-#include <server.h>
-#include <client.h>
-#include <transport.h>
-#include <extensions.h>
-#include <config.h>
-#include <message.h>
-#include <qos.h>
-#include <log.h>
-#include <publish.h>
-#include <subscribe.h>
-#include <dds.h>
-#include <buf.h>
-#include <alloc.h>
-#include <poolset.h>
-#include <slotpool.h>
+#include <nb/runtime.h>
+#include <nb/server.h>
+#include <nb/client.h>
+#include <nb/transport.h>
+#include <nb/extensions.h>
+#include <nb/config.h>
+#include <nb/message.h>
+#include <nb/qos.h>
+#include <nb/log.h>
+#include <nb/publish.h>
+#include <nb/subscribe.h>
+#include <nb/dds.h>
+#include <nb/buf.h>
+#include <nb/alloc.h>
+#include <nb/poolset.h>
+#include <nb/slotpool.h>
 
 #endif /* NB_H */

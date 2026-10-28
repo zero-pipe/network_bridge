@@ -12,7 +12,7 @@
 
 typedef struct nb_cancel_task {
     nb_proxy_t *proxy;
-    uint64_t id;
+    nb_request_id_t id;
 } nb_cancel_task_t;
 
 int nb_proxy_resolve(nb_proxy_t *proxy,
@@ -134,11 +134,17 @@ void nb_proxy_destroy(nb_proxy_t *proxy)
 int nb_proxy_set_target(nb_proxy_t *proxy, const char *ip, uint16_t port, nb_transport_kind_t transport)
 {
     nb_endpoint_t endpoint;
+    const char *scheme;
+
     if (!proxy || !ip || !port) {
         return NB_ERR_INVALID;
     }
+    if (transport != NB_TRANSPORT_UDP && transport != NB_TRANSPORT_TCP) {
+        return NB_ERR_NOT_SUPPORTED;
+    }
+    scheme = transport == NB_TRANSPORT_TCP ? "tcp" : "udp";
     if (nb_endpoint_from_parts(&endpoint,
-                               transport == NB_TRANSPORT_TCP ? "tcp" : "udp",
+                               scheme,
                                ip,
                                port,
                                transport) != NB_OK) {
@@ -154,7 +160,8 @@ int nb_proxy_set_target(nb_proxy_t *proxy, const char *ip, uint16_t port, nb_tra
 int nb_proxy_set_target_uri(nb_proxy_t *proxy, const char *endpoint)
 {
     nb_endpoint_t parsed;
-    if (!proxy || !endpoint || nb_endpoint_parse(endpoint, &parsed) != NB_OK || parsed.port == 0) {
+    if (!proxy || !endpoint || nb_endpoint_parse(endpoint, &parsed) != NB_OK ||
+        (nb_endpoint_is_network(&parsed) && parsed.port == 0)) {
         return NB_ERR_INVALID;
     }
     nb_spinlock_lock(&proxy->endpoint_lock);
@@ -216,7 +223,7 @@ int nb_proxy_call_async(nb_proxy_t *proxy,
     response_fn use_cb = cb;
     void *use_user = user;
     uint64_t timeout = options ? options->timeout_ms : 0;
-    uint64_t *out_request_id = options ? options->out_request_id : NULL;
+    nb_request_id_t *out_request_id = options ? options->out_request_id : NULL;
     int rc;
 
     if (!proxy || !proxy->node || !proxy->stub || !service || !method || !cb) {
@@ -277,7 +284,7 @@ int nb_proxy_call_async_owned(nb_proxy_t *proxy,
     response_fn use_cb = cb;
     void *use_user = user;
     uint64_t timeout = options ? options->timeout_ms : 0;
-    uint64_t *out_request_id = options ? options->out_request_id : NULL;
+    nb_request_id_t *out_request_id = options ? options->out_request_id : NULL;
     int rc;
 
     if (!proxy || !proxy->node || !proxy->stub || !service || !method || !cb) {
@@ -334,7 +341,7 @@ int nb_proxy_call_event(nb_proxy_t *proxy,
                         const nb_call_options_t *options)
 {
     const nb_metadata_t *use_meta = options ? options->metadata : NULL;
-    uint64_t *out_request_id = options ? options->out_request_id : NULL;
+    nb_request_id_t *out_request_id = options ? options->out_request_id : NULL;
     nb_metadata_t meta;
     int rc;
     if (!proxy || !proxy->node || !proxy->stub || !service || !method) {
@@ -364,7 +371,7 @@ int nb_proxy_call_event_owned(nb_proxy_t *proxy,
                               const nb_call_options_t *options)
 {
     const nb_metadata_t *use_meta = options ? options->metadata : NULL;
-    uint64_t *out_request_id = options ? options->out_request_id : NULL;
+    nb_request_id_t *out_request_id = options ? options->out_request_id : NULL;
     nb_metadata_t meta;
     int rc;
 
@@ -392,7 +399,7 @@ int nb_proxy_call_event_owned(nb_proxy_t *proxy,
 
 /* ---- 调用控制 ---- */
 
-int nb_proxy_cancel(nb_proxy_t *proxy, uint64_t request_id)
+int nb_proxy_cancel(nb_proxy_t *proxy, nb_request_id_t request_id)
 {
     nb_cancel_task_t *t;
     if (!proxy || !proxy->node || !request_id) {

@@ -21,7 +21,7 @@
  */
 #include "transport_internal.h"
 
-#include <shm.h>
+#include <nb/shm.h>
 
 #include "atomic.h"
 #include "endpoint.h"
@@ -30,7 +30,7 @@
 #include "util.h"
 
 #define NB_LOG_TAG "shm"
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -231,6 +231,8 @@ static void nb_shm_deliver(nb_shm_instance_t *inst, uint64_t off, uint16_t sourc
                                source_id,
                                nb_transport_kind_from_scheme("shm")) == NB_OK) {
         msg.peer = &peer;
+        msg.peer_host = peer.host;
+        msg.peer_port = peer.port;
     }
     inst->options.on_receive(inst->options.user, reply_token, &msg);
 }

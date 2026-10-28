@@ -1,6 +1,6 @@
 #include "metric_macros.h"
 
-#include <metrics.h>
+#include <nb/metrics.h>
 
 #include <stdint.h>
 #include <stdio.h>
@@ -53,6 +53,7 @@ static void test_metric_registry(void)
     const nb_metric_desc_t *desc;
     const uint32_t *bounds = NULL;
     size_t count;
+    size_t i;
 
     CHECK(nb_metric_table_count > 0);
     desc = nb_metric_find("requests_sent_total");
@@ -60,6 +61,23 @@ static void test_metric_registry(void)
     CHECK(desc->type == NB_METRIC_COUNTER);
     CHECK(strcmp(desc->unit, "requests") == 0);
     CHECK(desc->offset == offsetof(nb_metrics_t, requests_sent));
+    CHECK(desc->scope == NB_METRIC_SCOPE_NODE);
+
+    /* Transport-specific fields are tagged so exporters can filter them. */
+    desc = nb_metric_find("udp_packets_sent_total");
+    CHECK(desc != NULL && desc->scope == NB_METRIC_SCOPE_UDP);
+    desc = nb_metric_find("tcp_frames_sent_total");
+    CHECK(desc != NULL && desc->scope == NB_METRIC_SCOPE_TCP);
+    desc = nb_metric_find("rtcp_rtt_ms");
+    CHECK(desc != NULL && desc->scope == NB_METRIC_SCOPE_UDP_RTCP);
+
+    for (i = 0; i < nb_metric_table_count; i++) {
+        CHECK(nb_metric_table[i].name != NULL);
+        CHECK(nb_metric_table[i].type >= NB_METRIC_COUNTER &&
+              nb_metric_table[i].type <= NB_METRIC_HISTOGRAM);
+        CHECK(nb_metric_table[i].scope >= NB_METRIC_SCOPE_NODE &&
+              nb_metric_table[i].scope <= NB_METRIC_SCOPE_UDP_RTCP);
+    }
 
     desc = nb_metric_find("connections");
     CHECK(desc != NULL);

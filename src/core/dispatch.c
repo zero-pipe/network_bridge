@@ -12,7 +12,7 @@
 #include "service_internal.h"
 #include "util.h"
 
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -381,6 +381,7 @@ static void nb_node_dispatch(nb_node_t *node, nb_transport_t *transport, nb_mess
         resp.status_msg = p->response_message;
         resp.payload = msg->payload;
         resp.metadata = p->response_metadata;
+        resp.owns_payload = false;
         nb_pending_record_latency(node, p);
         nb_pending_invoke(p, NB_OK, &resp);
         return;
@@ -432,7 +433,7 @@ int nb_node_send(nb_node_t *node, const nb_endpoint_t *target, const nb_message_
     nb_message_t outbound;
     nb_transport_t *transport;
 
-    if (!node || !msg || !target || !target->port) {
+    if (!node || !msg || !target || (nb_endpoint_is_network(target) && !target->port)) {
         return NB_ERR_INVALID;
     }
     outbound = *msg;
@@ -452,7 +453,8 @@ int nb_node_send_call(nb_node_t *node, const nb_stub_request_t *request)
     char route[NB_GLOBAL_MAX_ROUTE_BYTES];
 
     if (!node || !request || !request->service || !request->method || !request->target ||
-        !request->target->host[0] || !request->target->port) {
+        !request->target->host[0] ||
+        (nb_endpoint_is_network(request->target) && !request->target->port)) {
         return NB_ERR_INVALID;
     }
     if (nb_route_format(route, sizeof(route), request->service, request->method) != NB_OK) {

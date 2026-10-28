@@ -125,7 +125,7 @@ static int nb_json_as_u64(const cJSON* v, uint64_t* out) {
 }
 
 static int nb_fill_object(const cJSON* json, void* obj, const nb_codec_json_model_t* model,
-                       size_t model_count);
+                       size_t model_count, const char** failed_key);
 static int nb_encode_object(const void* obj, const nb_codec_json_model_t* model, size_t model_count,
                          cJSON** out);
 static void nb_clear_object(void* obj, const nb_codec_json_model_t* model, size_t model_count,
@@ -309,7 +309,7 @@ static int nb_decode_elem(const cJSON* v, nb_codec_json_type_t type, void* dest,
         if (!nested) {
             return NB_CODEC_OUT_OF_MEMORY;
         }
-        status = nb_fill_object(v, nested, sub, sub_n);
+        status = nb_fill_object(v, nested, sub, sub_n, NULL);
         if (status != NB_CODEC_OK) {
             nb_clear_object(nested, sub, sub_n, 1);
             return status;
@@ -321,7 +321,7 @@ static int nb_decode_elem(const cJSON* v, nb_codec_json_type_t type, void* dest,
         if (!cJSON_IsObject(v)) {
             return NB_CODEC_TYPE_MISMATCH;
         }
-        return nb_fill_object(v, dest, sub, sub_n);
+        return nb_fill_object(v, dest, sub, sub_n, NULL);
     default:
         return NB_CODEC_INVALID_ARGUMENT;
     }
@@ -455,7 +455,7 @@ static int nb_decode_map(const cJSON* v, nb_codec_json_map_t* map, const nb_code
             return NB_CODEC_OUT_OF_MEMORY;
         }
         entries[index].value = value;
-        status = nb_fill_object(item, value, field->param.sub.model, field->param.sub.count);
+        status = nb_fill_object(item, value, field->param.sub.model, field->param.sub.count, NULL);
         if (status != NB_CODEC_OK) {
             nb_clear_map(map, field);
             return status;
@@ -466,10 +466,13 @@ static int nb_decode_map(const cJSON* v, nb_codec_json_map_t* map, const nb_code
 }
 
 static int nb_fill_object(const cJSON* json, void* obj, const nb_codec_json_model_t* model,
-                       size_t model_count) {
+                       size_t model_count, const char** failed_key) {
     size_t i;
     int status;
 
+    if (failed_key) {
+        *failed_key = NULL;
+    }
     if (!json || !cJSON_IsObject(json) || !obj || !model) {
         return NB_CODEC_INVALID_ARGUMENT;
     }
@@ -503,10 +506,16 @@ static int nb_fill_object(const cJSON* json, void* obj, const nb_codec_json_mode
                 break;
             }
             if (!cJSON_IsString(item) || !item->valuestring) {
+                if (failed_key) {
+                    *failed_key = field->key;
+                }
                 return NB_CODEC_TYPE_MISMATCH;
             }
             n = strlen(item->valuestring);
             if (n + 1u > cap) {
+                if (failed_key) {
+                    *failed_key = field->key;
+                }
                 return NB_CODEC_LIMIT_EXCEEDED;
             }
             memcpy(dest, item->valuestring, n);
@@ -515,29 +524,23 @@ static int nb_fill_object(const cJSON* json, void* obj, const nb_codec_json_mode
         }
         case NB_CODEC_JSON_ARRAY:
             status = nb_decode_array(item, dest, field);
-            if (status != NB_CODEC_OK) {
-                return status;
-            }
             break;
         case NB_CODEC_JSON_VEC:
             status = nb_decode_vec(item, (nb_codec_json_vec_t*)dest, field);
-            if (status != NB_CODEC_OK) {
-                return status;
-            }
             break;
         case NB_CODEC_JSON_MAP:
             status = nb_decode_map(item, (nb_codec_json_map_t*)dest, field);
-            if (status != NB_CODEC_OK) {
-                return status;
-            }
             break;
         default:
             status = nb_decode_elem(item, field->type, dest, field->param.sub.model,
                                  field->param.sub.count);
-            if (status != NB_CODEC_OK) {
-                return status;
-            }
             break;
+        }
+        if (status != NB_CODEC_OK) {
+            if (failed_key) {
+                *failed_key = field->key;
+            }
+            return status;
         }
     }
     return NB_CODEC_OK;
@@ -990,7 +993,7 @@ static int nb_decode_root(const char* json, const nb_codec_json_model_t* model, 
             return NB_CODEC_OUT_OF_MEMORY;
         }
     }
-    status = nb_fill_object(root, obj, model, model_count);
+    status = nb_fill_object(root, obj, model, model_count, NULL);
     cJSON_Delete(root);
     if (status != NB_CODEC_OK) {
         nb_clear_object(obj, model, model_count, allocated != NULL);
@@ -1063,8 +1066,16 @@ void nb_codec_json_free_string(char* json) {
 
 int nb_codec_json_fill_object(const struct cJSON* node, const nb_codec_json_model_t* model,
                               size_t model_count, void* obj) {
+    return nb_codec_json_fill_object_ex(node, model, model_count, obj, NULL);
+}
+
+int nb_codec_json_fill_object_ex(const struct cJSON* node, const nb_codec_json_model_t* model,
+                                 size_t model_count, void* obj, const char** failed_key) {
+    if (failed_key) {
+        *failed_key = NULL;
+    }
     if (!node || !obj) {
         return NB_CODEC_INVALID_ARGUMENT;
     }
-    return nb_fill_object(node, obj, model, model_count);
+    return nb_fill_object(node, obj, model, model_count, failed_key);
 }

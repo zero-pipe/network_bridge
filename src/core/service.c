@@ -7,7 +7,7 @@
 #include "poller_alloc.h"
 #include "util.h"
 
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -1276,8 +1276,17 @@ int nb_service_create(nb_node_t *node, const char *service_name, nb_service_t **
 {
     nb_service_t *svc;
     nb_svc_task_t *t;
+    int rc;
 
     if (!node || !service_name || !service_name[0] || !out) {
+        return NB_ERR_INVALID;
+    }
+    /*
+     * The wire route is "service.method" and is split at the first '.', so a
+     * service name containing '.' cannot be addressed. Reject it here instead
+     * of registering a service no request can reach.
+     */
+    if (strchr(service_name, '.') != NULL) {
         return NB_ERR_INVALID;
     }
     *out = NULL;
@@ -1286,7 +1295,11 @@ int nb_service_create(nb_node_t *node, const char *service_name, nb_service_t **
         return NB_ERR_NOMEM;
     }
     svc->node = node;
-    nb_copy_str(svc->name, sizeof(svc->name), service_name, "svc");
+    rc = nb_copy_checked(svc->name, sizeof(svc->name), service_name, NULL);
+    if (rc != NB_OK) {
+        free(svc);
+        return rc;
+    }
     t = (nb_svc_task_t *)calloc(1, sizeof(*t));
     if (!t) {
         free(svc);
@@ -1392,6 +1405,7 @@ static int nb_service_method_register(nb_service_t *svc,
 {
     nb_method_t *m = NULL;
     nb_svc_task_t *t;
+    int rc;
 
     if (!svc || !method || !method[0] || (!fn && !stream_fn)) {
         return NB_ERR_INVALID;
@@ -1400,7 +1414,11 @@ static int nb_service_method_register(nb_service_t *svc,
     if (!m) {
         return NB_ERR_NOMEM;
     }
-    nb_copy_str(m->name, sizeof(m->name), method, "m");
+    rc = nb_copy_checked(m->name, sizeof(m->name), method, NULL);
+    if (rc != NB_OK) {
+        free(m);
+        return rc;
+    }
     m->fn = fn;
     m->stream_fn = stream_fn;
     m->user = user;
@@ -1521,4 +1539,50 @@ int nb_service_add_stream_method_with_options(nb_service_t *svc,
         return rc;
     }
     return nb_service_method_register(svc, method, NULL, fn, user, 0, run_in_worker, executor);
+}
+
+int nb_service_add_methods(nb_service_t *svc,
+                           const nb_method_desc_t *methods,
+                           size_t count)
+{
+    size_t i;
+
+    if (!svc || (!methods && count > 0)) {
+        return NB_ERR_INVALID;
+    }
+    for (i = 0; i < count; i++) {
+        const nb_method_desc_t *m = &methods[i];
+        int rc;
+
+        if (!m->name || !m->name[0]) {
+            return NB_ERR_INVALID;
+        }
+        switch (m->kind) {
+        case NB_METHOD_UNARY:
+            rc = m->handler.unary ?
+                 nb_service_add_method_with_options(
+                     svc, m->name, m->handler.unary, m->user, m->options) :
+                 NB_ERR_INVALID;
+            break;
+        case NB_METHOD_SYNC:
+            rc = m->handler.sync ?
+                 nb_service_add_sync_method_with_options(
+                     svc, m->name, m->handler.sync, m->user, m->options) :
+                 NB_ERR_INVALID;
+            break;
+        case NB_METHOD_STREAM:
+            rc = m->handler.stream ?
+                 nb_service_add_stream_method_with_options(
+                     svc, m->name, m->handler.stream, m->user, m->options) :
+                 NB_ERR_INVALID;
+            break;
+        default:
+            rc = NB_ERR_INVALID;
+            break;
+        }
+        if (rc != NB_OK) {
+            return rc;
+        }
+    }
+    return NB_OK;
 }

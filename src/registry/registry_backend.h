@@ -1,7 +1,7 @@
 #ifndef REGISTRY_BACKEND_H
 #define REGISTRY_BACKEND_H
 
-#include <types.h>
+#include <nb/types.h>
 
 #ifdef __cplusplus
 extern "C" {

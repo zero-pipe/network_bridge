@@ -119,6 +119,11 @@ target_link_libraries(test_headers PRIVATE rpc)
 add_test(NAME unit.headers COMMAND test_headers)
 set_tests_properties(unit.headers PROPERTIES LABELS "unit;headers" TIMEOUT 30)
 
+add_executable(test_contracts test_contracts.c)
+target_link_libraries(test_contracts PRIVATE rpc)
+add_test(NAME unit.contracts COMMAND test_contracts)
+set_tests_properties(unit.contracts PROPERTIES LABELS "unit;contracts" TIMEOUT 120)
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_executable(test_shm test_shm.c)
     target_link_libraries(test_shm PRIVATE rpc)

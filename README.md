@@ -90,12 +90,14 @@ int main(void)
 
 | 头文件 | 适用场景 |
 | --- | --- |
-| `runtime.h` | 节点、调度、发现、路由、指标 |
-| `server.h` | service、handler、reply、message view |
-| `client.h` | proxy、stub、异步/同步/事件/流式调用 |
-| `transport.h` | endpoint 与自定义 transport provider |
-| `extensions.h` | codec、message view、service table |
-| `config.h` | JSON 配置加载 |
+| `<nb/runtime.h>` | 节点、调度、发现、路由、指标 |
+| `<nb/server.h>` | service、handler、reply、message view |
+| `<nb/client.h>` | proxy、stub、异步/同步/事件/流式调用 |
+| `<nb/transport.h>` | endpoint 与自定义 transport provider |
+| `<nb/extensions.h>` | codec、message view、service table |
+| `<nb/config.h>` | JSON 配置加载 |
+
+公共头文件统一位于 `<nb/...>` 命名空间；旧的平铺 `<runtime.h>` 等路径保留为转发头。
 
 ## 目录
 

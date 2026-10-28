@@ -1,16 +1,7 @@
-#ifndef NB_SERVER_H
-#define NB_SERVER_H
+#ifndef NB_COMPAT_SERVER_H
+#define NB_COMPAT_SERVER_H
 
-/*
- * rpc server API.
- *
- * Includes the node runtime and service registration/reply interfaces.
- * Client-only programs may include client.h instead, keeping server-side types
- * out of their public headers.
- */
+/* Compatibility forwarding header. Canonical path: <nb/server.h>. */
+#include <nb/server.h>
 
-#include <runtime.h>
-#include <message_view.h>
-#include <service.h>
-
-#endif /* NB_SERVER_H */
+#endif /* NB_COMPAT_SERVER_H */

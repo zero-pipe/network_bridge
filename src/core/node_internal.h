@@ -9,10 +9,10 @@
  * 访问器/专用头与本模块交互，而不是各自穿透 node 字段。
  */
 
-#include <types.h>
-#include <node.h>
-#include <codec.h>
-#include <stub.h>
+#include <nb/types.h>
+#include <nb/node.h>
+#include <nb/codec.h>
+#include <nb/stub.h>
 #include <ntk.h>
 
 #include <stddef.h>

@@ -8,7 +8,7 @@
  * 避免它们直接穿透 struct nb_node。实现于 nb_node_access.c。
  */
 
-#include <types.h>
+#include <nb/types.h>
 
 #include <stddef.h>
 #include <stdint.h>

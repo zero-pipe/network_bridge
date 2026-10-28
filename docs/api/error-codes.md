@@ -58,7 +58,7 @@ enum {
 ## 查询辅助函数
 
 ```c
-#include <error.h>
+#include <nb/error.h>
 
 int rc = nb_proxy_call_sync(...);
 if (rc != NB_OK) {

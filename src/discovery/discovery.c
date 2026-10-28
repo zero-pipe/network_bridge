@@ -3,7 +3,7 @@
  * 只通过 nb_node_access.h 的门面访问 node 状态，不穿透 struct nb_node。 */
 #include "discovery.h"
 
-#include <node.h>
+#include <nb/node.h>
 
 #include "node_access.h"
 #include "registry_backend.h"

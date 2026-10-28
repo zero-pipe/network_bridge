@@ -4,10 +4,10 @@
  * 在真实项目里，NB_SERVICE_DEFINE 放在客户端与服务端共享的头文件里；这里为
  * 单文件示例直接内联。install 之后即可按名字查到数字 ID。
  */
-#include <extensions.h>
+#include <nb/extensions.h>
 
 #define NB_LOG_TAG "example"
-#include <log.h>
+#include <nb/log.h>
 
 NB_SERVICE_DEFINE(
     order_table, 1u, "OrderService", NB_SERVICE_METHOD(1u, "get"), NB_SERVICE_METHOD(2u, "put"));

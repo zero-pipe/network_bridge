@@ -1,7 +1,7 @@
 #ifndef REGISTRY_H
 #define REGISTRY_H
 
-#include <endpoint.h>
+#include <nb/endpoint.h>
 
 #include <stddef.h>
 #include <stdint.h>

@@ -8,8 +8,8 @@
  * 操作对象是 nb_route_table_t，不依赖 node；调用路径只做一次 O(1) 查表。
  */
 
-#include <types.h>
-#include <endpoint.h>
+#include <nb/types.h>
+#include <nb/endpoint.h>
 
 #include <stddef.h>
 #include <stdint.h>

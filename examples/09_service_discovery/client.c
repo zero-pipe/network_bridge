@@ -6,10 +6,10 @@
  *       [server_ip] [client_discovery_port] [server_discovery_port]
  * 默认连接 127.0.0.1，客户端发现端口 41954，服务端发现端口 41953。
  */
-#include <client.h>
+#include <nb/client.h>
 
 #define NB_LOG_TAG "example"
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdlib.h>
 #include <string.h>

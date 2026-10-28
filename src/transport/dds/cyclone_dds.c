@@ -2,10 +2,11 @@
  * Cyclone DDS transport provider.
  *
  * The provider carries the framework's encoded v2 frame as an opaque octet
- * sample. Topics are derived from the method name:
- *   request  -> <method>_req
- *   response -> <method>_res
- *   event    -> <method>_evt
+ * sample. Topics are derived from the full "Service.method" route, so services
+ * sharing a method name do not collide:
+ *   request  -> <Service>_<method>_req
+ *   response -> <Service>_<method>_res
+ *   event    -> <Service>_<method>_evt
  *
  * Service registration calls the provider subscribe hook, which creates the
  * request/event readers and the response writer. Client requests lazily create
@@ -17,7 +18,7 @@
 #include "poller_alloc.h"
 #include "util.h"
 
-#include <log.h>
+#include <nb/log.h>
 
 #include <dds/dds.h>
 
@@ -36,7 +37,7 @@ typedef struct nb_dds_instance nb_dds_instance_t;
 
 typedef struct nb_dds_endpoint {
     int used;
-    char method[NB_METHOD_NAME_MAX];
+    char method[NB_GLOBAL_MAX_ROUTE_BYTES];
     char topic_req[NB_DDS_TOPIC_MAX];
     char topic_res[NB_DDS_TOPIC_MAX];
     char topic_evt[NB_DDS_TOPIC_MAX];
@@ -105,10 +106,10 @@ static void nb_dds_sanitize(const char *in, char *out, size_t cap)
     out[j] = '\0';
 }
 
-/* "Service.method" -> "method". A route without a dot is used as-is. */
+/* Topic key: the full "Service.method" route, sanitized. Including the service
+ * keeps two services that share a method name on distinct DDS topics. */
 static void nb_dds_method_from_route(const char *route, char *out, size_t cap)
 {
-    const char *dot;
     if (!out || cap == 0) {
         return;
     }
@@ -116,8 +117,7 @@ static void nb_dds_method_from_route(const char *route, char *out, size_t cap)
     if (!route) {
         return;
     }
-    dot = strchr(route, '.');
-    nb_dds_sanitize(dot ? dot + 1 : route, out, cap);
+    nb_dds_sanitize(route, out, cap);
 }
 
 static void nb_dds_endpoint_topics(nb_dds_endpoint_t *ep)
@@ -324,6 +324,8 @@ static void nb_dds_on_data(dds_entity_t reader, void *arg)
                                    1,
                                    nb_transport_kind_from_scheme("dds")) == NB_OK) {
             msg.peer = &peer;
+            msg.peer_host = peer.host;
+            msg.peer_port = peer.port;
         }
         ep->owner->options.on_receive(ep->owner->options.user, ep, &msg);
     }
@@ -613,7 +615,7 @@ static int nb_dds_op_send(nb_transport_instance_t *instance,
 {
     nb_dds_instance_t *inst = (nb_dds_instance_t *)instance;
     nb_dds_endpoint_t *ep;
-    char method[NB_METHOD_NAME_MAX];
+    char method[NB_GLOBAL_MAX_ROUTE_BYTES];
     int roles;
     (void)target;
 
@@ -663,11 +665,17 @@ static int nb_dds_op_register_method(nb_transport_instance_t *instance,
                                const char *method)
 {
     nb_dds_instance_t *inst = (nb_dds_instance_t *)instance;
-    (void)service;
-    if (!inst || !method || !method[0]) {
+    char route[NB_GLOBAL_MAX_ROUTE_BYTES];
+    int n;
+
+    if (!inst || !service || !service[0] || !method || !method[0]) {
         return NB_ERR_INVALID;
     }
-    return nb_dds_endpoint_ensure(inst, method, 1) ? NB_OK : NB_ERR_NOMEM;
+    n = snprintf(route, sizeof(route), "%s.%s", service, method);
+    if (n < 0 || (size_t)n >= sizeof(route)) {
+        return NB_ERR_TOOBIG;
+    }
+    return nb_dds_endpoint_ensure(inst, route, 1) ? NB_OK : NB_ERR_NOMEM;
 }
 
 static void nb_dds_op_unregister_method(nb_transport_instance_t *instance,

@@ -1,12 +1,12 @@
 /*
  * 13 Metadata / Cancel: request metadata, deadline propagation, and cancel.
  */
-#include <client.h>
-#include <server.h>
+#include <nb/client.h>
+#include <nb/server.h>
 #include <platform.h>
 
 #define NB_LOG_TAG "example"
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -85,7 +85,7 @@ int main(void)
     nb_metadata_t metadata;
     nb_payload_t request;
     client_state_t state;
-    uint64_t request_id = 0;
+    nb_request_id_t request_id = 0;
     char endpoint[64];
     int rc;
 

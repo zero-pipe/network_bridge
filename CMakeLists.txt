@@ -111,7 +111,7 @@ if(Python3_Interpreter_FOUND)
             COMMAND ${Python3_EXECUTABLE} ${NB_GATE_SCRIPT} unit ${NB_GATE_ARGS}
             DEPENDS test_framing test_config test_metrics test_registry
                     test_reliable test_poller_alloc test_iobuf test_headers test_buffer
-                    test_buf_concurrency test_slotpool test_poolset
+                    test_buf_concurrency test_slotpool test_poolset test_contracts
             USES_TERMINAL VERBATIM)
     endif()
 
@@ -146,7 +146,7 @@ if(Python3_Interpreter_FOUND)
             COMMAND ${Python3_EXECUTABLE} ${NB_GATE_SCRIPT} all ${NB_GATE_ARGS}
             DEPENDS test_framing test_config test_metrics test_registry
                     test_reliable test_poller_alloc test_iobuf test_headers test_buffer
-                    test_buf_concurrency test_slotpool test_poolset
+                    test_buf_concurrency test_slotpool test_poolset test_contracts
                     test_loopback test_stream test_api test_move test_worker test_semantics
                     bench_server loadgen
             USES_TERMINAL VERBATIM)

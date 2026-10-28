@@ -3,11 +3,11 @@
  *
  * 通过 shm://zrpc-example:1 直接调用服务端，不启动服务发现。
  */
-#include <client.h>
-#include <shm.h>
+#include <nb/client.h>
+#include <nb/shm.h>
 
 #define NB_LOG_TAG "example"
-#include <log.h>
+#include <nb/log.h>
 
 #include <string.h>
 

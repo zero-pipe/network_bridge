@@ -3,7 +3,7 @@
 #include "bytes.h"
 #include "crc32.h"
 
-#include <types.h>
+#include <nb/types.h>
 
 #include <string.h>
 

@@ -25,8 +25,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <buf.h>
-#include <error.h>
+#include <nb/buf.h>
+#include <nb/error.h>
 
 #ifdef __cplusplus
 extern "C" {

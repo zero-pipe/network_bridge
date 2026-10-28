@@ -210,6 +210,7 @@ int nb_node_transport_add(nb_node_t *node,
         options.on_receive = nb_provider_on_receive;
         options.intra_process = intra_process;
         options.poll_us = poll_us;
+        options.struct_size = (uint32_t)sizeof(options);
         nb_qos_inherit(&effective_qos, qos);
         options.qos = effective_qos;
         if (provider->ops->create(&options, &instance) != NB_OK || !instance) {

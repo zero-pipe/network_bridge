@@ -1,6 +1,6 @@
-#include <types.h>
+#include <nb/types.h>
 
-#include <buf.h>
+#include <nb/buf.h>
 
 void nb_owned_payload_init(nb_owned_payload_t *payload,
                           nb_buf_t *buf,

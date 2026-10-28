@@ -15,7 +15,7 @@
 /* NB_UDP_FRAG_MIN_BYTES / NB_UDP_FRAG_MAX_BYTES 等；NB_TRANSPORT_MAX_FRAGMENTS 依赖前者。 */
 #include "transport_caps.h"
 
-#include <types.h> /* NB_SERVICE_NAME_MAX / NB_METHOD_NAME_MAX */
+#include <nb/types.h> /* NB_SERVICE_NAME_MAX / NB_METHOD_NAME_MAX */
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -23,7 +23,7 @@
 /* "service.method" 的最大缓冲区长度（含结尾 '\0'）。 */
 #define NB_GLOBAL_MAX_ROUTE_BYTES (NB_SERVICE_NAME_MAX + NB_METHOD_NAME_MAX + 2)
 #define NB_GLOBAL_MAX_MSG_BYTES 1048576u /* 1 MiB */
-#define NB_GLOBAL_MAX_MSG_BYTES_LIMIT (64u * 1024u * 1024u)
+#define NB_GLOBAL_MAX_MSG_BYTES_LIMIT NB_MAX_MSG_BYTES_LIMIT
 /* 运行时 tick 默认值；环境变量 TICK_INTERVAL_MS 可覆盖。 */
 #define NB_GLOBAL_TICK_INTERVAL_MS 2
 
@@ -41,7 +41,7 @@
 #define NB_NODE_RATE_WINDOW_MS 1000
 
 /* ---- STREAM ---- */
-#define NB_STREAM_MAX_RECV_STREAMS 64
+#define NB_STREAM_MAX_RECV_STREAMS NB_MAX_STREAM_RECV_STREAMS
 #define NB_STREAM_IDLE_TIMEOUT_MS 15000
 
 /* ---- DISCOVERY ---- */
@@ -58,7 +58,7 @@
 
 /* ---- TRANSPORT ---- */
 /* 传输扇出（跨模块：node 出站分片也用到该上限）。 */
-#define NB_TRANSPORT_MAX_IO 8
+#define NB_TRANSPORT_MAX_IO NB_MAX_IO_THREADS
 /* 单条消息分片数硬上限：覆盖 max_msg 上限 + 最小分片的最坏情况，仅拦截异常值。 */
 #define NB_TRANSPORT_MAX_FRAGMENTS (NB_GLOBAL_MAX_MSG_BYTES_LIMIT / NB_UDP_FRAG_MIN_BYTES)
 

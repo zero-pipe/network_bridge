@@ -202,7 +202,7 @@ void nb_pending_release(nb_pending_t *p)
 }
 
 nb_pending_t *nb_pending_add(nb_node_t *node,
-                               uint64_t id,
+                               nb_request_id_t id,
                                response_fn cb,
                                void *user,
                                uint64_t timeout_ms,
@@ -285,7 +285,7 @@ nb_pending_t *nb_pending_add(nb_node_t *node,
     return p;
 }
 
-nb_pending_t *nb_pending_find(nb_node_t *node, uint64_t id)
+nb_pending_t *nb_pending_find(nb_node_t *node, nb_request_id_t id)
 {
     nb_pending_t *p = NULL;
     if (!node) {
@@ -304,7 +304,7 @@ nb_pending_t *nb_pending_find(nb_node_t *node, uint64_t id)
     return p;
 }
 
-ntk_poller *nb_pending_owner(nb_node_t *node, uint64_t id)
+ntk_poller *nb_pending_owner(nb_node_t *node, nb_request_id_t id)
 {
     nb_pending_t *p = NULL;
     ntk_poller *owner = NULL;

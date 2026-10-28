@@ -1,5 +1,5 @@
-/* 轻量 metadata：固定容量、字符串 key + 二进制 value，wire 为 TLV。 */
-#include <types.h>
+/* 轻量 metadata：固定容量，字符串 key 与二进制 value，wire 为 TLV。 */
+#include <nb/types.h>
 
 #include <string.h>
 
@@ -79,6 +79,11 @@ const char *nb_metadata_get_string(const nb_metadata_t *metadata, const char *ke
     if (!entry || entry->value_len == 0) {
         return NULL;
     }
+    /* Only expose values stored by set_string: remote binary values may not be
+     * NUL-terminated, and returning them would let callers read past value_len. */
+    if (entry->value[entry->value_len - 1] != '\0') {
+        return NULL;
+    }
     return (const char *)entry->value;
 }
 
@@ -129,7 +134,7 @@ int nb_metadata_encode(const nb_metadata_t *metadata, void *buf, size_t cap, siz
         const nb_metadata_entry_t *entry = &metadata->entries[i];
         size_t key_len = strlen(entry->key);
         size_t need = 4 + key_len + entry->value_len;
-        if (off + need > cap || need > NB_METADATA_WIRE_MAX) {
+        if (off + need > cap || off + need > NB_METADATA_WIRE_MAX) {
             return NB_ERR_TOOBIG;
         }
         nb_put_u16(p + off, (uint16_t)key_len);

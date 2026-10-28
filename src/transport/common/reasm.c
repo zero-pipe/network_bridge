@@ -1,7 +1,7 @@
 #include "reasm.h"
 #include "poller_alloc.h"
 
-#include <error.h>
+#include <nb/error.h>
 
 #include <stdlib.h>
 #include <string.h>

@@ -5,7 +5,7 @@
 #include "util.h"
 
 #define NB_LOG_TAG "shm"
-#include <log.h>
+#include <nb/log.h>
 
 #include <errno.h>
 #include <fcntl.h>

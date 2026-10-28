@@ -11,15 +11,15 @@
  *   - deadline 传播到 req/call，排队期间过期的任务在启动前被跳过；
  *   - nb_proxy_cancel 把取消传播到服务端，排队任务被跳过。
  */
-#include <client.h>
-#include <server.h>
+#include <nb/client.h>
+#include <nb/server.h>
 #include <platform.h>
 #include <thread/sem.h>
 #include <thread/sync.h>
 #include <thread/thread.h>
 
 #define NB_LOG_TAG "test"
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1163,7 +1163,7 @@ static int run_cancel_case(const char *label)
     nb_payload_t pl;
     uint16_t sport = 45211;
     uint16_t cport = 45212;
-    uint64_t queued_id = 0;
+    nb_request_id_t queued_id = 0;
     int released = 0;
     int failed = 0;
 

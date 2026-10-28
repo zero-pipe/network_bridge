@@ -24,7 +24,7 @@
 #include "util.h"
 
 #define NB_LOG_TAG "tcp"
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdlib.h>
 #include <string.h>

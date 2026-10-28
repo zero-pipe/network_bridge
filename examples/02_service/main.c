@@ -5,10 +5,10 @@
  * 用法：example_02_service [port]
  * 默认 TCP 127.0.0.1:42410（STATIC 模式，无需发现）。
  */
-#include <server.h>
+#include <nb/server.h>
 
 #define NB_LOG_TAG "example"
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdlib.h>
 #include <string.h>

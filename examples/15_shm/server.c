@@ -4,11 +4,11 @@
  * 服务端在 shm://zrpc-example:1 上监听，客户端使用 :2。两个进程必须使用
  * 相同的 channel 名，并且先启动服务端。Linux POSIX 共享内存实现。
  */
-#include <server.h>
-#include <shm.h>
+#include <nb/server.h>
+#include <nb/shm.h>
 
 #define NB_LOG_TAG "example"
-#include <log.h>
+#include <nb/log.h>
 
 #include <string.h>
 

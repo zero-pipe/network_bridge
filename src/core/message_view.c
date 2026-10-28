@@ -1,5 +1,5 @@
 /* 统一消息视图：请求/响应共用的 payload 载体。 */
-#include <message_view.h>
+#include <nb/message_view.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -14,7 +14,7 @@ void nb_message_view_init(nb_message_view_t *view)
     view->data = NULL;
     view->len = 0;
     view->encoding = 0;
-    view->internal = NULL;
+    view->owner = NULL;
 }
 
 void nb_message_view_release(nb_message_view_t *view)
@@ -22,10 +22,8 @@ void nb_message_view_release(nb_message_view_t *view)
     if (!view) {
         return;
     }
-    if (view->internal) {
-        free(view->internal);
-        view->internal = NULL;
-    }
+    nb_buf_release(view->owner);
+    view->owner = NULL;
     view->data = NULL;
     view->len = 0;
 }
@@ -37,10 +35,8 @@ int nb_message_view_set_borrowed(nb_message_view_t *view, const void *data, size
     if (!view || (len > 0 && !data)) {
         return NB_ERR_INVALID;
     }
-    if (view->internal) {
-        free(view->internal);
-        view->internal = NULL;
-    }
+    nb_buf_release(view->owner);
+    view->owner = NULL;
     view->data = data;
     view->len = len;
     return NB_OK;
@@ -48,22 +44,20 @@ int nb_message_view_set_borrowed(nb_message_view_t *view, const void *data, size
 
 int nb_message_view_set_data(nb_message_view_t *view, const void *data, size_t len)
 {
-    void *copy = NULL;
+    nb_buf_t *copy = NULL;
     if (!view || (len > 0 && !data)) {
         return NB_ERR_INVALID;
     }
     if (len > 0) {
-        copy = malloc(len);
+        copy = nb_buf_alloc(len);
         if (!copy) {
             return NB_ERR_NOMEM;
         }
-        memcpy(copy, data, len);
+        memcpy(nb_buf_data(copy), data, len);
     }
-    if (view->internal) {
-        free(view->internal);
-    }
-    view->internal = copy;
-    view->data = copy;
+    nb_buf_release(view->owner);
+    view->owner = copy;
+    view->data = copy ? nb_buf_const_data(copy) : NULL;
     view->len = len;
     return NB_OK;
 }
@@ -83,10 +77,8 @@ int nb_message_view_set_payload(nb_message_view_t *view, const nb_payload_t *pay
         return NB_ERR_INVALID;
     }
     if (!payload) {
-        if (view->internal) {
-            free(view->internal);
-            view->internal = NULL;
-        }
+        nb_buf_release(view->owner);
+        view->owner = NULL;
         view->data = NULL;
         view->len = 0;
         view->encoding = 0;

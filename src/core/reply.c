@@ -10,7 +10,7 @@
 #include "envelope.h"
 #include "util.h"
 
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -36,8 +36,8 @@ static int nb_send_reply(nb_transport_t *transport,
         return NB_ERR_STATE;
     }
     /* 传输层状态消息缓冲固定为 NB_STATUS_MSG_MAX，这里统一截断避免越界。 */
-    if (message_len > NB_STATUS_MSG_MAX) {
-        message_len = NB_STATUS_MSG_MAX;
+    if (message_len >= NB_STATUS_MSG_MAX) {
+        return NB_ERR_TOOBIG;
     }
     nb_reply = *request;
     nb_reply.kind = KIND_RESPONSE;
@@ -200,7 +200,8 @@ static int nb_reply_marshal(nb_call_t *call,
                          const nb_stream_meta_t *stream,
                          int release_call,
                          const nb_metadata_t *metadata,
-                         const char *message)
+                         const char *message,
+                         size_t message_len)
 {
     nb_reply_task_t *t;
     int free_call = release_call && !call->stream_owned;
@@ -236,21 +237,34 @@ static int nb_reply_marshal(nb_call_t *call,
     t->status = status;
     if (metadata && metadata->count > 0) {
         size_t meta_len = 0;
-        if (nb_metadata_encode(metadata, t->metadata, sizeof(t->metadata), &meta_len) == NB_OK) {
-            t->metadata_len = (uint16_t)meta_len;
-        } else {
-            nb_log_warn("nb_reply metadata dropped (encode failed): id=%u",
-                         (unsigned)t->msg_id);
+        if (nb_metadata_encode(metadata, t->metadata, sizeof(t->metadata), &meta_len) != NB_OK) {
+            nb_log_warn("nb_reply metadata rejected (encode failed): id=%u",
+                        (unsigned)t->msg_id);
+            nb_reply_task_destroy(t);
+            if (buf_owner) {
+                nb_buf_release(buf_owner);
+            }
+            if (free_call) {
+                nb_call_release(call);
+            }
+            return NB_ERR_TOOBIG;
         }
+        t->metadata_len = (uint16_t)meta_len;
     }
-    if (message && message[0]) {
-        size_t msg_len = strlen(message);
-        if (msg_len >= sizeof(t->message)) {
-            msg_len = sizeof(t->message) - 1;
+    if (message && message_len) {
+        if (message_len >= sizeof(t->message)) {
+            nb_reply_task_destroy(t);
+            if (buf_owner) {
+                nb_buf_release(buf_owner);
+            }
+            if (free_call) {
+                nb_call_release(call);
+            }
+            return NB_ERR_TOOBIG;
         }
-        memcpy(t->message, message, msg_len);
-        t->message[msg_len] = '\0';
-        t->message_len = (uint16_t)msg_len;
+        memcpy(t->message, message, message_len);
+        t->message[message_len] = '\0';
+        t->message_len = (uint16_t)message_len;
     }
     if (buf_owner) {
         t->data_owner = buf_owner;
@@ -304,9 +318,10 @@ void nb_service_send_status(nb_transport_t *transport, const nb_message_t *reque
 
 /* ---- 回复 ---- */
 
-static void nb_reply_ex_impl(nb_call_t *call,
+static int nb_reply_ex_impl(nb_call_t *call,
                           int status,
                           const char *message,
+                          size_t message_len,
                           const nb_payload_t *payload,
                           const nb_metadata_t *metadata,
                           nb_buf_t *buf_owner)
@@ -314,67 +329,91 @@ static void nb_reply_ex_impl(nb_call_t *call,
     nb_message_t request;
     uint8_t meta_buf[NB_METADATA_WIRE_MAX];
     size_t meta_len = 0;
-    if (!call || call->replied) {
+    int rc;
+    if (!call) {
         if (buf_owner) {
             nb_buf_release(buf_owner);
         }
-        return;
+        return NB_ERR_INVALID;
+    }
+    if (call->replied) {
+        if (buf_owner) {
+            nb_buf_release(buf_owner);
+        }
+        return NB_ERR_ALREADY;
     }
     call->replied = 1;
     if (call->one_way) {
         if (buf_owner) {
             nb_buf_release(buf_owner);
         }
-        return;
+        return NB_OK;
     }
     if (!call->node || !call->transport) {
         if (buf_owner) {
             nb_buf_release(buf_owner);
         }
         nb_call_release(call);
-        return;
+        return NB_ERR_STATE;
     }
     if (metadata && metadata->count > 0) {
         if (nb_metadata_encode(metadata, meta_buf, sizeof(meta_buf), &meta_len) != NB_OK) {
-            nb_log_warn("nb_reply metadata dropped (encode failed): id=%u",
-                         (unsigned)call->msg_id);
-            meta_len = 0;
+            nb_log_warn("nb_reply metadata rejected (encode failed): id=%u",
+                        (unsigned)call->msg_id);
+            if (buf_owner) {
+                nb_buf_release(buf_owner);
+            }
+            if (!call->stream_owned) {
+                nb_call_release(call);
+            }
+            return NB_ERR_TOOBIG;
         }
     }
+    if (message && message_len >= NB_STATUS_MSG_MAX) {
+        if (buf_owner) {
+            nb_buf_release(buf_owner);
+        }
+        if (!call->stream_owned) {
+            nb_call_release(call);
+        }
+        return NB_ERR_TOOBIG;
+    }
     if (call->poller && !ntk_poller_is_current_thread(call->poller)) {
-        (void)nb_reply_marshal(call, status, payload, buf_owner, NULL, 1, metadata, message);
-        return;
+        return nb_reply_marshal(
+            call, status, payload, buf_owner, NULL, 1, metadata, message, message_len);
     }
     nb_call_request_context(call, &request);
-    (void)nb_send_reply(call->transport,
-                     &request,
-                     status,
-                     meta_len ? meta_buf : NULL,
-                     (uint16_t)meta_len,
-                     message,
-                     message ? (uint16_t)strlen(message) : 0,
-                      payload,
-                      NULL,
-                      &buf_owner,
-                      0);
+    rc = nb_send_reply(call->transport,
+                       &request,
+                       status,
+                       meta_len ? meta_buf : NULL,
+                       (uint16_t)meta_len,
+                       message,
+                       (uint16_t)message_len,
+                       payload,
+                       NULL,
+                       &buf_owner,
+                       0);
     if (buf_owner) {
         nb_buf_release(buf_owner);
     }
     if (!call->stream_owned) {
         nb_call_release(call);
     }
+    return rc;
 }
 
-void nb_reply_with_metadata(nb_call_t *call,
+int nb_reply_with_metadata(nb_call_t *call,
                             int status,
                             const nb_payload_t *payload,
                             const char *message,
                             const nb_metadata_t *metadata)
 {
-    nb_reply_ex_impl(call, status, message, payload, metadata, NULL);
+    return nb_reply_ex_impl(
+        call, status, message, message ? strlen(message) : 0, payload, metadata, NULL);
 }
 
-void nb_reply_owned_with_metadata(nb_call_t *call,
+int nb_reply_owned_with_metadata(nb_call_t *call,
                                   int status,
                                   nb_owned_payload_t *payload,
                                   const char *message,
@@ -382,26 +421,50 @@ void nb_reply_owned_with_metadata(nb_call_t *call,
 {
     nb_payload_t view = nb_owned_payload_view(payload);
     nb_buf_t *buf_owner = nb_owned_payload_take(payload);
-    nb_reply_ex_impl(call, status, message, &view, metadata, buf_owner);
+    return nb_reply_ex_impl(
+        call, status, message, message ? strlen(message) : 0, &view, metadata, buf_owner);
 }
 
-void nb_reply_owned(nb_call_t *call, int status, nb_owned_payload_t *payload)
+int nb_reply_owned(nb_call_t *call, int status, nb_owned_payload_t *payload)
 {
-    nb_reply_owned_with_metadata(call, status, payload, NULL, NULL);
+    return nb_reply_owned_with_metadata(call, status, payload, NULL, NULL);
 }
 
-void nb_reply(nb_call_t *call, int status, const nb_payload_t *payload)
+int nb_reply(nb_call_t *call, int status, const nb_payload_t *payload)
 {
-    nb_reply_with_metadata(call, status, payload, NULL, NULL);
+    return nb_reply_with_metadata(call, status, payload, NULL, NULL);
 }
 
-void nb_reply_bytes(nb_call_t *call, int status, const void *data, size_t len)
+int nb_reply_bytes(nb_call_t *call, int status, const void *data, size_t len)
 {
     nb_payload_t pl;
     pl.data = data;
     pl.len = len;
     pl.encoding = 0;
-    nb_reply(call, status, &pl);
+    return nb_reply(call, status, &pl);
+}
+
+int nb_reply_status(nb_call_t *call,
+                    const nb_status_t *status,
+                    const nb_payload_t *payload,
+                    const nb_metadata_t *metadata)
+{
+    int rc;
+
+    if (!status) {
+        return nb_reply_with_metadata(call, NB_ERR_INVALID, payload, NULL, metadata);
+    }
+    if (status->message_len >= NB_STATUS_MSG_MAX) {
+        rc = nb_reply_with_metadata(call, status->code, payload, NULL, metadata);
+        return rc == NB_OK ? NB_ERR_TOOBIG : rc;
+    }
+    return nb_reply_ex_impl(call,
+                            status->code,
+                            status->message,
+                            status->message ? status->message_len : 0,
+                            payload,
+                            metadata,
+                            NULL);
 }
 
 int nb_reply_stream(nb_call_t *call, int status, const nb_chunk_t *chunk)
@@ -439,14 +502,15 @@ int nb_reply_stream(nb_call_t *call, int status, const nb_chunk_t *chunk)
                              &stream,
                              last,
                              chunk ? chunk->metadata : NULL,
-                             chunk ? chunk->status_msg : NULL);
+                             chunk ? chunk->status_msg : NULL,
+                             chunk && chunk->status_msg ? strlen(chunk->status_msg) : 0);
     }
 
     if (chunk && chunk->metadata && chunk->metadata->count > 0) {
         if (nb_metadata_encode(chunk->metadata, meta_buf, sizeof(meta_buf), &meta_len) != NB_OK) {
-            nb_log_warn("stream chunk metadata dropped (encode failed): id=%u",
-                         (unsigned)call->msg_id);
-            meta_len = 0;
+            nb_log_warn("stream chunk metadata rejected (encode failed): id=%u",
+                        (unsigned)call->msg_id);
+            return NB_ERR_TOOBIG;
         }
     }
     nb_call_request_context(call, &request);

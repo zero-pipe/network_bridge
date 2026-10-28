@@ -4,10 +4,10 @@
  * 与 fastcall-c 的 01_hello_node 对应：创建 -> 查询 -> 销毁。
  * 这里用 STATIC 模式，不启动服务发现，离线即可运行。
  */
-#include <runtime.h>
+#include <nb/runtime.h>
 
 #define NB_LOG_TAG "example"
-#include <log.h>
+#include <nb/log.h>
 
 #include <string.h>
 

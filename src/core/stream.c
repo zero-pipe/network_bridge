@@ -135,7 +135,7 @@ static uint64_t nb_stream_send_task_fn(void *user)
     meta.total_size = 0;
     memset(&message, 0, sizeof(message));
     message.kind = KIND_REQUEST;
-    message.request_id = (uint32_t)stream->request_id;
+    message.request_id = stream->request_id;
     message.metadata = task->metadata_len ? task->metadata : NULL;
     message.metadata_len = task->metadata_len;
     message.status_msg = task->message_len ? task->message : NULL;
@@ -183,7 +183,7 @@ static void nb_stream_cancel_task_fn(void *user)
         if (nb_route_format(route, sizeof(route), stream->service, stream->method) == NB_OK) {
             memset(&message, 0, sizeof(message));
             message.kind = KIND_REQUEST;
-            message.request_id = (uint32_t)stream->request_id;
+            message.request_id = stream->request_id;
             message.route = route;
             message.payload = empty;
             message.stream = meta;
@@ -230,7 +230,7 @@ int nb_proxy_open_client_stream(nb_proxy_t *proxy,
     nb_copy_str(stream->service, sizeof(stream->service), service, "");
     nb_copy_str(stream->method, sizeof(stream->method), method, "");
     ntk_mutex_lock(proxy->node->id_lock);
-    stream->request_id = (uint64_t)(uint32_t)(proxy->node->next_request_id++);
+    stream->request_id = (nb_request_id_t)(proxy->node->next_request_id++);
     ntk_mutex_unlock(proxy->node->id_lock);
     if (stream->request_id == 0) {
         stream->request_id = 1;
@@ -285,7 +285,7 @@ int nb_proxy_open_bidi_stream(nb_proxy_t *proxy,
     nb_copy_str(stream->service, sizeof(stream->service), service, "");
     nb_copy_str(stream->method, sizeof(stream->method), method, "");
     ntk_mutex_lock(proxy->node->id_lock);
-    stream->request_id = (uint64_t)(uint32_t)(proxy->node->next_request_id++);
+    stream->request_id = (nb_request_id_t)(proxy->node->next_request_id++);
     ntk_mutex_unlock(proxy->node->id_lock);
     if (stream->request_id == 0) {
         stream->request_id = 1;

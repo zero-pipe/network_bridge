@@ -4,11 +4,11 @@
  * Both nodes live in one process. The server binds TCP port 0 and the client
  * queries the assigned port, so no external process or fixed port is needed.
  */
-#include <client.h>
-#include <server.h>
+#include <nb/client.h>
+#include <nb/server.h>
 
 #define NB_LOG_TAG "example"
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdio.h>
 #include <string.h>

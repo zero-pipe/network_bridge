@@ -4,11 +4,11 @@
  * The framework only transports bytes plus an encoding tag. This example uses
  * a tiny "id|name" text format to demonstrate encode/decode/release.
  */
-#include <extensions.h>
-#include <runtime.h>
+#include <nb/extensions.h>
+#include <nb/runtime.h>
 
 #define NB_LOG_TAG "example"
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdio.h>
 #include <stdlib.h>

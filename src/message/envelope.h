@@ -1,7 +1,7 @@
 #ifndef ENVELOPE_H
 #define ENVELOPE_H
 
-#include <types.h>
+#include <nb/types.h>
 
 #include <stddef.h>
 #include <stdint.h>

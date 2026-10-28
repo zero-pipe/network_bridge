@@ -5,14 +5,14 @@
  * tests/perf/framework/rpc_bench_server.c (OrderService.get), so the same
  * load generator conventions apply. Not a shipped example.
  */
-#include <server.h>
-#include <dds.h>
-#include <shm.h>
+#include <nb/server.h>
+#include <nb/dds.h>
+#include <nb/shm.h>
 #include <platform.h>
 #include <thread/thread_pool.h>
 
 #define NB_LOG_TAG "bench"
-#include <log.h>
+#include <nb/log.h>
 
 #include <signal.h>
 #include <stdio.h>
@@ -250,7 +250,7 @@ int main(int argc, char **argv)
             nb_log_error("dds provider register failed");
             return 1;
         }
-        snprintf(dds_endpoint, sizeof(dds_endpoint), "dds://%d:1", dds_domain);
+        snprintf(dds_endpoint, sizeof(dds_endpoint), "dds://%d", dds_domain);
         memset(&dds_binding, 0, sizeof(dds_binding));
         dds_binding.name = "dds";
         dds_binding.endpoint = dds_endpoint;

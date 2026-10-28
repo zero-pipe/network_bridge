@@ -109,7 +109,7 @@ int nb_proxy_call_sync(nb_proxy_t *proxy,
 {
     nb_sync_ctx_t *c;
     nb_call_options_t local;
-    uint64_t id = 0;
+    nb_request_id_t id = 0;
     int rc;
 
     if (!proxy || !service || !method || !response) {
@@ -164,6 +164,7 @@ int nb_proxy_call_sync(nb_proxy_t *proxy,
         response->payload.data = c->data;
         response->payload.len = c->len;
         response->payload.encoding = c->encoding;
+        response->owns_payload = true;
         c->data = NULL; /* 所有权转移给调用方 */
         c->message = NULL;
         c->metadata = NULL;
@@ -180,7 +181,9 @@ void nb_response_release(nb_response_t *response)
     if (!response) {
         return;
     }
-    free((void *)response->payload.data);
+    if (response->owns_payload) {
+        free((void *)response->payload.data);
+    }
     free((void *)response->metadata);
     free((void *)response->status_msg);
     response->payload.data = NULL;
@@ -189,4 +192,5 @@ void nb_response_release(nb_response_t *response)
     response->status = 0;
     response->metadata = NULL;
     response->status_msg = NULL;
+    response->owns_payload = false;
 }

@@ -15,14 +15,16 @@ payload 的序列化格式由应用通过 codec 决定。
 
 | 头文件 | 用途 |
 | --- | --- |
-| `runtime.h` | 节点、调度、发现、路由、指标 |
-| `server.h` | service、handler、回复、消息视图 |
-| `client.h` | proxy、stub、异步/同步/事件/流式调用 |
-| `transport.h` | endpoint 与自定义 transport provider |
-| `extensions.h` | codec、message view、service table |
-| `config.h` | JSON 配置加载与按配置创建节点 |
+| `<nb/runtime.h>` | 节点、调度、发现、路由、指标 |
+| `<nb/server.h>` | service、handler、回复、消息视图 |
+| `<nb/client.h>` | proxy、stub、异步/同步/事件/流式调用 |
+| `<nb/transport.h>` | endpoint 与自定义 transport provider |
+| `<nb/extensions.h>` | codec、message view、service table |
+| `<nb/config.h>` | JSON 配置加载与按配置创建节点 |
 
-`error.h`、`types.h`、`metrics.h`、`log.h` 由上述入口按需包含。
+`<nb/error.h>`、`<nb/types.h>`、`<nb/metrics.h>`、`<nb/log.h>` 由上述入口按需包含。
+公共头文件统一位于 `<nb/...>` 命名空间；旧的 `<runtime.h>` 等平铺写法保留为转发头，
+源码仍可编译，但新代码应使用 `<nb/...>`。
 
 ## 对象模型
 
@@ -85,6 +87,10 @@ rc = nb_proxy_call_async_owned(proxy, "Svc", "method", &request, &options, on_re
 - `nb_stub_call_owned` / `nb_stub_call_event_owned_with_metadata`：底层 stub。
 - `nb_reply_owned`：服务端回复。
 
+stub 的 12 参数调用已收敛为 `nb_stub_call_owned_ex` + `nb_stub_call_options_t`
+（service/method/payload/timeout/metadata/回调/用户指针/request_id），旧 `nb_stub_call_owned`
+保留为薄包装，新代码应使用 options 版本。
+
 Owned API 在入口接管 `payload->buf`；旧 `nb_payload_t` API 的借用+复制语义保持不变。
 proxy 层 metadata 统一走 `nb_call_options_t`；stub 层保留独立的 `_with_metadata` 变体。
 缓冲区由 `nb_base` 的 `nb_buf_*` 管理，唯一所有权路径默认不做原子引用计数。
@@ -100,7 +106,8 @@ int rc = nb_proxy_call_sync(proxy, "OrderService", "get", &request, &options, &r
 nb_response_release(&response);
 ```
 
-`nb_response_release` 释放同步调用写出的响应 metadata 与 payload，并将结构清零。
+`nb_response_release` 只释放同步调用写出的响应 metadata 与 payload（`owns_payload == true`
+时），并将结构清零；回调作用域内的响应 `owns_payload` 为 false，释放它们不会碰应用缓冲区。
 
 ### 消息视图
 
@@ -137,7 +144,8 @@ void nb_node_destroy(nb_node_t *node);
 - `nb_node_add_static_route` / `nb_node_add_static_route_uri`
 - `nb_node_wait_for_service`
 - `nb_node_post` / `nb_node_post_delay`
-- `nb_node_run_once` / `nb_node_run`
+- `nb_node_run_once`（运行一轮，不安装信号处理器，适合嵌入宿主程序）
+- `nb_node_run_until_signal`（安装 SIGINT/SIGTERM 后运行到信号到达；`nb_node_run` 是兼容别名）
 
 配置字段见 [配置参考](config.md)。
 
@@ -146,17 +154,22 @@ void nb_node_destroy(nb_node_t *node);
 异步 handler：
 
 ```c
-typedef void (*handler_fn)(nb_call_t *call, const nb_request_t *req, void *user);
+typedef void (*nb_handler_fn)(nb_call_t *call, const nb_request_t *req, void *user);
 ```
 
 同步风格 handler：
 
 ```c
-typedef int (*sync_handler_fn)(const nb_request_t *req, nb_message_view_t *resp, void *user);
+typedef int (*nb_sync_handler_fn)(const nb_request_t *req, nb_message_view_t *resp, void *user);
 ```
 
 同步 handler 的返回值会作为应用状态码写回响应。异步 handler 必须调用一次 `nb_reply`、
 `nb_reply_with_metadata` 或 `nb_reply_stream`。
+
+所有 `nb_reply*` 都返回 `int`：`NB_OK` 表示已接受发送，重复回复返回
+`NB_ERR_ALREADY`，status message 超过 `NB_STATUS_MSG_MAX` 或 metadata 超过
+`NB_METADATA_WIRE_MAX` 时返回 `NB_ERR_TOOBIG`（不再静默截断）。需要保留内嵌 NUL 的
+status message 时用 `nb_reply_status(call, &nb_status_t{code, message, message_len}, ...)`。
 
 注册：
 
@@ -204,7 +217,7 @@ nb_proxy_call_async(proxy, "EchoService", "echo", &request, &options, on_respons
 typedef struct nb_call_options {
     uint64_t timeout_ms;              /* 0 = 默认值；event 忽略；流打开作为流超时 */
     const nb_metadata_t *metadata;    /* 请求 metadata；NULL = 无，调用返回前复制 */
-    uint64_t *out_request_id;         /* 可选，回填相关 id 供 nb_proxy_cancel 使用 */
+    nb_request_id_t *out_request_id;  /* 可选，回填相关 id 供 nb_proxy_cancel 使用 */
 } nb_call_options_t;
 ```
 
@@ -228,7 +241,7 @@ metadata 通过 `nb_call_options_t.metadata` 传入，使用固定容量容器�
 取消：
 
 ```c
-uint64_t request_id = 0;
+nb_request_id_t request_id = 0;
 nb_call_options_t options = NB_CALL_OPTIONS_INIT;
 options.out_request_id = &request_id;
 nb_proxy_call_async(proxy, "Svc", "method", &request, &options, on_response, user);
@@ -313,6 +326,20 @@ nb_transport_provider_register(&my_provider);
 
 provider 的 descriptor 和 ops 必须具有静态生命周期。
 
+ops 与 options 结构体首部带版本/大小字段，用于跨版本安全注册：
+
+- `nb_transport_provider_ops_t.abi_version` 填 `NB_TRANSPORT_PROVIDER_ABI_VERSION`
+  （0 视为旧版 provider，仍被接受）
+- `nb_transport_provider_ops_t.struct_size` 填 `sizeof(nb_transport_provider_ops_t)`
+- `nb_transport_provider_options_t.struct_size` 填 `sizeof(nb_transport_provider_options_t)`
+
+注册失败返回 `NB_ERR_INVALID`；注销用 `nb_transport_provider_unregister(scheme)`。
+
+指针生命周期约定：`options.endpoint` 在 instance 存续期间保持有效；`message` 及其
+`payload/metadata` 指针只在当前回调内有效；`frame_owner` 由 core 持有、provider
+用完即释放；`reply_token` 只能原样回传给 `reply`；`peer`/`target` 是调用栈上的
+临时对象。
+
 provider SPI 只使用三类公共对象：
 
 - `nb_endpoint_t`：`send` 的目标、`reply` 的对端；`scheme/host/port/path` 由
@@ -336,14 +363,14 @@ static int my_reply(nb_transport_instance_t *inst,
 ## Cyclone DDS
 
 内置 `dds` provider 把 v2 frame 作为不透明 octet sample 承载在 Cyclone DDS 上。
-注册后在 binding 中使用 `dds://<domain>:1`：
+注册后在 binding 中使用 `dds://<domain>`（端口可省略，旧写法 `dds://<domain>:1` 兼容）：
 
 ```c
-#include <dds.h>
+#include <nb/dds.h>
 
 nb_cyclone_dds_register();
 
-nb_binding_config_t binding = { "dds", "dds://0:1" };
+nb_binding_config_t binding = { "dds", "dds://0" };
 nb_node_config_t cfg;
 nb_node_config_default(&cfg);
 cfg.mode = NB_MODE_STATIC;
@@ -355,8 +382,8 @@ cfg.transport.binding_count = 1;
 
 ```c
 strcpy(binding.qos.partition, "orders");
-binding.qos.reliability = NB_QOS_RELIABLE;
-binding.qos.history = NB_QOS_KEEP_LAST;
+binding.qos.reliability = NB_QOS_RELIABILITY_RELIABLE;
+binding.qos.history = NB_QOS_HISTORY_KEEP_LAST;
 binding.qos.depth = 8;
 ```
 
@@ -381,8 +408,11 @@ DDS binding 的 `intra_process` 支持 `off` / `auto` / `only`。`auto` 对事�
 nb_metrics_t metrics;
 nb_node_metrics(node, &metrics);
 
-const nb_metric_desc_t *desc = nb_metric_find("requests_sent");
+const nb_metric_desc_t *desc = nb_metric_find("requests_sent_total");
 ```
+
+每个登记项带 `scope`（`NB_METRIC_SCOPE_NODE` / `_UDP` / `_TCP` / `_UDP_RTCP`）：
+`nb_metrics_t` 仍是单一结构体，但非当前传输作用域的字段恒为 0，导出端可据此过滤。
 
 指标可通过 `node.metrics.disable` 关闭；关闭后热路径只保留一次全局标志判断。
 
@@ -390,7 +420,7 @@ const nb_metric_desc_t *desc = nb_metric_find("requests_sent");
 
 ```c
 #define NB_LOG_TAG "app"
-#include <log.h>
+#include <nb/log.h>
 
 nb_log_info("started node=%s", nb_node_name(node));
 ```

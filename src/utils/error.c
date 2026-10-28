@@ -1,7 +1,7 @@
 /*
  * Status-name and retryability lookup generated from NB_ERROR_TABLE.
  */
-#include <error.h>
+#include <nb/error.h>
 
 #include <stddef.h>
 

@@ -3,10 +3,10 @@
  * 通过 nb_node_add_static_route 登记 OrderService -> 127.0.0.1:42420，
  * 跳过服务发现直接路由。
  */
-#include <client.h>
+#include <nb/client.h>
 
 #define NB_LOG_TAG "example"
-#include <log.h>
+#include <nb/log.h>
 
 #include <string.h>
 

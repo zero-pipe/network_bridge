@@ -3,8 +3,8 @@
 
 /* 客户端内部结构：proxy、stub、流式会话与调用上下文。 */
 
-#include <proxy.h>
-#include <stub.h>
+#include <nb/proxy.h>
+#include <nb/stub.h>
 
 #include <stddef.h>
 #include <stdint.h>
@@ -37,7 +37,7 @@ struct nb_stream {
     nb_proxy_t *proxy;
     nb_stub_t *stub; /* open 后只依赖 stub 指针做 owner 标记，不再解引用 proxy */
     nb_node_t *node;
-    uint64_t request_id;
+    nb_request_id_t request_id;
     uint32_t stream_id;
     char service[NB_SERVICE_NAME_MAX];
     char method[NB_METHOD_NAME_MAX];
@@ -71,7 +71,7 @@ int nb_stub_call_ex(nb_stub_t *stub,
                      int streaming,
                      void *user,
                      uint64_t timeout_ms,
-                     uint64_t *out_request_id,
+                     nb_request_id_t *out_request_id,
                      const nb_metadata_t *metadata);
 
 /* 取消该 stub 名下所有未完成调用（proxy/stub 销毁前调用，避免回调 UAF）。 */

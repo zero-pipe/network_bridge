@@ -6,10 +6,10 @@
  *       [data_port] [discovery_port] [client_ip] [client_discovery_port]
  * 默认 TCP 0.0.0.0:42450，发现端口 41953；本机客户端发现端口 41954。
  */
-#include <server.h>
+#include <nb/server.h>
 
 #define NB_LOG_TAG "example"
-#include <log.h>
+#include <nb/log.h>
 
 #include <stdlib.h>
 #include <string.h>

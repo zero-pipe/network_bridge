@@ -1,11 +1,18 @@
 /* Compile-time smoke test for the role-based public headers. */
 #include <nb.h>
-#include <runtime.h>
-#include <server.h>
-#include <client.h>
-#include <transport.h>
-#include <extensions.h>
+#include <nb/runtime.h>
+#include <nb/server.h>
+#include <nb/client.h>
+#include <nb/transport.h>
+#include <nb/extensions.h>
+#include <nb/config.h>
+
+/* Legacy flat paths must keep compiling as forwarding headers. */
+#include <types.h>
+#include <service.h>
+#include <proxy.h>
 #include <config.h>
+#include <dds.h>
 
 int main(void)
 {

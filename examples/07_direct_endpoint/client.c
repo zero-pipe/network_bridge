@@ -2,10 +2,10 @@
  * 07 Direct Endpoint：客户端。对应 fastcall-c 的 07_direct_endpoint。
  * 通过 nb_proxy_set_target_uri 直接指定目标端点，跳过发现与路由表。
  */
-#include <client.h>
+#include <nb/client.h>
 
 #define NB_LOG_TAG "example"
-#include <log.h>
+#include <nb/log.h>
 
 #include <string.h>
 
