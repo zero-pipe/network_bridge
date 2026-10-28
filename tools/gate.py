@@ -653,17 +653,18 @@ def gate_perf(ctx: Context) -> Outcome:
     out_dir = ctx.out / "perf"
     cases: List[Outcome] = []
     metrics_by_transport: Dict[str, Dict[str, Any]] = {}
+    payload_bytes = getattr(ctx.args, "payload_bytes", None) or BENCH_PAYLOAD_BYTES
     for transport in ctx.transports:
         case_dir = out_dir / transport
         try:
             data, server_code = run_scenario(
                 ctx, transport, case_dir,
-                duration=ctx.args.perf_duration, payload_bytes=BENCH_PAYLOAD_BYTES,
-                expect_bytes=BENCH_PAYLOAD_BYTES,
+                duration=ctx.args.perf_duration, payload_bytes=payload_bytes,
+                expect_bytes=payload_bytes,
                 io_threads=6, handler_threads=2,
             )
             ok, messages, metrics = evaluate_result(
-                data, 1, BENCH_PAYLOAD_BYTES, "perf.{}".format(transport))
+                data, 1, payload_bytes, "perf.{}".format(transport))
             if server_code not in (None, 0):
                 ok = False
                 messages.append("server exit={}".format(server_code))
@@ -988,6 +989,8 @@ def make_parser() -> argparse.ArgumentParser:
                                  help="run process-level throughput/latency smoke")
     perf.add_argument("--perf-duration", type=int, default=5,
                       help="seconds per transport (default: 5)")
+    perf.add_argument("--payload-bytes", type=int, default=None,
+                      help="request/response payload bytes (default: %d)" % BENCH_PAYLOAD_BYTES)
     perf.add_argument("--baseline", default=None,
                       help="baseline JSON for QPS/p99 regression checks")
     perf.add_argument("--update-baseline", action="store_true",
