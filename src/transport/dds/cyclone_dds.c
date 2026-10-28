@@ -490,19 +490,33 @@ static int nb_dds_publish(nb_dds_instance_t *inst, dds_entity_t writer, const nb
  */
 static void nb_dds_local_deliver(nb_dds_instance_t *inst,
                                  const nb_transport_message_t *message,
-                                 const char *method)
+                                 const char *route)
 {
     nb_dds_endpoint_t *targets[NB_DDS_MAX_ENDPOINTS];
+    char route_key[NB_DDS_TOPIC_MAX];
+    char ep_key[NB_DDS_TOPIC_MAX];
     size_t count = 0;
     size_t i;
 
-    if (!inst || !message || !method || !inst->options.on_receive) {
+    if (!inst || !message || !route || !inst->options.on_receive) {
         return;
     }
+    /* Endpoints are keyed by the raw "Service.method" route; topics use the
+     * sanitized form. Accept either spelling so a registration that was
+     * already sanitized still matches. */
+    nb_dds_sanitize(route, route_key, sizeof(route_key));
     ntk_mutex_lock(inst->lock);
     for (i = 0; i < inst->endpoint_count; ++i) {
         nb_dds_endpoint_t *ep = &inst->endpoints[i];
-        if (ep->used && ep->local_event && strcmp(ep->method, method) == 0) {
+        if (!ep->used || !ep->local_event) {
+            continue;
+        }
+        if (strcmp(ep->method, route) == 0 || strcmp(ep->method, route_key) == 0) {
+            targets[count++] = ep;
+            continue;
+        }
+        nb_dds_sanitize(ep->method, ep_key, sizeof(ep_key));
+        if (strcmp(ep_key, route_key) == 0) {
             targets[count++] = ep;
         }
     }
@@ -628,7 +642,7 @@ static int nb_dds_op_send(nb_transport_instance_t *instance,
     }
     if (message->kind == KIND_EVENT) {
         if (inst->options.intra_process != NB_INTRA_OFF) {
-            nb_dds_local_deliver(inst, message, method);
+            nb_dds_local_deliver(inst, message, message->route);
             if (inst->options.intra_process == NB_INTRA_ONLY) {
                 return NB_OK;
             }

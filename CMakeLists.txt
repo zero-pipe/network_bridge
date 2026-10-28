@@ -120,6 +120,7 @@ if(Python3_Interpreter_FOUND)
             COMMAND ${Python3_EXECUTABLE} ${NB_GATE_SCRIPT} e2e ${NB_GATE_ARGS}
             DEPENDS test_loopback test_stream test_api test_worker test_semantics
                     test_move bench_server loadgen
+                    $<$<TARGET_EXISTS:test_dds_local>:test_dds_local>
             USES_TERMINAL VERBATIM)
     endif()
 
