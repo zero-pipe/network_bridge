@@ -108,7 +108,7 @@ void nb_log_init(void)
     (void)pthread_once(&nb_s_log_once, nb_log_init_once);
 }
 
-void nb_log_configure(int enabled, uint8_t level)
+void nb_log_configure(bool enabled, nb_log_level_t level)
 {
     const char *env;
 
@@ -116,15 +116,15 @@ void nb_log_configure(int enabled, uint8_t level)
     nb_s_log_inited = 1;
     nb_log_gate = enabled ? 1 : 0;
     env = getenv("NB_LOG_LEVEL");
-    elog_set_filter_lvl(env && env[0] ? nb_log_level_from_env() : level);
+    elog_set_filter_lvl(env && env[0] ? nb_log_level_from_env() : (uint8_t)level);
 }
 
-int nb_log_enabled(void)
+bool nb_log_enabled(void)
 {
     if (!nb_s_log_inited) {
         nb_log_init();
         nb_s_log_inited = 1;
     }
-    return nb_log_gate;
+    return nb_log_gate != 0;
 }
 #endif
