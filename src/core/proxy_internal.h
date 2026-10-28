@@ -18,12 +18,9 @@ struct nb_proxy {
     uint8_t payload_encoding;
     uint32_t prefer_stream_threshold;
     nb_stub_t *stub;
-    nb_spinlock_t endpoint_lock; /* 保护 endpoint_* / has_endpoint（setter vs poller 读） */
+    nb_spinlock_t endpoint_lock; /* 保护 endpoint / has_endpoint（setter vs poller 读） */
     int has_endpoint;
-    char endpoint_ip[NB_ENDPOINT_MAX];
-    char endpoint_scheme[NB_SCHEME_MAX];
-    uint16_t endpoint_port;
-    nb_transport_kind_t endpoint_transport;
+    nb_endpoint_t endpoint;
     int has_interceptor;
     nb_proxy_interceptor_t interceptor;
 };
@@ -44,10 +41,7 @@ struct nb_stream {
     uint32_t stream_id;
     char service[NB_SERVICE_NAME_MAX];
     char method[NB_METHOD_NAME_MAX];
-    char ip[NB_ENDPOINT_MAX];
-    char scheme[NB_SCHEME_MAX];
-    uint16_t port;
-    nb_transport_kind_t transport;
+    nb_endpoint_t endpoint;
     response_fn cb;
     response_chunk_fn chunk_cb;
     stream_done_fn done_cb;
@@ -63,13 +57,8 @@ struct nb_stream {
 
 int nb_proxy_resolve(nb_proxy_t *proxy,
                       const char *service,
-                      char *ip_out,
-                      size_t ip_cap,
-                      uint16_t *port_out,
-                      nb_transport_kind_t *transport_out,
-                      char *scheme_out,
-                      size_t scheme_cap,
-                      int prefer_stream);
+                      int prefer_stream,
+                      nb_endpoint_t *out);
 
 /* stub.c：带流式回调的内部调用入口；供 proxy 复用。 */
 int nb_stub_call_ex(nb_stub_t *stub,

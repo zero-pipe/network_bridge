@@ -207,6 +207,32 @@ static void test_queue_capacity(nb_shmseg_t *srv, nb_shmseg_t *cli)
     }
 }
 
+static void test_mesh_peer_queues(nb_shmseg_t *cli, nb_shmseg_t *cli2)
+{
+    uint64_t off = nb_shmseg_alloc(cli, 64);
+    uint64_t got = 0;
+    uint16_t source = 0;
+
+    CHECK(off != 0);
+    if (off == 0) {
+        return;
+    }
+    /* node 2 -> node 3：不经过固定 server 队列。 */
+    CHECK(nb_shmseg_push(cli, 3, off) == 0);
+    CHECK(nb_shmseg_pop(cli2, &got, &source) == 0);
+    CHECK(got == off);
+    CHECK(source == 2);
+
+    /* node 3 -> node 2：任意节点都可以作为响应方。 */
+    nb_shmseg_set_length(cli2, off, 4);
+    CHECK(nb_shmseg_push(cli2, 2, off) == 0);
+    got = 0;
+    CHECK(nb_shmseg_pop(cli, &got, &source) == 0);
+    CHECK(got == off);
+    CHECK(source == 3);
+    nb_shmseg_chunk_free(cli, off);
+}
+
 int main(void)
 {
     char channel[64];
@@ -240,6 +266,7 @@ int main(void)
     test_queues(srv, cli);
     test_pubsub(srv, cli, cli2);
     test_queue_capacity(srv, cli);
+    test_mesh_peer_queues(cli, cli2);
 
     nb_shmseg_close(cli2);
     nb_shmseg_close(cli);

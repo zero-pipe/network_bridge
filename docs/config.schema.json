@@ -92,7 +92,7 @@
                   },
                   "endpoint": {
                     "type": "string",
-                    "maxLength": 87
+                    "maxLength": 255
                   },
                   "intra_process": {
                     "type": "string",
@@ -228,13 +228,76 @@
           },
           "endpoint": {
             "type": "string",
-            "maxLength": 87,
+            "maxLength": 255,
             "description": "Endpoint URI such as tcp://127.0.0.1:42420."
           }
         },
         "additionalProperties": true
       },
       "description": "Static service routes that bypass discovery."
+    }
+  },
+  "$defs": {
+    "qos": {
+      "type": "object",
+      "properties": {
+        "reliability": {
+          "type": "string",
+          "enum": ["best_effort", "reliable"],
+          "description": "DDS ReliabilityQosPolicy."
+        },
+        "durability": {
+          "type": "string",
+          "enum": ["volatile", "transient_local"],
+          "description": "DDS DurabilityQosPolicy."
+        },
+        "history": {
+          "type": "string",
+          "enum": ["keep_last", "keep_all"],
+          "description": "DDS HistoryQosPolicy."
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "History depth for keep_last. 0 uses the provider default."
+        },
+        "deadline_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "DDS DeadlineQosPolicy in milliseconds."
+        },
+        "lifespan_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "DDS LifespanQosPolicy in milliseconds."
+        },
+        "lease_duration_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "DDS LivelinessQosPolicy lease duration in milliseconds."
+        },
+        "latency_budget_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "DDS LatencyBudgetQosPolicy in milliseconds."
+        },
+        "liveliness": {
+          "type": "string",
+          "enum": ["automatic", "manual_by_participant", "manual_by_topic"],
+          "description": "DDS LivelinessQosPolicy kind."
+        },
+        "ownership": {
+          "type": "string",
+          "enum": ["shared", "exclusive"],
+          "description": "DDS OwnershipQosPolicy."
+        },
+        "partition": {
+          "type": "string",
+          "maxLength": 127,
+          "description": "DDS PartitionQosPolicy (single partition name)."
+        }
+      },
+      "additionalProperties": true
     }
   },
   "additionalProperties": true

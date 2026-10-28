@@ -13,6 +13,9 @@
  *   <method>_req  request topic
  *   <method>_res  response topic
  *   <method>_evt  one-way event / pub-sub topic
+ *
+ * QoS is taken from nb_binding_config_t.qos (or the inherited transport.qos)
+ * and mapped to Cyclone DDS reader/writer policies; see qos.h.
  */
 
 #include <transport_provider.h>

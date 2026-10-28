@@ -194,6 +194,17 @@ int nb_node_create(const nb_node_config_t *cfg, nb_node_t **out)
     local = *cfg;
     nb_node_config_normalize(&local);
     cfg = &local;
+    if (nb_qos_validate(&cfg->transport.qos) != NB_OK) {
+        return NB_ERR_INVALID;
+    }
+    if (cfg->transport.bindings) {
+        size_t bi;
+        for (bi = 0; bi < cfg->transport.binding_count; bi++) {
+            if (nb_qos_validate(&cfg->transport.bindings[bi].qos) != NB_OK) {
+                return NB_ERR_INVALID;
+            }
+        }
+    }
     *out = NULL;
     node = (nb_node_t *)calloc(1, sizeof(*node));
     if (!node) {
@@ -216,6 +227,7 @@ int nb_node_create(const nb_node_config_t *cfg, nb_node_t **out)
     node->bp_high_water = cfg->transport.backpressure_bytes;
     node->rtcp_interval_ms = cfg->transport.rtcp_interval_ms;
     node->rtcp_disabled = cfg->transport.rtcp_disabled;
+    node->default_qos = cfg->transport.qos;
     node->max_recv_streams = cfg->runtime.max_streams;
     node->rate_limit_pps = cfg->runtime.peer_rate_limit_pps;
     node->handler_max_concurrency = cfg->runtime.handler_max_concurrency;
@@ -339,25 +351,21 @@ int nb_node_create(const nb_node_config_t *cfg, nb_node_t **out)
     if (cfg->transport.bindings && cfg->transport.binding_count > 0) {
         size_t i;
         for (i = 0; i < cfg->transport.binding_count; i++) {
-            nb_endpoint_t endpoint;
             const nb_binding_config_t *binding = &cfg->transport.bindings[i];
-            if (!binding->endpoint || nb_endpoint_parse(binding->endpoint, &endpoint) != NB_OK) {
-                nb_node_destroy(node);
-                return NB_ERR_INVALID;
-            }
-            if (nb_node_transport_add(node,
-                                      endpoint.scheme,
-                                      endpoint.host,
-                                      endpoint.port,
-                                      binding->intra_process) != NB_OK) {
+            if (nb_node_transport_add_binding(node, binding) != NB_OK) {
                 nb_node_destroy(node);
                 return NB_ERR_IO;
             }
         }
     } else {
         const char *scheme = cfg->transport.transport == NB_TRANSPORT_TCP ? "tcp" : "udp";
-        if (nb_node_transport_add(
-                node, scheme, node->bind_host, cfg->transport.data_port, NB_INTRA_OFF) != NB_OK) {
+        if (nb_node_transport_add(node,
+                                  scheme,
+                                  node->bind_host,
+                                  cfg->transport.data_port,
+                                  NULL,
+                                  NB_INTRA_OFF,
+                                  &cfg->transport.qos) != NB_OK) {
             nb_node_destroy(node);
             return NB_ERR_IO;
         }
@@ -588,17 +596,14 @@ size_t nb_node_binding_count(const nb_node_t *node)
 
 int nb_node_binding_endpoint(const nb_node_t *node, size_t index, char *out, size_t cap)
 {
-    nb_endpoint_t endpoint;
     if (!node || index >= node->transport_count || !node->transports[index]) {
         return NB_ERR_NOTFOUND;
     }
-    memset(&endpoint, 0, sizeof(endpoint));
-    nb_copy_str(endpoint.scheme, sizeof(endpoint.scheme), node->transports[index]->scheme, "udp");
-    nb_copy_str(
-        endpoint.host, sizeof(endpoint.host), node->transports[index]->bind_host, "0.0.0.0");
-    endpoint.port = node->transports[index]->port;
-    endpoint.transport = node->transports[index]->kind;
-    return nb_endpoint_format(&endpoint, out, cap);
+    if (!out || cap == 0 || !node->transports[index]->endpoint_uri[0]) {
+        return NB_ERR_INVALID;
+    }
+    nb_copy_str(out, cap, node->transports[index]->endpoint_uri, "");
+    return out[0] ? NB_OK : NB_ERR_TOOBIG;
 }
 
 /* ---- 指标与对端质量 ---- */

@@ -2,6 +2,7 @@
 #include "node_access.h"
 
 #include "node_internal.h"
+#include "util.h"
 
 uint32_t nb_node_id(const nb_node_t *node)
 {
@@ -107,4 +108,16 @@ uint16_t nb_node_binding_port(const nb_node_t *node, size_t index)
         return 0;
     }
     return node->transports[index]->port;
+}
+
+int nb_node_binding_uri(const nb_node_t *node, size_t index, char *out, size_t cap)
+{
+    if (!node || index >= node->transport_count || !node->transports[index] || !out || cap == 0) {
+        return NB_ERR_INVALID;
+    }
+    if (!node->transports[index]->endpoint_uri[0]) {
+        return NB_ERR_NOTFOUND;
+    }
+    nb_copy_str(out, cap, node->transports[index]->endpoint_uri, "");
+    return out[0] ? NB_OK : NB_ERR_TOOBIG;
 }

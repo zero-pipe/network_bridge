@@ -32,5 +32,6 @@ size_t nb_node_service_count(const nb_node_t *node);
 const char *nb_node_service_name(const nb_node_t *node, size_t index);
 const char *nb_node_binding_scheme(const nb_node_t *node, size_t index);
 uint16_t nb_node_binding_port(const nb_node_t *node, size_t index);
+int nb_node_binding_uri(const nb_node_t *node, size_t index, char *out, size_t cap);
 
 #endif /* NODE_ACCESS_H */

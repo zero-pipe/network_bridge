@@ -6,12 +6,13 @@
  *
  * Register the provider before creating any node, then use a SHM binding:
  *
- *   server: shm://<channel>:1
- *   client: shm://<channel>:2
+ *   node A: shm://<channel>:1
+ *   node B: shm://<channel>:2
  *
- * 一个 channel = 一个共享内存段；server（端口 1）是段的所有者并持有生命周期，
- * 客户端用端口 2..(NB_SHM_MAX_CLIENTS+1) 区分，支持多客户端共用同一段。
- * 客户端 proxy endpoint 指向 shm://<channel>:1。
+ * 一个 channel = 一个共享内存段；端口是节点在该段内的唯一 id（1..9），
+ * 不再固定 server/client 角色。任意节点都可以接收请求、回复和事件；mesh
+ * 模式下 discovery 会广播完整的 shm://channel:id URI，因此也支持按服务名发现。
+ * 直连时 proxy endpoint 指向目标节点，例如 shm://<channel>:2。
  *
  * 传输层采用 iceoryx 风格的分档 chunk 池 + 无锁队列 + 偏移寻址：发送方直接
  * 在段内编码 envelope，接收方把 chunk 作为 frame_owner 零拷贝交给 core，大包

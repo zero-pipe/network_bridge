@@ -51,6 +51,7 @@ set(NB_RPC_SOURCES
     utils/util.c
     utils/iobuf.c
     utils/endpoint.c
+    utils/qos.c
     utils/json/codec_json.c
     message/frame.c
     message/envelope.c

@@ -12,10 +12,12 @@ provider 接入 UDP、TCP、共享内存、Cyclone DDS 等异构链路，并在�
 - **默认不新增线程**：回调在 NTK poller 线程运行；阻塞 handler 可选 WORKER 或自定义
   EXECUTOR。
 - **可组合传输**：UDP 内置分片、NACK/RTX 与 RTCP 反馈；TCP 使用长度前缀分帧。
+- **统一 endpoint**：路由、发现、registry 和 provider 共用规范化 URI，SHM channel / DDS domain 不再丢失。
 - **统一路由**：静态路由与 mesh 服务发现进入同一路由表。
 - **payload 对框架透明**：框架只透传字节和 `encoding`，序列化通过 `nb_codec_t` 扩展。
 - **流式 RPC**：支持客户端分片上传、服务端分片下载和双向流。
-- **Cyclone DDS**：内置 `dds` provider，支持请求/响应与事件 pub/sub。
+- **Cyclone DDS**：内置 `dds` provider，支持请求/响应、事件 pub/sub，并对齐 DDS QoS。
+- **SHM mesh**：共享内存段按节点分队列，mesh 下任意节点可收发 RPC 与事件。
 - **可观测性**：指标、延迟分位、日志运行期开关。
 - **错误码体系**：稳定数值、名称、描述、可重试标记和应用错误保留区。
 
@@ -73,6 +75,7 @@ int main(void)
 | 文档 | 内容 |
 | --- | --- |
 | [SDK API](docs/api/sdk-api.md) | 对象模型、生命周期、线程与所有权 |
+| [架构与抽象](docs/architecture.md) | endpoint、message、QoS、mesh 与 provider 分层 |
 | [配置参考](docs/api/config.md) | JSON 字段、默认值与校验 |
 | [错误码](docs/api/error-codes.md) | 稳定数值、名称、描述与重试语义 |
 | [示例索引](docs/examples.md) | 按场景查找示例 |

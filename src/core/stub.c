@@ -39,39 +39,17 @@ typedef struct nb_stub_resend_task {
 
 static void nb_stub_task_free(nb_stub_task_t *task);
 
-static uint8_t nb_stub_msg_kind(nb_stub_kind_t kind)
-{
-    return kind == NB_STUB_EVENT ? KIND_EVENT : KIND_REQUEST;
-}
-
 /* 默认解析：静态路由表 + 服务发现。 */
 static int nb_stub_default_send(nb_stub_t *stub,
-                             const char *service,
-                             const char *method,
-                             const nb_payload_t *payload,
-                             nb_stub_kind_t kind,
-                             uint64_t request_id,
-                             uint64_t timeout_ms,
-                             const void *metadata,
-                             uint16_t metadata_len,
-                             nb_stub_target_t *target,
-                             void *user_data)
+                                const nb_stub_request_t *request,
+                                void *user_data)
 {
     nb_node_t *node = stub->node;
     (void)user_data;
-    if (nb_node_resolve(node, service, 0, target) != NB_OK) {
+    if (nb_node_resolve(node, request->service, 0, request->target) != NB_OK) {
         return NB_ERR_NOTFOUND;
     }
-    return nb_node_send_call(node,
-                              target,
-                              service,
-                              method,
-                              payload,
-                              nb_stub_msg_kind(kind),
-                              request_id,
-                              timeout_ms,
-                              metadata,
-                              metadata_len);
+    return nb_node_send_call(node, request);
 }
 
 static uint64_t nb_stub_resend_task_fn(void *user)
@@ -169,7 +147,8 @@ static void nb_stub_call_now(nb_stub_t *stub,
     nb_node_t *node = stub->node;
     nb_pending_t *p;
     nb_payload_t pl;
-    nb_stub_target_t target;
+    nb_endpoint_t target;
+    nb_stub_request_t request;
     int rc;
     int prc = NB_OK;
 
@@ -218,19 +197,19 @@ static void nb_stub_call_now(nb_stub_t *stub,
     pl.len = len;
     pl.encoding = encoding;
     memset(&target, 0, sizeof(target));
-    rc = stub->send(stub,
-                    service,
-                    method,
-                    &pl,
-                    NB_STUB_REQUEST,
-                    id,
-                    timeout_ms,
-                    metadata,
-                    metadata_len,
-                    &target,
-                    stub->user_data);
+    memset(&request, 0, sizeof(request));
+    request.service = service;
+    request.method = method;
+    request.payload = &pl;
+    request.kind = NB_STUB_REQUEST;
+    request.request_id = id;
+    request.timeout_ms = timeout_ms;
+    request.metadata = metadata;
+    request.metadata_len = metadata_len;
+    request.target = &target;
+    rc = stub->send(stub, &request, stub->user_data);
     /* 目标在解析成功时即已回填，先落进 pending 供重传使用。 */
-    nb_copy_str(p->ip, sizeof(p->ip), target.ip, "0.0.0.0");
+    nb_copy_str(p->ip, sizeof(p->ip), target.host, "0.0.0.0");
     p->port = target.port;
     p->transport = target.transport;
     nb_copy_str(p->scheme, sizeof(p->scheme), target.scheme, "udp");
@@ -291,22 +270,22 @@ static void nb_stub_event_now(nb_stub_t *stub,
                            nb_buf_t *buf_owner)
 {
     nb_payload_t pl;
-    nb_stub_target_t target;
+    nb_endpoint_t target;
+    nb_stub_request_t request;
     pl.data = data;
     pl.len = len;
     pl.encoding = encoding;
     memset(&target, 0, sizeof(target));
-    (void)stub->send(stub,
-                     service,
-                     method,
-                     &pl,
-                     NB_STUB_EVENT,
-                     id,
-                     0,
-                     metadata,
-                     metadata_len,
-                     &target,
-                     stub->user_data);
+    memset(&request, 0, sizeof(request));
+    request.service = service;
+    request.method = method;
+    request.payload = &pl;
+    request.kind = NB_STUB_EVENT;
+    request.request_id = id;
+    request.metadata = metadata;
+    request.metadata_len = metadata_len;
+    request.target = &target;
+    (void)stub->send(stub, &request, stub->user_data);
     if (buf_owner) {
         nb_buf_release(buf_owner);
     }

@@ -49,6 +49,7 @@
  */
 
 #include <endpoint.h>
+#include <qos.h>
 #include <service_table.h>
 #include <types.h>
 
@@ -69,6 +70,7 @@ typedef struct nb_binding_config {
     const char *name;                 /* provider/binding name, e.g. "tcp" */
     const char *endpoint;             /* URI, e.g. tcp://127.0.0.1:8080 */
     nb_intra_process_t intra_process; /* provider-local event fast path */
+    nb_qos_t qos;                     /* provider QoS; zero = inherit */
 } nb_binding_config_t;
 
 /* ---- 分模块配置 ---- */
@@ -95,6 +97,7 @@ typedef struct nb_node_transport_config {
     int rtcp_disabled;                   /* 非 0 关闭 RTCP */
     const nb_binding_config_t *bindings; /* 非空时启动所有 binding */
     size_t binding_count;
+    nb_qos_t qos;                        /* 默认 binding 的 QoS */
 } nb_node_transport_config_t;
 
 /* 服务发现。 */
@@ -146,7 +149,7 @@ typedef struct nb_node_config {
 /* ---- 解析结果 ---- */
 typedef struct nb_static_route {
     char service[NB_SERVICE_NAME_MAX];
-    char endpoint[NB_ENDPOINT_MAX + NB_SCHEME_MAX + 8];
+    char endpoint[NB_ENDPOINT_URI_MAX];
 } nb_static_route_t;
 
 typedef struct nb_peer_endpoint {
@@ -156,7 +159,7 @@ typedef struct nb_peer_endpoint {
 
 typedef struct nb_binding_endpoint {
     char name[NB_SCHEME_MAX];
-    char endpoint[NB_ENDPOINT_MAX + NB_SCHEME_MAX + 8];
+    char endpoint[NB_ENDPOINT_URI_MAX];
 } nb_binding_endpoint_t;
 
 typedef struct nb_config {
@@ -189,6 +192,7 @@ void nb_node_metrics_config_default(nb_node_metrics_config_t *cfg);
 void nb_node_log_config_default(nb_node_log_config_t *cfg);
 /* 填充组合根默认值；用于直接构造 nb_node_config_t 的调用方。 */
 void nb_node_config_default(nb_node_config_t *cfg);
+void nb_binding_config_default(nb_binding_config_t *cfg);
 /*
  * 归一化：把 0/NULL 字段补成默认值并夹到合法范围。nb_node_create 内部会对传入
  * 配置的副本调用一次，因此直接构造 nb_node_config_t 的调用方无需再写兜底。

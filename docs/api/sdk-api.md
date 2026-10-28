@@ -264,6 +264,26 @@ nb_transport_provider_register(&my_provider);
 
 provider 的 descriptor 和 ops 必须具有静态生命周期。
 
+provider SPI 只使用三类公共对象：
+
+- `nb_endpoint_t`：`send` 的目标、`reply` 的对端；`scheme/host/port/path` 由
+  provider 自己解释，`uri` 是规范化形式。
+- `nb_message_t`：与 core 内部相同的消息结构，不再有第二份 provider 消息副本。
+- `nb_qos_t`：创建 instance 时通过 `nb_transport_provider_options_t.qos` 传入。
+
+```c
+static int my_send(nb_transport_instance_t *inst,
+                   const nb_endpoint_t *target,
+                   const nb_message_t *msg);
+static int my_reply(nb_transport_instance_t *inst,
+                    void *reply_token,
+                    const nb_endpoint_t *peer,
+                    const nb_message_t *msg);
+```
+
+入站回调为 `on_receive(receiver, reply_token, message)`，来源端点在
+`message->peer`；provider 不再单独传 `host/port` 参数。
+
 ## Cyclone DDS
 
 内置 `dds` provider 把 v2 frame 作为不透明 octet sample 承载在 Cyclone DDS 上。
@@ -280,6 +300,15 @@ nb_node_config_default(&cfg);
 cfg.mode = NB_MODE_STATIC;
 cfg.transport.bindings = &binding;
 cfg.transport.binding_count = 1;
+```
+
+可以为 binding 配置 DDS QoS；未配置字段保持 Cyclone DDS 默认值：
+
+```c
+strcpy(binding.qos.partition, "orders");
+binding.qos.reliability = NB_QOS_RELIABLE;
+binding.qos.history = NB_QOS_KEEP_LAST;
+binding.qos.depth = 8;
 ```
 
 topic 由方法名派生：

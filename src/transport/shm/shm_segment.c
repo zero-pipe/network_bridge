@@ -79,10 +79,9 @@ typedef struct nb_shm_header {
     uint64_t arena_bytes;
     int64_t owner_pid;
     nb_shm_class_hdr_t classes[NB_SHM_CLASS_COUNT];
-    sem_t req_sem;
-    sem_t resp_sem[NB_SHM_MAX_CLIENTS];
-    nb_shm_queue_t req;
-    nb_shm_queue_t resp[NB_SHM_MAX_CLIENTS];
+    sem_t inbox_sem[NB_SHM_MAX_NODES];
+    nb_shm_queue_t inbox[NB_SHM_MAX_NODES];
+    uint32_t active_nodes;
     nb_shm_sub_list_t subs[NB_SHM_MAX_NODES];
 } nb_shm_header_t;
 
@@ -90,6 +89,7 @@ struct nb_shmseg {
     char name[128];
     char channel[NB_ENDPOINT_MAX];
     uint16_t self_id;
+    int creator;
     int fd;
     void *map;
     size_t map_size;
@@ -416,12 +416,9 @@ static void nb_shm_reset(nb_shmseg_t *seg)
     nb_shm_header_t *h = seg->hdr;
     unsigned i;
 
-    nb_shm_queue_init(&h->req);
-    while (sem_trywait(&h->req_sem) == 0) {
-    }
-    for (i = 0; i < NB_SHM_MAX_CLIENTS; i++) {
-        nb_shm_queue_init(&h->resp[i]);
-        while (sem_trywait(&h->resp_sem[i]) == 0) {
+    for (i = 0; i < NB_SHM_MAX_NODES; i++) {
+        nb_shm_queue_init(&h->inbox[i]);
+        while (sem_trywait(&h->inbox_sem[i]) == 0) {
         }
     }
     for (i = 0; i < NB_SHM_CLASS_COUNT; i++) {
@@ -441,19 +438,16 @@ static int nb_shm_init_shared(nb_shmseg_t *seg, uint64_t segment_bytes)
     h->layout = NB_SHM_LAYOUT_VERSION;
     h->owner_pid = (int64_t)getpid();
     nb_shm_layout(h, segment_bytes);
-    if (sem_init(&h->req_sem, 1, 0) != 0) {
-        return NB_ERR_IO;
-    }
-    for (i = 0; i < NB_SHM_MAX_CLIENTS; i++) {
-        if (sem_init(&h->resp_sem[i], 1, 0) != 0) {
+    for (i = 0; i < NB_SHM_MAX_NODES; i++) {
+        if (sem_init(&h->inbox_sem[i], 1, 0) != 0) {
             while (i > 0) {
-                sem_destroy(&h->resp_sem[--i]);
+                sem_destroy(&h->inbox_sem[--i]);
             }
-            sem_destroy(&h->req_sem);
             return NB_ERR_IO;
         }
     }
     nb_shm_reset(seg);
+    __atomic_store_n(&h->active_nodes, 1u, __ATOMIC_RELEASE);
     __atomic_store_n(&h->ready, 1u, __ATOMIC_RELEASE);
     return NB_OK;
 }
@@ -515,6 +509,7 @@ nb_shmseg_t *nb_shmseg_open(const char *channel, uint16_t self_id)
         return NULL;
     }
     seg->self_id = self_id;
+    seg->creator = 0;
     seg->fd = -1;
     nb_copy_str(seg->channel, sizeof(seg->channel), channel, "");
     nb_shm_make_name(channel, seg->name, sizeof(seg->name));
@@ -524,6 +519,7 @@ nb_shmseg_t *nb_shmseg_open(const char *channel, uint16_t self_id)
         uint64_t want = nb_shm_want_bytes();
 
         created = 1;
+        seg->creator = 1;
         if (ftruncate(fd, (off_t)want) != 0) {
             nb_log_error("shm: ftruncate(%s) failed: %s", seg->name, strerror(errno));
             close(fd);
@@ -593,17 +589,37 @@ nb_shmseg_t *nb_shmseg_open(const char *channel, uint16_t self_id)
         }
     }
 
-    /* server 是段的所有者：重建队列与 chunk 池，清理上一个世代的残留。 */
-    if (self_id == 1u && !created) {
-        nb_shm_reset(seg);
+    if (!created) {
+        uint32_t active = __atomic_load_n(&h->active_nodes, __ATOMIC_ACQUIRE);
+        if (active == 0u) {
+            /* Previous owner exited without unlinking; start a clean generation. */
+            nb_shm_reset(seg);
+            __atomic_store_n(&h->active_nodes, 1u, __ATOMIC_RELEASE);
+        } else {
+            __atomic_add_fetch(&h->active_nodes, 1u, __ATOMIC_ACQ_REL);
+        }
     }
     return seg;
 }
 
 void nb_shmseg_close(nb_shmseg_t *seg)
 {
+    uint32_t active = 0;
+
     if (!seg) {
         return;
+    }
+    if (seg->hdr && seg->name[0]) {
+        if (seg->self_id >= 1u && seg->self_id <= NB_SHM_MAX_NODES) {
+            nb_shm_sub_list_t *l = &seg->hdr->subs[seg->self_id - 1u];
+            uint64_t v = __atomic_load_n(&l->version, __ATOMIC_RELAXED);
+            __atomic_store_n(&l->version, v + 1u, __ATOMIC_RELEASE);
+            __atomic_thread_fence(__ATOMIC_SEQ_CST);
+            memset(l->hashes, 0, sizeof(l->hashes));
+            __atomic_thread_fence(__ATOMIC_SEQ_CST);
+            __atomic_store_n(&l->version, v + 2u, __ATOMIC_RELEASE);
+        }
+        active = __atomic_sub_fetch(&seg->hdr->active_nodes, 1u, __ATOMIC_ACQ_REL);
     }
     if (seg->hdr) {
         munmap(seg->hdr, seg->map_size);
@@ -613,8 +629,8 @@ void nb_shmseg_close(nb_shmseg_t *seg)
         close(seg->fd);
         seg->fd = -1;
     }
-    /* server 拥有命名生命周期：最后一个映射关闭后名字才真正消失。 */
-    if (seg->self_id == 1u && seg->name[0]) {
+    /* 最后一个退出者回收命名生命周期，mesh 模式下不再要求 id=1 存活。 */
+    if (seg->name[0] && active == 0u) {
         shm_unlink(seg->name);
     }
     free(seg);
@@ -622,70 +638,66 @@ void nb_shmseg_close(nb_shmseg_t *seg)
 
 /* ---- 队列封装 ---- */
 
-int nb_shmseg_push_request(nb_shmseg_t *seg, uint64_t chunk_off)
-{
-    int rc;
-
-    if (!seg || !seg->hdr || chunk_off == 0) {
-        return -1;
-    }
-    rc = nb_shm_queue_push(&seg->hdr->req, chunk_off, seg->self_id);
-    if (rc == 1) {
-        sem_post(&seg->hdr->req_sem);
-    }
-    return rc < 0 ? -1 : 0;
-}
-
-int nb_shmseg_pop_request(nb_shmseg_t *seg, uint64_t *chunk_off, uint16_t *client_id)
-{
-    uint32_t client = 0;
-    int rc;
-
-    if (!seg || !seg->hdr || !chunk_off) {
-        return -1;
-    }
-    rc = nb_shm_queue_pop(&seg->hdr->req, chunk_off, &client);
-    if (rc == 0 && client_id) {
-        *client_id = (uint16_t)client;
-    }
-    return rc;
-}
-
-int nb_shmseg_push_response(nb_shmseg_t *seg, uint16_t client_id, uint64_t chunk_off)
+int nb_shmseg_push(nb_shmseg_t *seg, uint16_t target_id, uint64_t chunk_off)
 {
     unsigned idx;
     int rc;
 
-    if (!seg || !seg->hdr || chunk_off == 0 || client_id < 2u ||
-        client_id > NB_SHM_MAX_CLIENTS + 1u) {
+    if (!seg || !seg->hdr || chunk_off == 0 || target_id == 0 ||
+        target_id > NB_SHM_MAX_NODES) {
         return -1;
     }
-    idx = (unsigned)(client_id - 2u);
-    rc = nb_shm_queue_push(&seg->hdr->resp[idx], chunk_off, seg->self_id);
+    idx = (unsigned)(target_id - 1u);
+    rc = nb_shm_queue_push(&seg->hdr->inbox[idx], chunk_off, seg->self_id);
     if (rc == 1) {
-        sem_post(&seg->hdr->resp_sem[idx]);
+        sem_post(&seg->hdr->inbox_sem[idx]);
     }
     return rc < 0 ? -1 : 0;
 }
 
-int nb_shmseg_pop_response(nb_shmseg_t *seg, uint64_t *chunk_off, uint16_t *source_id)
+int nb_shmseg_pop(nb_shmseg_t *seg, uint64_t *chunk_off, uint16_t *source_id)
 {
     unsigned idx;
     uint32_t source = 0;
     int rc;
 
-    if (!seg || !seg->hdr || !chunk_off || seg->self_id < 2u) {
+    if (!seg || !seg->hdr || !chunk_off || seg->self_id == 0 ||
+        seg->self_id > NB_SHM_MAX_NODES) {
         return -1;
     }
-    idx = (unsigned)(seg->self_id - 2u);
-    if (idx >= NB_SHM_MAX_CLIENTS) {
-        return -1;
-    }
-    rc = nb_shm_queue_pop(&seg->hdr->resp[idx], chunk_off, &source);
+    idx = (unsigned)(seg->self_id - 1u);
+    rc = nb_shm_queue_pop(&seg->hdr->inbox[idx], chunk_off, &source);
     if (rc == 0 && source_id) {
         *source_id = (uint16_t)source;
     }
     return rc;
+}
+
+int nb_shmseg_push_request(nb_shmseg_t *seg, uint64_t chunk_off)
+{
+    return nb_shmseg_push(seg, 1u, chunk_off);
+}
+
+int nb_shmseg_pop_request(nb_shmseg_t *seg, uint64_t *chunk_off, uint16_t *client_id)
+{
+    return nb_shmseg_pop(seg, chunk_off, client_id);
+}
+
+int nb_shmseg_push_response(nb_shmseg_t *seg, uint16_t client_id, uint64_t chunk_off)
+{
+    if (!seg || !seg->hdr || chunk_off == 0 || client_id < 2u ||
+        client_id > NB_SHM_MAX_NODES) {
+        return -1;
+    }
+    return nb_shmseg_push(seg, client_id, chunk_off);
+}
+
+int nb_shmseg_pop_response(nb_shmseg_t *seg, uint64_t *chunk_off, uint16_t *source_id)
+{
+    if (!seg || !seg->hdr || !chunk_off || seg->self_id < 2u) {
+        return -1;
+    }
+    return nb_shmseg_pop(seg, chunk_off, source_id);
 }
 
 int nb_shmseg_wait(nb_shmseg_t *seg, int timeout_ms)
@@ -698,16 +710,10 @@ int nb_shmseg_wait(nb_shmseg_t *seg, int timeout_ms)
     if (!seg || !seg->hdr) {
         return -1;
     }
-    if (seg->self_id == 1u) {
-        sem = &seg->hdr->req_sem;
-    } else {
-        unsigned idx = (unsigned)(seg->self_id - 2u);
-
-        if (idx >= NB_SHM_MAX_CLIENTS) {
-            return -1;
-        }
-        sem = &seg->hdr->resp_sem[idx];
+    if (seg->self_id == 0 || seg->self_id > NB_SHM_MAX_NODES) {
+        return -1;
     }
+    sem = &seg->hdr->inbox_sem[seg->self_id - 1u];
     add_ms = timeout_ms > 0 ? timeout_ms : 50;
     if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
         return -1;
@@ -729,14 +735,8 @@ void nb_shmseg_wake(nb_shmseg_t *seg)
     if (!seg || !seg->hdr) {
         return;
     }
-    if (seg->self_id == 1u) {
-        sem_post(&seg->hdr->req_sem);
-    } else {
-        unsigned idx = (unsigned)(seg->self_id - 2u);
-
-        if (idx < NB_SHM_MAX_CLIENTS) {
-            sem_post(&seg->hdr->resp_sem[idx]);
-        }
+    if (seg->self_id != 0 && seg->self_id <= NB_SHM_MAX_NODES) {
+        sem_post(&seg->hdr->inbox_sem[seg->self_id - 1u]);
     }
 }
 
@@ -892,8 +892,7 @@ int nb_shmseg_publish(nb_shmseg_t *seg, const char *topic, uint64_t chunk_off)
     ch = (nb_shm_chunk_hdr_t *)((uint8_t *)seg->map + chunk_off);
     __atomic_store_n(&ch->refcount, (uint32_t)n, __ATOMIC_RELEASE);
     for (i = 0; i < n; i++) {
-        int rc = targets[i] == 1u ? nb_shmseg_push_request(seg, chunk_off)
-                                  : nb_shmseg_push_response(seg, targets[i], chunk_off);
+        int rc = nb_shmseg_push(seg, targets[i], chunk_off);
 
         if (rc != 0) {
             nb_shmseg_chunk_free(seg, chunk_off); /* 该目标未投递，回收其份额 */

@@ -51,6 +51,7 @@ struct nb_transport {
     char scheme[NB_SCHEME_MAX];
     char bind_host[NB_ENDPOINT_MAX];
     uint16_t port;
+    char endpoint_uri[NB_ENDPOINT_URI_MAX];
     const nb_transport_provider_t *provider;
     nb_transport_instance_t *provider_instance;
 

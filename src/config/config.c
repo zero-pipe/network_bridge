@@ -19,6 +19,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+static int nb_cfg_copy(char *dst, size_t cap, const char *src, const char *def);
+
 static int nb_cfg_fail_code(nb_config_error_t *err, int code, const char *path, const char *reason)
 {
     if (err) {
@@ -52,6 +54,156 @@ static const char *nb_cfg_codec_reason(int status)
     }
 }
 
+/* ---- QoS 子对象 ---- */
+
+static int nb_cfg_qos_enum(const cJSON *qos,
+                           const char *key,
+                           uint8_t *out,
+                           const char *const *names,
+                           const uint8_t *values,
+                           size_t count,
+                           nb_config_error_t *err,
+                           const char *path)
+{
+    const cJSON *item = cJSON_GetObjectItemCaseSensitive(qos, key);
+    size_t i;
+
+    if (!item) {
+        return NB_OK;
+    }
+    if (!cJSON_IsString(item) || !item->valuestring) {
+        return nb_cfg_fail(err, path, "must be a string");
+    }
+    for (i = 0; i < count; i++) {
+        if (strcmp(item->valuestring, names[i]) == 0) {
+            *out = values[i];
+            return NB_OK;
+        }
+    }
+    return nb_cfg_fail(err, path, "invalid value");
+}
+
+static int nb_cfg_qos_u32(const cJSON *qos,
+                          const char *key,
+                          uint32_t *out,
+                          nb_config_error_t *err,
+                          const char *path)
+{
+    const cJSON *item = cJSON_GetObjectItemCaseSensitive(qos, key);
+    if (!item) {
+        return NB_OK;
+    }
+    if (!cJSON_IsNumber(item) || item->valuedouble < 0 || item->valuedouble > 4294967295.0) {
+        return nb_cfg_fail(err, path, "must be a non-negative integer");
+    }
+    *out = (uint32_t)item->valuedouble;
+    return NB_OK;
+}
+
+static int nb_cfg_load_qos(const cJSON *parent,
+                           nb_qos_t *out,
+                           nb_config_error_t *err,
+                           const char *path)
+{
+    static const char *const reliability_names[] = {"best_effort", "reliable"};
+    static const uint8_t reliability_values[] = {NB_QOS_BEST_EFFORT, NB_QOS_RELIABLE};
+    static const char *const durability_names[] = {"volatile", "transient_local"};
+    static const uint8_t durability_values[] = {NB_QOS_VOLATILE, NB_QOS_TRANSIENT_LOCAL};
+    static const char *const history_names[] = {"keep_last", "keep_all"};
+    static const uint8_t history_values[] = {NB_QOS_KEEP_LAST, NB_QOS_KEEP_ALL};
+    static const char *const liveliness_names[] = {
+        "automatic", "manual_by_participant", "manual_by_topic"};
+    static const uint8_t liveliness_values[] = {
+        NB_QOS_LIVELINESS_AUTOMATIC,
+        NB_QOS_LIVELINESS_MANUAL_BY_PARTICIPANT,
+        NB_QOS_LIVELINESS_MANUAL_BY_TOPIC};
+    static const char *const ownership_names[] = {"shared", "exclusive"};
+    static const uint8_t ownership_values[] = {NB_QOS_OWNERSHIP_SHARED, NB_QOS_OWNERSHIP_EXCLUSIVE};
+    const cJSON *qos;
+    const cJSON *partition;
+    int rc;
+
+    if (!parent || !out) {
+        return NB_ERR_INVALID;
+    }
+    qos = cJSON_GetObjectItemCaseSensitive(parent, "qos");
+    if (!qos) {
+        return NB_OK;
+    }
+    if (!cJSON_IsObject(qos)) {
+        return nb_cfg_fail(err, path, "must be an object");
+    }
+    nb_qos_init(out);
+    rc = nb_cfg_qos_enum(qos,
+                         "reliability",
+                         &out->reliability,
+                         reliability_names,
+                         reliability_values,
+                         2,
+                         err,
+                         path);
+    if (rc == NB_OK) {
+        rc = nb_cfg_qos_enum(qos,
+                             "durability",
+                             &out->durability,
+                             durability_names,
+                             durability_values,
+                             2,
+                             err,
+                             path);
+    }
+    if (rc == NB_OK) {
+        rc = nb_cfg_qos_enum(
+            qos, "history", &out->history, history_names, history_values, 2, err, path);
+    }
+    if (rc == NB_OK) {
+        rc = nb_cfg_qos_enum(qos,
+                             "liveliness",
+                             &out->liveliness,
+                             liveliness_names,
+                             liveliness_values,
+                             3,
+                             err,
+                             path);
+    }
+    if (rc == NB_OK) {
+        rc = nb_cfg_qos_enum(
+            qos, "ownership", &out->ownership, ownership_names, ownership_values, 2, err, path);
+    }
+    if (rc == NB_OK) {
+        rc = nb_cfg_qos_u32(qos, "depth", &out->depth, err, path);
+    }
+    if (rc == NB_OK) {
+        rc = nb_cfg_qos_u32(qos, "deadline_ms", &out->deadline_ms, err, path);
+    }
+    if (rc == NB_OK) {
+        rc = nb_cfg_qos_u32(qos, "lifespan_ms", &out->lifespan_ms, err, path);
+    }
+    if (rc == NB_OK) {
+        rc = nb_cfg_qos_u32(qos, "lease_duration_ms", &out->lease_duration_ms, err, path);
+    }
+    if (rc == NB_OK) {
+        rc = nb_cfg_qos_u32(qos, "latency_budget_ms", &out->latency_budget_ms, err, path);
+    }
+    if (rc != NB_OK) {
+        return rc;
+    }
+    partition = cJSON_GetObjectItemCaseSensitive(qos, "partition");
+    if (partition) {
+        if (!cJSON_IsString(partition) || !partition->valuestring) {
+            return nb_cfg_fail(err, path, "partition must be a string");
+        }
+        if (nb_cfg_copy(out->partition, sizeof(out->partition), partition->valuestring, NULL) !=
+            NB_OK) {
+            return nb_cfg_fail(err, path, "partition too long");
+        }
+    }
+    if (nb_qos_validate(out) != NB_OK) {
+        return nb_cfg_fail(err, path, nb_qos_validate_reason(out));
+    }
+    return NB_OK;
+}
+
 /* ---- 默认值 ---- */
 
 void nb_node_runtime_config_default(nb_node_runtime_config_t *cfg)
@@ -70,6 +222,7 @@ void nb_node_transport_config_default(nb_node_transport_config_t *cfg)
     memset(cfg, 0, sizeof(*cfg));
     cfg->transport = NB_TRANSPORT_UDP;
     cfg->bind_host = NB_DEFAULT_BIND_HOST;
+    nb_qos_init(&cfg->qos);
 }
 
 void nb_node_discovery_config_default(nb_node_discovery_config_t *cfg)
@@ -112,6 +265,16 @@ void nb_node_config_default(nb_node_config_t *cfg)
     nb_node_discovery_config_default(&cfg->discovery);
     nb_node_metrics_config_default(&cfg->metrics);
     nb_node_log_config_default(&cfg->log);
+}
+
+void nb_binding_config_default(nb_binding_config_t *cfg)
+{
+    if (!cfg) {
+        return;
+    }
+    memset(cfg, 0, sizeof(*cfg));
+    cfg->intra_process = NB_INTRA_OFF;
+    nb_qos_init(&cfg->qos);
 }
 
 void nb_node_config_normalize(nb_node_config_t *cfg)
@@ -670,6 +833,11 @@ static int nb_fill_bindings(nb_config_t *out, const cJSON *bindings, nb_config_e
         view->name = binding->name;
         view->endpoint = binding->endpoint;
         view->intra_process = intra;
+        if (cJSON_IsObject(item) &&
+            nb_cfg_load_qos(item, &view->qos, err, "transport.bindings.qos") != NB_OK) {
+            rc = NB_ERR_INVALID;
+            goto done;
+        }
         out->binding_count++;
     done:
         nb_codec_json_clear(&parsed, nb_g_binding_model, CFG_MODEL_N(nb_g_binding_model));
@@ -839,6 +1007,15 @@ static int nb_apply_config(nb_config_t *out,
     node->transport.backpressure_bytes = tp->backpressure_bytes;
     node->transport.rtcp_interval_ms = tp->rtcp_interval_ms;
     node->transport.rtcp_disabled = tp->rtcp_present ? (tp->rtcp ? 0 : 1) : 0;
+    {
+        const cJSON *transport_obj = cJSON_GetObjectItemCaseSensitive(root, "transport");
+        if (transport_obj) {
+            rc = nb_cfg_load_qos(transport_obj, &node->transport.qos, err, "transport.qos");
+            if (rc != NB_OK) {
+                return rc;
+            }
+        }
+    }
 
     /* discovery */
     if (disc->mode && nb_cfg_discovery_mode(disc->mode, &node->discovery.disabled) != NB_OK) {

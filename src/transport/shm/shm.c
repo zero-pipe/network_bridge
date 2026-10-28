@@ -10,13 +10,14 @@
  *   - 服务端回复时按请求带来的 client id 借新 chunk 写响应，投递到该 client 的
  *     响应队列。
  *
- * 角色：endpoint 端口 1 = server（段的所有者，销毁时 unlink），2.. = client
- * （最多 NB_SHM_MAX_CLIENTS 个）。client 只能 send，server 只能 reply。
+ * 多节点：endpoint 端口是段内唯一节点 id（1..9）。每个节点都有独立入站队列，
+ * 任意节点都可以 send/reply；mesh 发现广播完整 shm URI，因此不再依赖固定
+ * server/client 角色。
  *
  * 发布/订阅：KIND_EVENT 走段内订阅表扇出——service 注册方法时把 route
  * （"service.method"）登记到本节点槽位，事件按 route 零拷贝投递给所有订阅者
- * （发布者自身除外）。订阅者按自身角色复用入站队列：server 走请求队列，
- * client 走自己的响应队列；event 与 response 共享队列，由 core 按 kind 分发。
+ * （发布者自身除外）。RPC、响应与 event 统一进入目标节点的入站队列，由 core
+ * 按 kind 分发。
  */
 #include "transport_internal.h"
 
@@ -129,8 +130,9 @@ static int nb_shm_encode(nb_shm_instance_t *inst, const nb_transport_message_t *
     return NB_OK;
 }
 
-/* 编码后投递到单一队列：response 非 0 时投递给 client_id，否则作为请求。 */
-static int nb_shm_publish_queue(nb_shm_instance_t *inst, int response, uint16_t client_id,
+/* 编码后投递到目标节点的统一入站队列。 */
+static int nb_shm_publish_queue(nb_shm_instance_t *inst,
+                                uint16_t target_id,
                                 const nb_transport_message_t *message)
 {
     uint64_t off = 0;
@@ -139,8 +141,7 @@ static int nb_shm_publish_queue(nb_shm_instance_t *inst, int response, uint16_t 
     if (rc != NB_OK) {
         return rc;
     }
-    if (response ? (nb_shmseg_push_response(inst->seg, client_id, off) != 0)
-                 : (nb_shmseg_push_request(inst->seg, off) != 0)) {
+    if (nb_shmseg_push(inst->seg, target_id, off) != 0) {
         nb_shmseg_chunk_free(inst->seg, off);
         return NB_ERR_AGAIN;
     }
@@ -168,11 +169,12 @@ static int nb_shm_publish_event(nb_shm_instance_t *inst, const nb_transport_mess
 }
 
 /* 弹出 chunk → 解码 → 以 frame_owner 形式交给 core（零拷贝）。 */
-static void nb_shm_deliver(nb_shm_instance_t *inst, uint64_t off, uint16_t peer_port,
+static void nb_shm_deliver(nb_shm_instance_t *inst, uint64_t off, uint16_t source_id,
                            void *reply_token)
 {
     nb_envelope_t env;
     nb_transport_message_t msg;
+    nb_endpoint_t peer;
     nb_buf_t *frame;
     char route_buf[NB_GLOBAL_MAX_ROUTE_BYTES];
     uint8_t *data;
@@ -220,35 +222,31 @@ static void nb_shm_deliver(nb_shm_instance_t *inst, uint64_t off, uint16_t peer_
         msg.stream.total_size = env.stream_total_size;
     }
     msg.frame_owner = frame;
-    inst->options.on_receive(inst->options.receiver, reply_token, inst->channel, peer_port,
-                             &msg);
+    if (nb_endpoint_from_parts(&peer,
+                               "shm",
+                               inst->channel,
+                               source_id,
+                               nb_transport_kind_from_scheme("shm")) == NB_OK) {
+        msg.peer = &peer;
+    }
+    inst->options.on_receive(inst->options.receiver, reply_token, &msg);
 }
 
 static void *nb_shm_thread_main(void *arg)
 {
     nb_shm_instance_t *inst = (nb_shm_instance_t *)arg;
-    int server = inst->self_id == 1;
 
     while (nb_atomic_load_acquire_u32(&inst->running) != 0u) {
         uint64_t off;
 
         (void)nb_shmseg_wait(inst->seg, NB_SHM_WAIT_MS);
         for (;;) {
-            if (server) {
-                uint16_t client = 0;
+            uint16_t source = 0;
 
-                if (nb_shmseg_pop_request(inst->seg, &off, &client) != 0) {
-                    break;
-                }
-                nb_shm_deliver(inst, off, client, nb_shm_token(client));
-            } else {
-                uint16_t source = 0;
-
-                if (nb_shmseg_pop_response(inst->seg, &off, &source) != 0) {
-                    break;
-                }
-                nb_shm_deliver(inst, off, source ? source : 1u, NULL);
+            if (nb_shmseg_pop(inst->seg, &off, &source) != 0) {
+                break;
             }
+            nb_shm_deliver(inst, off, source, nb_shm_token(source));
         }
     }
     return NULL;
@@ -334,50 +332,44 @@ static void nb_shm_op_destroy(nb_transport_instance_t *instance)
 }
 
 static int nb_shm_op_send(nb_transport_instance_t *instance,
-                          const char *host,
-                          uint16_t port,
+                          const nb_endpoint_t *target,
                           const nb_transport_message_t *message)
 {
     nb_shm_instance_t *inst = (nb_shm_instance_t *)instance;
 
-    if (!inst || !message || !host) {
+    if (!inst || !message || !target) {
         return NB_ERR_INVALID;
     }
-    if (strcmp(host, inst->channel) != 0) {
+    if (strcmp(target->host, inst->channel) != 0) {
         return NB_ERR_NOTFOUND;
     }
     /* 事件走发布/订阅扇出：不区分 server/client 角色，也不看目标端口。 */
     if (message->kind == KIND_EVENT) {
         return nb_shm_publish_event(inst, message);
     }
-    if (inst->self_id == 1 || port != 1) {
-        return NB_ERR_NOT_SUPPORTED;
+    if (target->port == 0 || target->port > NB_SHM_MAX_NODES) {
+        return NB_ERR_INVALID;
     }
-    return nb_shm_publish_queue(inst, 0, 0, message);
+    return nb_shm_publish_queue(inst, target->port, message);
 }
 
 static int nb_shm_op_reply(nb_transport_instance_t *instance,
                            void *reply_token,
-                           const char *host,
-                           uint16_t port,
+                           const nb_endpoint_t *peer,
                            const nb_transport_message_t *message)
 {
     nb_shm_instance_t *inst = (nb_shm_instance_t *)instance;
-    uint16_t client_id;
-    (void)host;
-    (void)port;
+    uint16_t target_id;
+    (void)peer;
 
     if (!inst || !message) {
         return NB_ERR_INVALID;
     }
-    if (inst->self_id != 1) {
-        return NB_ERR_NOT_SUPPORTED;
-    }
-    client_id = nb_shm_token_id(reply_token);
-    if (client_id < 2u) {
+    target_id = nb_shm_token_id(reply_token);
+    if (target_id == 0 || target_id > NB_SHM_MAX_NODES) {
         return NB_ERR_INVALID;
     }
-    return nb_shm_publish_queue(inst, 1, client_id, message);
+    return nb_shm_publish_queue(inst, target_id, message);
 }
 
 /*

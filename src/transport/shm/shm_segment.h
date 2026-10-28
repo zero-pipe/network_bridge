@@ -13,10 +13,10 @@
  *     接收方可以把它包装成 external nb_buf（frame_owner）延长生命周期。
  *
  * 与 iceoryx 的差异（刻意收敛实现规模/依赖）：
- *   - 无 RouDi 守护进程：段由首个打开者创建、由 server（id=1）在销毁时 unlink；
+ *   - 无 RouDi 守护进程：段由首个打开者创建，由最后一个关闭者 unlink；
  *   - 队列深度/客户端数/分类大小都是编译期常量，段布局由段大小确定性推导，
  *     两个进程只要用同一段名即可得到一致的布局；
- *   - server 打开时重建空闲链表与队列，用于清理上一次非正常退出的残留；
+ *   - 首个打开者初始化空闲链表与队列；空段（active_nodes=0）可被下一次加入重建；
  *   - 发布/订阅：chunk 带引用计数，一次 publish 可零拷贝扇出给多个订阅者，
  *     每个消费者各减一次、最后一个归还池；订阅表按节点分槽（每节点只写自己的
  *     槽），发布者读取时用 seqlock 校验，无需跨进程锁。
@@ -45,7 +45,7 @@ extern "C" {
 #define NB_SHM_CHUNK_ALIGN 64u
 
 #define NB_SHM_SLOT_MAGIC 0x4e425348u  /* "NBSH" */
-#define NB_SHM_LAYOUT_VERSION 2u
+#define NB_SHM_LAYOUT_VERSION 3u
 #define NB_SHM_CHUNK_MAGIC 0x4e424348u /* "NBCH" */
 
 #define NB_SHM_DEFAULT_SEGMENT_BYTES (32u * 1024u * 1024u)
@@ -60,7 +60,12 @@ typedef struct nb_shmseg nb_shmseg_t;
 nb_shmseg_t *nb_shmseg_open(const char *channel, uint16_t self_id);
 void nb_shmseg_close(nb_shmseg_t *seg);
 
-/* ---- 队列（返回 0 表示成功，-1 表示满/空/参数错误） ---- */
+/* ---- 通用节点入站队列（返回 0 表示成功，-1 表示满/空/参数错误） ---- */
+/* 任意节点 -> 任意节点的统一入站队列；source_id 为发送方节点 id。 */
+int nb_shmseg_push(nb_shmseg_t *seg, uint16_t target_id, uint64_t chunk_off);
+int nb_shmseg_pop(nb_shmseg_t *seg, uint64_t *chunk_off, uint16_t *source_id);
+
+/* ---- 兼容包装：id=1 为传统 server，id>=2 为 client ---- */
 int nb_shmseg_push_request(nb_shmseg_t *seg, uint64_t chunk_off);
 int nb_shmseg_pop_request(nb_shmseg_t *seg, uint64_t *chunk_off, uint16_t *client_id);
 int nb_shmseg_push_response(nb_shmseg_t *seg, uint16_t client_id, uint64_t chunk_off);

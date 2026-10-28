@@ -24,33 +24,34 @@ extern "C" {
 /* ---- 目标与发送钩子 ---- */
 typedef struct nb_stub nb_stub_t;
 
-/* 一次调用的目标，由 send 回调解析后回填（用于出错重传）。 */
-typedef struct nb_stub_target {
-    char ip[NB_ENDPOINT_MAX];
-    char scheme[NB_SCHEME_MAX];
-    uint16_t port;
-    nb_transport_kind_t transport;
-} nb_stub_target_t;
+/* 一次调用的目标；由 send 回调解析后回填（用于出错重传）。 */
+typedef nb_endpoint_t nb_stub_target_t;
 
 typedef enum nb_stub_kind {
     NB_STUB_REQUEST = 0, /* 需要响应 */
-    NB_STUB_EVENT = 1    /* 单向，不等响应 */
+    NB_STUB_EVENT = 1,   /* 单向，不等响应 */
+    NB_STUB_CANCEL = 2   /* 控制面取消，不等待响应 */
 } nb_stub_kind_t;
 
+/* 一次调用的不可变描述 + 可回填目标端点。 */
+typedef struct nb_stub_request {
+    const char *service;
+    const char *method;
+    const nb_payload_t *payload;
+    nb_stub_kind_t kind;
+    uint64_t request_id;
+    uint64_t timeout_ms;
+    const void *metadata;
+    uint16_t metadata_len;
+    nb_endpoint_t *target; /* 入参为空时不可解析；send 成功时回填 */
+} nb_stub_request_t;
+
 /*
- * 底层单条消息发送钩子。实现者负责解析目标、回填 target 并调用真实发送。
- * payload 仅在本次调用期间有效。返回 NB_OK 或错误码。
+ * 底层单条消息发送钩子。实现者负责解析目标、回填 request->target 并调用
+ * 真实发送。payload 仅在本次调用期间有效。返回 NB_OK 或错误码。
  */
 typedef int (*stub_send_fn)(nb_stub_t *stub,
-                            const char *service,
-                            const char *method,
-                            const nb_payload_t *payload,
-                            nb_stub_kind_t kind,
-                            uint64_t request_id,
-                            uint64_t timeout_ms,
-                            const void *metadata,
-                            uint16_t metadata_len,
-                            nb_stub_target_t *target,
+                            const nb_stub_request_t *request,
                             void *user_data);
 
 typedef struct nb_stub_options {

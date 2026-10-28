@@ -15,6 +15,8 @@
 #include <transport.h>
 #include <extensions.h>
 #include <config.h>
+#include <message.h>
+#include <qos.h>
 #include <log.h>
 #include <publish.h>
 #include <subscribe.h>

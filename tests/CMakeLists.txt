@@ -130,6 +130,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_include_directories(test_shmseg PRIVATE ${CMAKE_SOURCE_DIR}/src/transport/shm)
     add_test(NAME unit.shmseg COMMAND test_shmseg)
     set_tests_properties(unit.shmseg PROPERTIES LABELS "unit;shm" TIMEOUT 120)
+
+    add_executable(test_shm_mesh test_shm_mesh.c)
+    target_link_libraries(test_shm_mesh PRIVATE rpc)
+    add_test(NAME e2e.shm_mesh COMMAND test_shm_mesh)
+    set_tests_properties(e2e.shm_mesh PROPERTIES LABELS "e2e;shm" TIMEOUT 120)
 endif()
 
 if(NB_ENABLE_DDS)

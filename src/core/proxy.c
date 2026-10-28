@@ -17,49 +17,20 @@ typedef struct nb_cancel_task {
 
 int nb_proxy_resolve(nb_proxy_t *proxy,
                       const char *service,
-                      char *ip_out,
-                      size_t ip_cap,
-                      uint16_t *port_out,
-                      nb_transport_kind_t *transport_out,
-                      char *scheme_out,
-                      size_t scheme_cap,
-                      int prefer_stream)
+                      int prefer_stream,
+                      nb_endpoint_t *out)
 {
-    nb_stub_target_t target;
-    if (!proxy) {
+    if (!proxy || !service || !out) {
         return NB_ERR_INVALID;
     }
     nb_spinlock_lock(&proxy->endpoint_lock);
     if (proxy->has_endpoint) {
-        nb_copy_str(ip_out, ip_cap, proxy->endpoint_ip, "127.0.0.1");
-        *port_out = proxy->endpoint_port;
-        if (transport_out) {
-            *transport_out = proxy->endpoint_transport;
-        }
-        if (scheme_out) {
-            nb_copy_str(scheme_out,
-                         scheme_cap,
-                         proxy->endpoint_scheme[0] ?
-                             proxy->endpoint_scheme :
-                             (proxy->endpoint_transport == NB_TRANSPORT_TCP ? "tcp" : "udp"),
-                         "udp");
-        }
+        *out = proxy->endpoint;
         nb_spinlock_unlock(&proxy->endpoint_lock);
         return NB_OK;
     }
     nb_spinlock_unlock(&proxy->endpoint_lock);
-    if (nb_node_resolve(proxy->node, service, prefer_stream, &target) != NB_OK) {
-        return NB_ERR_NOTFOUND;
-    }
-    nb_copy_str(ip_out, ip_cap, target.ip, "0.0.0.0");
-    *port_out = target.port;
-    if (transport_out) {
-        *transport_out = target.transport;
-    }
-    if (scheme_out) {
-        nb_copy_str(scheme_out, scheme_cap, target.scheme, "udp");
-    }
-    return NB_OK;
+    return nb_node_resolve(proxy->node, service, prefer_stream, out);
 }
 
 /*
@@ -67,48 +38,22 @@ int nb_proxy_resolve(nb_proxy_t *proxy,
  * 再把单条消息交给底层传输。
  */
 static int nb_proxy_stub_send(nb_stub_t *stub,
-                           const char *service,
-                           const char *method,
-                           const nb_payload_t *payload,
-                           nb_stub_kind_t kind,
-                           uint64_t request_id,
-                           uint64_t timeout_ms,
-                           const void *metadata,
-                           uint16_t metadata_len,
-                           nb_stub_target_t *target,
-                           void *user_data)
+                              const nb_stub_request_t *request,
+                              void *user_data)
 {
     nb_proxy_t *proxy = (nb_proxy_t *)user_data;
     nb_node_t *node = nb_stub_node(stub);
-    nb_transport_kind_t transport = NB_TRANSPORT_UDP;
     int prefer_stream;
-    if (!proxy || !node) {
+    if (!proxy || !node || !request || !request->target) {
         return NB_ERR_STATE;
     }
-    prefer_stream = proxy->prefer_stream_threshold > 0 && payload &&
-        payload->len > proxy->prefer_stream_threshold;
-    if (nb_proxy_resolve(proxy,
-                          service,
-                          target->ip,
-                          sizeof(target->ip),
-                          &target->port,
-                          &transport,
-                          target->scheme,
-                          sizeof(target->scheme),
-                          prefer_stream) != NB_OK) {
+    prefer_stream = proxy->prefer_stream_threshold > 0 && request->payload &&
+        request->payload->len > proxy->prefer_stream_threshold;
+    if (nb_proxy_resolve(
+            proxy, request->service, prefer_stream, request->target) != NB_OK) {
         return NB_ERR_NOTFOUND;
     }
-    target->transport = transport;
-    return nb_node_send_call(node,
-                              target,
-                              service,
-                              method,
-                              payload,
-                              kind == NB_STUB_EVENT ? KIND_EVENT : KIND_REQUEST,
-                              request_id,
-                              timeout_ms,
-                              metadata,
-                              metadata_len);
+    return nb_node_send_call(node, request);
 }
 
 static void nb_cancel_task_fn(void *user)
@@ -122,14 +67,18 @@ static void nb_cancel_task_fn(void *user)
          * 的 worker 任务；已运行的 handler 可通过 nb_call_canceled() 自行提前退出。
          */
         if (p->has_req && p->port) {
-            nb_stub_target_t target;
-            memset(&target, 0, sizeof(target));
-            nb_copy_str(target.ip, sizeof(target.ip), p->ip, "0.0.0.0");
-            nb_copy_str(target.scheme, sizeof(target.scheme), p->scheme, "udp");
-            target.port = p->port;
-            target.transport = p->transport;
-            (void)nb_node_send_call(
-                node, &target, p->service, p->method, NULL, KIND_CANCEL, p->request_id, 0, NULL, 0);
+            nb_endpoint_t target;
+            nb_stub_request_t request;
+            if (nb_endpoint_from_parts(
+                    &target, p->scheme, p->ip, p->port, p->transport) == NB_OK) {
+                memset(&request, 0, sizeof(request));
+                request.service = p->service;
+                request.method = p->method;
+                request.kind = NB_STUB_CANCEL;
+                request.request_id = p->request_id;
+                request.target = &target;
+                (void)nb_node_send_call(node, &request);
+            }
         }
         nb_pending_invoke(p, NB_ERR_NOTFOUND, NULL);
     }
@@ -184,17 +133,19 @@ void nb_proxy_destroy(nb_proxy_t *proxy)
 
 int nb_proxy_set_endpoint(nb_proxy_t *proxy, const char *ip, uint16_t port, nb_transport_kind_t transport)
 {
+    nb_endpoint_t endpoint;
     if (!proxy || !ip || !port) {
         return NB_ERR_INVALID;
     }
+    if (nb_endpoint_from_parts(&endpoint,
+                               transport == NB_TRANSPORT_TCP ? "tcp" : "udp",
+                               ip,
+                               port,
+                               transport) != NB_OK) {
+        return NB_ERR_INVALID;
+    }
     nb_spinlock_lock(&proxy->endpoint_lock);
-    nb_copy_str(proxy->endpoint_ip, sizeof(proxy->endpoint_ip), ip, "127.0.0.1");
-    proxy->endpoint_port = port;
-    proxy->endpoint_transport = transport;
-    nb_copy_str(proxy->endpoint_scheme,
-                 sizeof(proxy->endpoint_scheme),
-                 transport == NB_TRANSPORT_TCP ? "tcp" : "udp",
-                 "udp");
+    proxy->endpoint = endpoint;
     proxy->has_endpoint = 1;
     nb_spinlock_unlock(&proxy->endpoint_lock);
     return NB_OK;
@@ -207,10 +158,7 @@ int nb_proxy_set_endpoint_uri(nb_proxy_t *proxy, const char *endpoint)
         return NB_ERR_INVALID;
     }
     nb_spinlock_lock(&proxy->endpoint_lock);
-    nb_copy_str(proxy->endpoint_ip, sizeof(proxy->endpoint_ip), parsed.host, "127.0.0.1");
-    nb_copy_str(proxy->endpoint_scheme, sizeof(proxy->endpoint_scheme), parsed.scheme, "tcp");
-    proxy->endpoint_port = parsed.port;
-    proxy->endpoint_transport = parsed.transport;
+    proxy->endpoint = parsed;
     proxy->has_endpoint = 1;
     nb_spinlock_unlock(&proxy->endpoint_lock);
     return NB_OK;
@@ -544,32 +492,32 @@ int nb_proxy_call_stream(nb_proxy_t *proxy,
 /* RTO 重传：按保存的请求参数重发（同一 msg_id）。 */
 void nb_pending_retx(nb_node_t *node, nb_pending_t *p)
 {
-    nb_stub_target_t target;
+    nb_endpoint_t target;
+    nb_stub_request_t request;
     nb_payload_t pl;
     uint64_t now;
     uint64_t remaining;
     if (!node || !p || !p->has_req || !p->replay_ready) {
         return;
     }
-    memset(&target, 0, sizeof(target));
-    nb_copy_str(target.ip, sizeof(target.ip), p->ip, "0.0.0.0");
-    nb_copy_str(target.scheme, sizeof(target.scheme), p->scheme, "udp");
-    target.port = p->port;
-    target.transport = p->transport;
+    if (nb_endpoint_from_parts(&target, p->scheme, p->ip, p->port, p->transport) != NB_OK) {
+        return;
+    }
     pl.data = p->data;
     pl.len = p->len;
     pl.encoding = p->encoding;
     now = nb_now_ms();
     remaining = p->deadline_ms > now ? p->deadline_ms - now : 1;
-    (void)nb_node_send_call(node,
-                             &target,
-                             p->service,
-                             p->method,
-                             &pl,
-                             KIND_REQUEST,
-                             p->request_id,
-                             remaining,
-                             p->metadata,
-                             p->metadata_len);
+    memset(&request, 0, sizeof(request));
+    request.service = p->service;
+    request.method = p->method;
+    request.payload = &pl;
+    request.kind = NB_STUB_REQUEST;
+    request.request_id = p->request_id;
+    request.timeout_ms = remaining;
+    request.metadata = p->metadata;
+    request.metadata_len = p->metadata_len;
+    request.target = &target;
+    (void)nb_node_send_call(node, &request);
     NB_METRIC_INC(node->metrics.retries);
 }

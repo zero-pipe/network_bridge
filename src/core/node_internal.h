@@ -69,6 +69,7 @@ struct nb_node {
     uint8_t drop_percent;                             /* 测试用：UDP 出站丢包百分比 */
     uint32_t rtcp_interval_ms;
     int rtcp_disabled;
+    nb_qos_t default_qos;
     uint32_t max_recv_streams;
     uint32_t rate_limit_pps;
     ntk_mutex *rate_lock;
@@ -129,23 +130,11 @@ ntk_poller *nb_node_pick_poller(const nb_node_t *node, uint64_t key);
 /* poller 在 node 出站分片中的下标；找不到返回 -1。 */
 int nb_node_poller_index(const nb_node_t *node, ntk_poller *poller);
 void nb_node_on_message(nb_node_t *node, nb_transport_t *transport, nb_message_t *message);
-int nb_node_send(nb_node_t *node,
-                  nb_transport_kind_t transport_kind,
-                  const char *scheme,
-                  const nb_message_t *message);
+int nb_node_send(nb_node_t *node, const nb_endpoint_t *target, const nb_message_t *message);
 /* 组装 "service.method" 路由并发送一次调用（stub/proxy/重传共用）。 */
-int nb_node_send_call(nb_node_t *node,
-                       const nb_stub_target_t *target,
-                       const char *service,
-                       const char *method,
-                       const nb_payload_t *payload,
-                       uint8_t kind,
-                       uint64_t request_id,
-                       uint64_t timeout_ms,
-                       const void *metadata,
-                       uint16_t metadata_len);
+int nb_node_send_call(nb_node_t *node, const nb_stub_request_t *request);
 /* 默认解析：静态路由表 / 服务发现（不含 proxy 的端点覆盖）。 */
-int nb_node_resolve(nb_node_t *node, const char *service, int prefer_stream, nb_stub_target_t *out);
+int nb_node_resolve(nb_node_t *node, const char *service, int prefer_stream, nb_endpoint_t *out);
 
 /* 定长对象复用池：trylock 失败即回退 malloc/free，不阻塞。 */
 int nb_obj_pool_init(nb_obj_pool_t *pool, unsigned limit);

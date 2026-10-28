@@ -79,13 +79,16 @@ int nb_route_set(nb_route_table_t *table,
     }
     r->endpoint_count = 1;
     r->next_endpoint = 0;
-    nb_copy_str(r->endpoints[0].scheme,
-                 sizeof(r->endpoints[0].scheme),
-                 transport == NB_TRANSPORT_TCP ? "tcp" : "udp",
-                 "udp");
-    nb_copy_str(r->endpoints[0].host, sizeof(r->endpoints[0].host), ip, "0.0.0.0");
-    r->endpoints[0].port = port;
-    r->endpoints[0].transport = transport;
+    if (nb_endpoint_from_parts(&r->endpoints[0],
+                               transport == NB_TRANSPORT_TCP ? "tcp" : "udp",
+                               ip,
+                               port,
+                               transport) != NB_OK) {
+        if (table->lock) {
+            ntk_mutex_unlock((ntk_mutex *)table->lock);
+        }
+        return NB_ERR_INVALID;
+    }
     r->is_static = 1;
     if (table->lock) {
         ntk_mutex_unlock((ntk_mutex *)table->lock);
@@ -167,9 +170,36 @@ int nb_route_lookup_prefer(nb_route_table_t *table,
                             char *scheme_out,
                             size_t scheme_cap)
 {
+    nb_endpoint_t endpoint;
+    int rc;
+
+    if (!ip_out || !port_out) {
+        return NB_ERR_INVALID;
+    }
+    rc = nb_route_select(table, service, prefer_stream, &endpoint);
+
+    if (rc != NB_OK) {
+        return rc;
+    }
+    nb_copy_str(ip_out, ip_cap, endpoint.host, "0.0.0.0");
+    *port_out = endpoint.port;
+    if (transport_out) {
+        *transport_out = endpoint.transport;
+    }
+    if (scheme_out) {
+        nb_copy_str(scheme_out, scheme_cap, endpoint.scheme, "udp");
+    }
+    return NB_OK;
+}
+
+int nb_route_select(nb_route_table_t *table,
+                    const char *service,
+                    int prefer_stream,
+                    nb_endpoint_t *out)
+{
     nb_route_t *r;
     int found = 0;
-    if (!table || !service || !ip_out || !port_out) {
+    if (!table || !service || !out) {
         return NB_ERR_INVALID;
     }
     if (table->lock) {
@@ -192,14 +222,7 @@ int nb_route_lookup_prefer(nb_route_table_t *table,
         if (!endpoint) {
             endpoint = &r->endpoints[r->next_endpoint++ % r->endpoint_count];
         }
-        nb_copy_str(ip_out, ip_cap, endpoint->host, "0.0.0.0");
-        *port_out = endpoint->port;
-        if (transport_out) {
-            *transport_out = endpoint->transport;
-        }
-        if (scheme_out) {
-            nb_copy_str(scheme_out, scheme_cap, endpoint->scheme, "udp");
-        }
+        *out = *endpoint;
         found = 1;
     }
     if (table->lock) {

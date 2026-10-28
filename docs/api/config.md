@@ -94,10 +94,12 @@ URI 非法时返回 `NB_ERR_INVALID`，`_ex` 版本会给出 `path` 和 `reason`
 | `backpressure_bytes` | uint | `4194304` | 出站高水位，`0` 使用默认值 |
 | `rtcp_interval_ms` | uint | `1000` | UDP RTCP 上报周期 |
 | `rtcp` | bool | `true` | `false` 关闭 RTCP |
+| `qos` | object | 继承 | 默认 binding 的 provider QoS，字段见下 |
 
 `bindings` 还支持 `intra_process` 字段（字符串：`off` / `auto` / `only`），
 用于 DDS 事件发布订阅的进程内快路径。`only` 不创建 DDS event writer/reader，
 直接把消息指针投递给同 provider 的本地订阅者；`auto` 本地投递后仍走 DDS。
+每个 binding 也可以带自己的 `qos` 对象；未设置时继承 `transport.qos`。
 
 `bindings` 元素支持两种写法：
 
@@ -116,7 +118,30 @@ URI 非法时返回 `NB_ERR_INVALID`，`_ex` 版本会给出 `path` 和 `reason`
 使用 scheme。端口 `0` 表示由系统分配临时端口。
 
 Cyclone DDS 使用 `dds://<domain>:1`，host 是 DDS domain，port 仅用于满足 URI
-解析，provider 会忽略。DDS 首版使用默认 QoS，reliability/history 等字段后续再扩展。
+解析，provider 会忽略。共享内存使用 `shm://<channel>:<node-id>`，mesh 模式下
+同一 channel 的节点必须使用不同的 `node-id`（`1..9`）。
+
+### QoS
+
+`qos` 对齐 Cyclone DDS 的同名策略；值为 `0`/缺省表示继承 provider 默认值，
+只写入显式配置的字段。当前映射到 DDS reader/writer：
+
+| 字段 | 取值 | 对应 DDS |
+| --- | --- | --- |
+| `reliability` | `best_effort` / `reliable` | ReliabilityQosPolicy |
+| `durability` | `volatile` / `transient_local` | DurabilityQosPolicy |
+| `history` | `keep_last` / `keep_all` | HistoryQosPolicy |
+| `depth` | uint | History depth |
+| `deadline_ms` | uint | DeadlineQosPolicy |
+| `lifespan_ms` | uint | LifespanQosPolicy |
+| `latency_budget_ms` | uint | LatencyBudgetQosPolicy |
+| `liveliness` | `automatic` / `manual_by_participant` / `manual_by_topic` | LivelinessQosPolicy |
+| `lease_duration_ms` | uint | Liveliness lease duration |
+| `ownership` | `shared` / `exclusive` | OwnershipQosPolicy |
+| `partition` | string | PartitionQosPolicy |
+
+UDP/TCP/SHM 没有一一对应的链路策略，字段会保留在配置中供应用/自定义 provider
+读取；内置实现不会据此改变报文语义。
 
 `kind`、`bind_host`、`data_port` 适用于没有显式 `bindings` 的默认 binding。
 

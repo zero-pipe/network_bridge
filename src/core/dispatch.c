@@ -83,34 +83,17 @@ static void nb_pending_attach_response(nb_pending_t *p, const nb_message_t *msg)
     }
 }
 
-int nb_node_resolve(nb_node_t *node, const char *service, int prefer_stream, nb_stub_target_t *out)
+int nb_node_resolve(nb_node_t *node, const char *service, int prefer_stream, nb_endpoint_t *out)
 {
-    nb_transport_kind_t kind;
-    nb_endpoint_t endpoint;
-
     if (!node || !service || !out) {
         return NB_ERR_INVALID;
     }
-    memset(out, 0, sizeof(*out));
-    if (nb_route_lookup_prefer(&node->routes,
-                                service,
-                                prefer_stream,
-                                out->ip,
-                                sizeof(out->ip),
-                                &out->port,
-                                &kind,
-                                out->scheme,
-                                sizeof(out->scheme)) == NB_OK) {
-        out->transport = kind;
+    if (nb_route_select(&node->routes, service, prefer_stream, out) == NB_OK) {
         return NB_OK;
     }
-    if (nb_registry_select_prefer(&node->registry, service, prefer_stream, &endpoint) != NB_OK) {
+    if (nb_registry_select_prefer(&node->registry, service, prefer_stream, out) != NB_OK) {
         return NB_ERR_NOTFOUND;
     }
-    nb_copy_str(out->ip, sizeof(out->ip), endpoint.host, "0.0.0.0");
-    nb_copy_str(out->scheme, sizeof(out->scheme), endpoint.scheme, "udp");
-    out->port = endpoint.port;
-    out->transport = endpoint.transport;
     return NB_OK;
 }
 
@@ -417,61 +400,60 @@ void nb_node_on_message(nb_node_t *node, nb_transport_t *transport, nb_message_t
     }
 }
 
-int nb_node_send(nb_node_t *node,
-                  nb_transport_kind_t transport_kind,
-                  const char *scheme,
-                  const nb_message_t *msg)
+int nb_node_send(nb_node_t *node, const nb_endpoint_t *target, const nb_message_t *msg)
 {
     size_t i;
-    if (!node || !msg || !msg->peer_ip || !msg->peer_port) {
+    nb_message_t outbound;
+
+    if (!node || !msg || !target || !target->port) {
         return NB_ERR_INVALID;
     }
+    outbound = *msg;
+    outbound.target = target;
+    outbound.peer_ip = target->host;
+    outbound.peer_port = target->port;
     for (i = 0; i < node->transport_count; i++) {
         nb_transport_t *transport = node->transports[i];
         if (!transport) {
             continue;
         }
-        if (scheme && scheme[0] && strcmp(transport->scheme, scheme) != 0) {
+        if (target->scheme[0] && strcmp(transport->scheme, target->scheme) != 0) {
             continue;
         }
-        if ((!scheme || !scheme[0]) && transport->kind != transport_kind) {
+        if (!target->scheme[0] && transport->kind != target->transport) {
             continue;
         }
-        return nb_transport_send(transport, msg);
+        if (transport->kind == NB_TRANSPORT_CUSTOM && target->host[0] &&
+            transport->bind_host[0] && strcmp(transport->bind_host, target->host) != 0) {
+            continue;
+        }
+        return nb_transport_send(transport, &outbound);
     }
     return NB_ERR_NOTFOUND;
 }
 
-int nb_node_send_call(nb_node_t *node,
-                       const nb_stub_target_t *target,
-                       const char *service,
-                       const char *method,
-                       const nb_payload_t *payload,
-                       uint8_t kind,
-                       uint64_t request_id,
-                       uint64_t timeout_ms,
-                       const void *metadata,
-                       uint16_t metadata_len)
+int nb_node_send_call(nb_node_t *node, const nb_stub_request_t *request)
 {
     nb_message_t message;
     char route[NB_GLOBAL_MAX_ROUTE_BYTES];
 
-    if (!node || !target || !service || !method || !target->ip[0] || !target->port) {
+    if (!node || !request || !request->service || !request->method || !request->target ||
+        !request->target->host[0] || !request->target->port) {
         return NB_ERR_INVALID;
     }
-    if (nb_route_format(route, sizeof(route), service, method) != NB_OK) {
+    if (nb_route_format(route, sizeof(route), request->service, request->method) != NB_OK) {
         return NB_ERR_INVALID;
     }
     memset(&message, 0, sizeof(message));
-    message.kind = kind;
-    message.request_id = (uint32_t)request_id;
+    message.kind = request->kind == NB_STUB_EVENT ? KIND_EVENT :
+                   (request->kind == NB_STUB_CANCEL ? KIND_CANCEL : KIND_REQUEST);
+    message.request_id = (uint32_t)request->request_id;
     /* 请求剩余超时透传给服务端（0 = 无 deadline）；CANCEL 不使用该字段。 */
-    message.timeout_ms = timeout_ms > 0xffffffffull ? 0xffffffffu : (uint32_t)timeout_ms;
-    message.metadata = metadata;
-    message.metadata_len = metadata_len;
+    message.timeout_ms =
+        request->timeout_ms > 0xffffffffull ? 0xffffffffu : (uint32_t)request->timeout_ms;
+    message.metadata = request->metadata;
+    message.metadata_len = request->metadata_len;
     message.route = route;
-    message.payload = payload ? *payload : (nb_payload_t){ 0 };
-    message.peer_ip = target->ip;
-    message.peer_port = target->port;
-    return nb_node_send(node, target->transport, target->scheme, &message);
+    message.payload = request->payload ? *request->payload : (nb_payload_t){ 0 };
+    return nb_node_send(node, request->target, &message);
 }

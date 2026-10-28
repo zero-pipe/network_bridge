@@ -149,6 +149,54 @@ static void test_endpoint_model(void)
     CHECK(strcmp(text, "tcp://127.0.0.1:8080") == 0);
     CHECK(nb_endpoint_parse("dds://127.0.0.1:7400", &endpoint) == NB_OK);
     CHECK(endpoint.transport == NB_TRANSPORT_CUSTOM);
+    CHECK(nb_endpoint_parse("shm://orders:3/control", &endpoint) == NB_OK);
+    CHECK(strcmp(endpoint.scheme, "shm") == 0);
+    CHECK(strcmp(endpoint.host, "orders") == 0);
+    CHECK(strcmp(endpoint.path, "/control") == 0);
+    CHECK(strcmp(endpoint.uri, "shm://orders:3/control") == 0);
+    CHECK(nb_endpoint_is_network(&endpoint) == 0);
+    CHECK(nb_endpoint_parse("tcp://127.0.0.1:8080", &endpoint) == NB_OK);
+    CHECK(nb_endpoint_is_network(&endpoint) == 1);
+}
+
+static void test_qos_config(void)
+{
+    const char *json = "{"
+                       "\"transport\":{"
+                       "\"qos\":{\"reliability\":\"reliable\",\"durability\":\"transient_local\","
+                       "\"history\":\"keep_last\",\"depth\":8,\"deadline_ms\":250,"
+                       "\"lifespan_ms\":1000,\"liveliness\":\"manual_by_topic\","
+                       "\"lease_duration_ms\":2000,\"ownership\":\"exclusive\","
+                       "\"partition\":\"orders\"},"
+                       "\"bindings\":[{\"name\":\"dds\",\"endpoint\":\"dds://0:1\","
+                       "\"qos\":{\"reliability\":\"best_effort\",\"history\":\"keep_all\"}}]"
+                       "}"
+                       "}";
+    nb_config_t cfg;
+    nb_config_error_t err;
+
+    memset(&cfg, 0, sizeof(cfg));
+    CHECK(nb_config_load(json, &cfg) == NB_OK);
+    CHECK(cfg.node.transport.qos.reliability == NB_QOS_RELIABLE);
+    CHECK(cfg.node.transport.qos.durability == NB_QOS_TRANSIENT_LOCAL);
+    CHECK(cfg.node.transport.qos.history == NB_QOS_KEEP_LAST);
+    CHECK(cfg.node.transport.qos.depth == 8);
+    CHECK(cfg.node.transport.qos.deadline_ms == 250);
+    CHECK(cfg.node.transport.qos.lifespan_ms == 1000);
+    CHECK(cfg.node.transport.qos.liveliness == NB_QOS_LIVELINESS_MANUAL_BY_TOPIC);
+    CHECK(cfg.node.transport.qos.lease_duration_ms == 2000);
+    CHECK(cfg.node.transport.qos.ownership == NB_QOS_OWNERSHIP_EXCLUSIVE);
+    CHECK(strcmp(cfg.node.transport.qos.partition, "orders") == 0);
+    CHECK(cfg.binding_count == 1);
+    CHECK(cfg.binding_configs[0].qos.reliability == NB_QOS_BEST_EFFORT);
+    CHECK(cfg.binding_configs[0].qos.history == NB_QOS_KEEP_ALL);
+
+    memset(&cfg, 0, sizeof(cfg));
+    memset(&err, 0, sizeof(err));
+    CHECK(nb_config_load_ex("{\"transport\":{\"qos\":{\"reliability\":\"sometimes\"}}}",
+                            &cfg,
+                            &err) == NB_ERR_INVALID);
+    CHECK(strcmp(err.path, "transport.qos") == 0);
 }
 
 static void test_binding_config(void)
@@ -257,6 +305,7 @@ int main(void)
     test_strict_validation();
     test_structured_errors();
     test_endpoint_model();
+    test_qos_config();
     test_binding_config();
     test_nested_bindings();
     test_rtcp_config();

@@ -144,9 +144,9 @@ static uint64_t nb_stream_send_task_fn(void *user)
     message.payload = payload;
     message.stream = meta;
     message.has_stream = 1;
-    message.peer_ip = stream->ip;
-    message.peer_port = stream->port;
-    rc = nb_node_send(stream->node, stream->transport, stream->scheme, &message);
+    message.peer_ip = stream->endpoint.host;
+    message.peer_port = stream->endpoint.port;
+    rc = nb_node_send(stream->node, &stream->endpoint, &message);
     if (rc == NB_ERR_AGAIN && task->retries++ < 1000) {
         if (ntk_poller_do_delay(stream->node->poller, 1, nb_stream_send_task_fn, task) != NULL) {
             return 0; /* 保留 task/data，稍后重试 */
@@ -188,9 +188,9 @@ static void nb_stream_cancel_task_fn(void *user)
             message.payload = empty;
             message.stream = meta;
             message.has_stream = 1;
-            message.peer_ip = stream->ip;
-            message.peer_port = stream->port;
-            (void)nb_node_send(stream->node, stream->transport, stream->scheme, &message);
+            message.peer_ip = stream->endpoint.host;
+            message.peer_port = stream->endpoint.port;
+            (void)nb_node_send(stream->node, &stream->endpoint, &message);
         }
     }
     pending = nb_pending_find(stream->node, stream->request_id);
@@ -213,7 +213,6 @@ int nb_proxy_stream_open(nb_proxy_t *proxy,
 {
     nb_stream_t *stream;
     nb_stream_open_task_t *task;
-    nb_transport_kind_t transport;
     if (!proxy || !proxy->node || !service || !method || !cb || !out_stream) {
         return NB_ERR_INVALID;
     }
@@ -230,8 +229,6 @@ int nb_proxy_stream_open(nb_proxy_t *proxy,
     stream->timeout_ms = timeout_ms;
     nb_copy_str(stream->service, sizeof(stream->service), service, "");
     nb_copy_str(stream->method, sizeof(stream->method), method, "");
-    nb_copy_str(stream->scheme, sizeof(stream->scheme), "udp", "udp");
-    nb_copy_str(stream->ip, sizeof(stream->ip), "127.0.0.1", "127.0.0.1");
     ntk_mutex_lock(proxy->node->id_lock);
     stream->request_id = (uint64_t)(uint32_t)(proxy->node->next_request_id++);
     ntk_mutex_unlock(proxy->node->id_lock);
@@ -239,19 +236,10 @@ int nb_proxy_stream_open(nb_proxy_t *proxy,
         stream->request_id = 1;
     }
     stream->stream_id = (uint32_t)stream->request_id;
-    if (nb_proxy_resolve(proxy,
-                          service,
-                          stream->ip,
-                          sizeof(stream->ip),
-                          &stream->port,
-                          &transport,
-                          stream->scheme,
-                          sizeof(stream->scheme),
-                          0) != NB_OK) {
+    if (nb_proxy_resolve(proxy, service, 0, &stream->endpoint) != NB_OK) {
         free(stream);
         return NB_ERR_NOTFOUND;
     }
-    stream->transport = transport;
     task = (nb_stream_open_task_t *)calloc(1, sizeof(*task));
     if (!task) {
         free(stream);
@@ -278,7 +266,6 @@ int nb_proxy_stream_open_bidi(nb_proxy_t *proxy,
 {
     nb_stream_t *stream;
     nb_stream_open_task_t *task;
-    nb_transport_kind_t transport;
     if (!proxy || !proxy->node || !service || !method || !on_chunk || !on_done || !out_stream) {
         return NB_ERR_INVALID;
     }
@@ -297,8 +284,6 @@ int nb_proxy_stream_open_bidi(nb_proxy_t *proxy,
     stream->timeout_ms = timeout_ms;
     nb_copy_str(stream->service, sizeof(stream->service), service, "");
     nb_copy_str(stream->method, sizeof(stream->method), method, "");
-    nb_copy_str(stream->scheme, sizeof(stream->scheme), "udp", "udp");
-    nb_copy_str(stream->ip, sizeof(stream->ip), "127.0.0.1", "127.0.0.1");
     ntk_mutex_lock(proxy->node->id_lock);
     stream->request_id = (uint64_t)(uint32_t)(proxy->node->next_request_id++);
     ntk_mutex_unlock(proxy->node->id_lock);
@@ -306,19 +291,10 @@ int nb_proxy_stream_open_bidi(nb_proxy_t *proxy,
         stream->request_id = 1;
     }
     stream->stream_id = (uint32_t)stream->request_id;
-    if (nb_proxy_resolve(proxy,
-                          service,
-                          stream->ip,
-                          sizeof(stream->ip),
-                          &stream->port,
-                          &transport,
-                          stream->scheme,
-                          sizeof(stream->scheme),
-                          0) != NB_OK) {
+    if (nb_proxy_resolve(proxy, service, 0, &stream->endpoint) != NB_OK) {
         free(stream);
         return NB_ERR_NOTFOUND;
     }
-    stream->transport = transport;
     task = (nb_stream_open_task_t *)calloc(1, sizeof(*task));
     if (!task) {
         free(stream);

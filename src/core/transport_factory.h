@@ -7,6 +7,7 @@
  */
 
 #include <types.h>
+#include <config.h>
 
 #include <stdint.h>
 
@@ -15,6 +16,11 @@ int nb_node_transport_add(nb_node_t *node,
                           const char *scheme,
                           const char *host,
                           uint16_t port,
-                          nb_intra_process_t intra_process);
+                          const char *path,
+                          nb_intra_process_t intra_process,
+                          const nb_qos_t *qos);
+
+/* 按 binding 配置创建并启动传输（推荐入口）。 */
+int nb_node_transport_add_binding(nb_node_t *node, const nb_binding_config_t *binding);
 
 #endif /* TRANSPORT_FACTORY_H */

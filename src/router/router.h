@@ -48,6 +48,12 @@ int nb_route_add_endpoint(nb_route_table_t *table,
                            const char *endpoint,
                            int is_static);
 
+/* Select one endpoint (round robin, optionally preferring TCP). */
+int nb_route_select(nb_route_table_t *table,
+                    const char *service,
+                    int prefer_stream,
+                    nb_endpoint_t *out);
+
 int nb_route_lookup(nb_route_table_t *table,
                      const char *service,
                      char *ip_out,

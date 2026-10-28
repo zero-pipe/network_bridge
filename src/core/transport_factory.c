@@ -16,40 +16,23 @@ static nb_transport_t *nb_create_transport(nb_transport_kind_t kind)
 
 /* 自定义 provider 收到消息后，适配回 node 的统一分发入口。 */
 static void nb_provider_on_receive(void *receiver,
-                                void *reply_token,
-                                const char *peer_host,
-                                uint16_t peer_port,
-                                const nb_transport_message_t *message)
+                                   void *reply_token,
+                                   const nb_transport_message_t *message)
 {
     nb_transport_t *transport = (nb_transport_t *)receiver;
     nb_message_t msg;
-    int has_stream;
     if (!transport || !transport->node || !message) {
         return;
     }
-    has_stream = message->has_stream ||
-        (message->stream.flags & (NB_STREAM_FIRST | NB_STREAM_LAST | NB_STREAM_CANCEL)) != 0 ||
-        message->stream.stream_id != 0;
-    memset(&msg, 0, sizeof(msg));
-    msg.kind = message->kind;
-    msg.flags = message->flags;
-    msg.status = message->status;
-    msg.request_id = message->request_id;
-    msg.timeout_ms = message->timeout_ms;
-    msg.metadata = message->metadata;
-    msg.metadata_len = message->metadata_len;
-    msg.status_msg = message->status_msg;
-    msg.status_msg_len = message->status_msg_len;
-    msg.route = message->route;
-    msg.payload = message->payload;
-    if (has_stream) {
-        msg.stream = message->stream;
-        msg.has_stream = 1;
+    msg = *message;
+    if (message->peer) {
+        msg.peer_ip = message->peer->host;
+        msg.peer_port = message->peer->port;
     }
-    msg.peer_ip = peer_host;
-    msg.peer_port = peer_port;
+    /* peer/target point at provider stack storage; keep only borrowed values. */
+    msg.peer = NULL;
+    msg.target = NULL;
     msg.peer_token = reply_token;
-    msg.frame_owner = message->frame_owner;
     nb_node_on_message(transport->node, transport, &msg);
 }
 
@@ -67,49 +50,39 @@ static void nb_provider_op_stop(nb_transport_t *t)
     t->provider->ops->stop(t->provider_instance);
 }
 
-/* 把统一消息上下文转换成公开 provider SPI 的消息结构。 */
-static void nb_provider_message_from(const nb_message_t *src, nb_transport_message_t *dst)
-{
-    memset(dst, 0, sizeof(*dst));
-    dst->kind = src->kind;
-    dst->flags = src->flags;
-    dst->status = src->status;
-    dst->request_id = src->request_id;
-    dst->timeout_ms = src->timeout_ms;
-    dst->metadata = src->metadata;
-    dst->metadata_len = src->metadata_len;
-    dst->status_msg = src->status_msg;
-    dst->status_msg_len = src->status_msg_len;
-    dst->has_stream = src->has_stream;
-    dst->stream = src->stream;
-    dst->route = src->route;
-    dst->payload = src->payload;
-    dst->frame_owner = src->frame_owner;
-}
-
 static int nb_provider_op_send(nb_transport_t *t, const nb_message_t *message)
 {
-    nb_transport_message_t provider_message;
+    nb_endpoint_t target;
     if (!t || !t->provider || !message) {
         return NB_ERR_INVALID;
     }
-    nb_provider_message_from(message, &provider_message);
-    return t->provider->ops->send(
-        t->provider_instance, message->peer_ip, message->peer_port, &provider_message);
+    if (nb_endpoint_from_parts(&target,
+                               t->scheme,
+                               message->peer_ip,
+                               message->peer_port,
+                               nb_transport_kind_from_scheme(t->scheme)) != NB_OK) {
+        return NB_ERR_INVALID;
+    }
+    return t->provider->ops->send(t->provider_instance, &target, message);
 }
 
 static int nb_provider_op_reply(nb_transport_t *t, const nb_message_t *message)
 {
-    nb_transport_message_t provider_message;
+    nb_endpoint_t peer;
     if (!t || !t->provider || !message) {
         return NB_ERR_INVALID;
     }
-    nb_provider_message_from(message, &provider_message);
+    if (nb_endpoint_from_parts(&peer,
+                               t->scheme,
+                               message->peer_ip,
+                               message->peer_port,
+                               nb_transport_kind_from_scheme(t->scheme)) != NB_OK) {
+        return NB_ERR_INVALID;
+    }
     return t->provider->ops->reply(t->provider_instance,
                                    message->peer_token,
-                                   message->peer_ip,
-                                   message->peer_port,
-                                   &provider_message);
+                                   &peer,
+                                   message);
 }
 
 static int nb_provider_op_peer_stats(nb_transport_t *t,
@@ -133,14 +106,29 @@ int nb_node_transport_add(nb_node_t *node,
                           const char *scheme,
                           const char *host,
                           uint16_t port,
-                          nb_intra_process_t intra_process)
+                          const char *path,
+                          nb_intra_process_t intra_process,
+                          const nb_qos_t *qos)
 {
     nb_transport_t *transport;
     nb_transport_kind_t kind;
     const nb_transport_provider_t *provider;
-    char endpoint[NB_ENDPOINT_MAX + NB_SCHEME_MAX + 16];
+    nb_endpoint_t endpoint;
     if (!node || !scheme || !host || !host[0] || node->transport_count >= NB_MAX_BINDINGS) {
         return NB_ERR_INVALID;
+    }
+    if (nb_endpoint_from_parts(&endpoint, scheme, host, port, nb_transport_kind_from_scheme(scheme)) !=
+        NB_OK) {
+        return NB_ERR_INVALID;
+    }
+    if (path && path[0]) {
+        if (strlen(path) >= sizeof(endpoint.path)) {
+            return NB_ERR_INVALID;
+        }
+        strcpy(endpoint.path, path);
+        if (nb_endpoint_refresh(&endpoint) != NB_OK) {
+            return NB_ERR_INVALID;
+        }
     }
     kind = nb_transport_kind_from_scheme(scheme);
     provider = nb_transport_provider_find(scheme);
@@ -156,6 +144,7 @@ int nb_node_transport_add(nb_node_t *node,
     nb_copy_str(transport->scheme, sizeof(transport->scheme), scheme, "udp");
     nb_copy_str(transport->bind_host, sizeof(transport->bind_host), host, "0.0.0.0");
     transport->port = port;
+    nb_copy_str(transport->endpoint_uri, sizeof(transport->endpoint_uri), endpoint.uri, "");
     /* 传输层只读的运行期配置快照（见 nb_transport.h）。 */
     transport->frag_bytes = node->frag_bytes;
     transport->max_msg_bytes = node->max_msg_bytes;
@@ -170,20 +159,18 @@ int nb_node_transport_add(nb_node_t *node,
     if (provider) {
         nb_transport_provider_options_t options;
         nb_transport_instance_t *instance = NULL;
-        int n = snprintf(endpoint, sizeof(endpoint), "%s://%s:%u", scheme, host, (unsigned)port);
-        if (n < 0 || (size_t)n >= sizeof(endpoint)) {
-            free(transport);
-            return NB_ERR_TOOBIG;
-        }
+        nb_qos_t effective_qos = node->default_qos;
         transport->kind = NB_TRANSPORT_CUSTOM;
         transport->ops = &nb_g_provider_ops;
         transport->provider = provider;
         memset(&options, 0, sizeof(options));
         options.scheme = scheme;
-        options.endpoint = endpoint;
+        options.endpoint = endpoint.uri;
         options.receiver = transport;
         options.on_receive = nb_provider_on_receive;
         options.intra_process = intra_process;
+        nb_qos_inherit(&effective_qos, qos);
+        options.qos = effective_qos;
         if (provider->ops->create(&options, &instance) != NB_OK || !instance) {
             free(transport);
             return NB_ERR_IO;
@@ -194,6 +181,43 @@ int nb_node_transport_add(nb_node_t *node,
         nb_transport_destroy(transport);
         return NB_ERR_IO;
     }
+    /* start() may assign an ephemeral port (port=0 input). Refresh the URI. */
+    if (transport->port != port) {
+        nb_endpoint_t actual;
+        if (nb_endpoint_from_parts(&actual,
+                                   transport->scheme,
+                                   transport->bind_host,
+                                   transport->port,
+                                   transport->kind) == NB_OK) {
+            if (path && path[0]) {
+                strcpy(actual.path, path);
+                (void)nb_endpoint_refresh(&actual);
+            }
+            nb_copy_str(transport->endpoint_uri,
+                        sizeof(transport->endpoint_uri),
+                        actual.uri,
+                        "");
+        }
+    }
     node->transports[node->transport_count++] = transport;
     return NB_OK;
+}
+
+int nb_node_transport_add_binding(nb_node_t *node, const nb_binding_config_t *binding)
+{
+    nb_endpoint_t endpoint;
+
+    if (!node || !binding || !binding->endpoint) {
+        return NB_ERR_INVALID;
+    }
+    if (nb_endpoint_parse(binding->endpoint, &endpoint) != NB_OK) {
+        return NB_ERR_INVALID;
+    }
+    return nb_node_transport_add(node,
+                                 endpoint.scheme,
+                                 endpoint.host,
+                                 endpoint.port,
+                                 endpoint.path,
+                                 binding->intra_process,
+                                 &binding->qos);
 }

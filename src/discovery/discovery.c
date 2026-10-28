@@ -13,7 +13,7 @@
 #include <string.h>
 
 #define NB_DISCOVERY_MAGIC 0x4e424453u /* 'NBDS' */
-#define NB_DISCOVERY_VERSION 3u
+#define NB_DISCOVERY_VERSION 4u
 #define NB_DISCOVERY_FLAG_HELLO 0x01u
 #define NB_DISCOVERY_FLAG_BYE 0x02u
 #define NB_DISCOVERY_FRAME_MAX_BYTES 1400u
@@ -51,18 +51,37 @@ static size_t nb_disc_build(nb_node_t *node, int bye, uint8_t *buf, size_t cap)
         memcpy(buf + n, name, name_len);
         n += name_len;
     }
-    buf[n++] = (uint8_t)binding_count;
-    for (i = 0; i < binding_count; i++) {
-        const char *scheme = nb_node_binding_scheme(node, i);
-        size_t sl = scheme ? strlen(scheme) : 0;
-        if (!scheme || sl == 0 || sl > 255 || n + 1 + sl + 2 > cap) {
-            return 0;
+    {
+        char uris[NB_MAX_BINDINGS][NB_ENDPOINT_URI_MAX];
+        uint8_t valid_count = 0;
+        uint8_t valid[NB_MAX_BINDINGS];
+
+        if (binding_count > NB_MAX_BINDINGS) {
+            binding_count = NB_MAX_BINDINGS;
         }
-        buf[n++] = (uint8_t)sl;
-        memcpy(buf + n, scheme, sl);
-        n += sl;
-        nb_put_u16(buf + n, nb_node_binding_port(node, i));
-        n += 2;
+        memset(valid, 0, sizeof(valid));
+        for (i = 0; i < binding_count; i++) {
+            if (nb_node_binding_uri(node, i, uris[i], sizeof(uris[i])) == NB_OK &&
+                uris[i][0]) {
+                valid[i] = 1;
+                valid_count++;
+            }
+        }
+        buf[n++] = valid_count;
+        for (i = 0; i < binding_count; i++) {
+            size_t len;
+            if (!valid[i]) {
+                continue;
+            }
+            len = strlen(uris[i]);
+            if (len == 0 || len > 0xffffu || n + 2 + len > cap) {
+                return 0;
+            }
+            nb_put_u16(buf + n, (uint16_t)len);
+            n += 2;
+            memcpy(buf + n, uris[i], len);
+            n += len;
+        }
     }
     nb_put_u16(buf + n, (uint16_t)svc_count);
     n += 2;
@@ -174,26 +193,27 @@ static void nb_peer_store(nb_node_t *node,
     snprintf(p->ip_s, sizeof(p->ip_s), "%s", ip);
 
     p->endpoint_count = 0;
-    while (binding_off < binding_len && p->endpoint_count < NB_MAX_BINDINGS) {
-        uint8_t sl = binding_blob[binding_off++];
-        nb_endpoint_t *endpoint;
-        if (sl == 0 || binding_off + sl + 2 > binding_len) {
-            break;
-        }
-        endpoint = &p->endpoints[p->endpoint_count];
-        if (sl >= sizeof(endpoint->scheme)) {
-            break;
-        }
-        memcpy(endpoint->scheme, binding_blob + binding_off, sl);
-        endpoint->scheme[sl] = '\0';
-        binding_off += sl;
-        endpoint->port = nb_get_u16(binding_blob + binding_off);
+    while (binding_off + 2 <= binding_len && p->endpoint_count < NB_MAX_BINDINGS) {
+        char uri[NB_ENDPOINT_URI_MAX];
+        uint16_t ul = nb_get_u16(binding_blob + binding_off);
+        nb_endpoint_t parsed;
+
         binding_off += 2;
-        endpoint->transport = nb_transport_kind_from_scheme(endpoint->scheme);
-        nb_copy_str(endpoint->host, sizeof(endpoint->host), ip, "0.0.0.0");
-        if (endpoint->port && (int)endpoint->transport >= 0) {
-            p->endpoint_count++;
+        if (ul == 0 || binding_off + ul > binding_len || ul >= sizeof(uri)) {
+            break;
         }
+        memcpy(uri, binding_blob + binding_off, ul);
+        uri[ul] = '\0';
+        binding_off += ul;
+        if (nb_endpoint_parse(uri, &parsed) != NB_OK) {
+            continue;
+        }
+        if (nb_endpoint_is_network(&parsed)) {
+            /* Binding host is usually 0.0.0.0; the discovery source is authoritative. */
+            nb_copy_str(parsed.host, sizeof(parsed.host), ip, "0.0.0.0");
+            (void)nb_endpoint_refresh(&parsed);
+        }
+        p->endpoints[p->endpoint_count++] = parsed;
     }
 
     p->service_count = 0;
@@ -281,15 +301,16 @@ static void nb_disc_handle_frame(nb_node_t *node, const char *ip, const uint8_t 
         uint8_t binding_count = buf[off++];
         binding_start = off;
         for (i = 0; i < binding_count; i++) {
-            uint8_t sl;
-            if (off >= len) {
+            uint16_t ul;
+            if (off + 2 > len) {
                 return;
             }
-            sl = buf[off++];
-            if (off + sl + 2 > len) {
+            ul = nb_get_u16(buf + off);
+            off += 2;
+            if (ul == 0 || off + ul > len) {
                 return;
             }
-            off += sl + 2;
+            off += ul;
         }
         binding_len = off - binding_start;
     }
