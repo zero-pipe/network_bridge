@@ -33,6 +33,7 @@ set(NB_RPC_SOURCES
     core/service.c
     core/reply.c
     core/proxy.c
+    core/loan.c
     core/stub.c
     core/stream.c
     core/message_view.c

@@ -265,6 +265,75 @@ int main(void)
         }
     }
 
+    /* 零拷贝发布：client[2] 借 chunk 直写 payload 再 publish，client[0] 收到。 */
+    if (!failed) {
+        static const char expect[] = "loan-pubsub-over-shm";
+        nb_loan_t *loan = NULL;
+        uint8_t *data = NULL;
+        uint32_t cap = 0;
+        int attempt;
+
+        sub_st.count = 0;
+        sub_st.len = 0;
+        for (attempt = 0; attempt < 50 && sub_st.count == 0; attempt++) {
+            int lrc = nb_publisher_loan(proxy[2],
+                                        "TopicService",
+                                        "chat",
+                                        (uint32_t)sizeof(expect),
+                                        &loan,
+                                        &data,
+                                        &cap);
+            if (lrc == NB_ERR_AGAIN) {
+                ntk_sleep_ms(10);
+                continue;
+            }
+            if (lrc != NB_OK) {
+                nb_log_error("shm loan failed: %d", lrc);
+                failed = 1;
+                break;
+            }
+            if (cap < sizeof(expect)) {
+                nb_log_error("shm loan capacity too small: %u", cap);
+                nb_publisher_loan_release(loan);
+                failed = 1;
+                break;
+            }
+            memcpy(data, expect, sizeof(expect));
+            if (nb_publisher_publish_loan(loan, (uint32_t)sizeof(expect), NULL) != NB_OK) {
+                failed = 1;
+                break;
+            }
+            (void)ntk_sem_timedwait(sub_st.sem, 200);
+        }
+        if (!failed && (sub_st.count == 0 || sub_st.len != sizeof(expect) ||
+                        memcmp(sub_st.buf, expect, sizeof(expect)) != 0)) {
+            nb_log_error("shm loan pub/sub not delivered: count=%d len=%zu",
+                         sub_st.count,
+                         sub_st.len);
+            failed = 1;
+        }
+    }
+
+    /* 归还路径不能泄漏 chunk：连续借还大块后，256K 档仍应有空闲块可用。 */
+    if (!failed) {
+        int i;
+
+        for (i = 0; i < 64 && !failed; i++) {
+            nb_loan_t *loan = NULL;
+            uint8_t *data = NULL;
+            uint32_t cap = 0;
+            int lrc = nb_publisher_loan(
+                proxy[2], "TopicService", "chat", 250000, &loan, &data, &cap);
+
+            if (lrc != NB_OK) {
+                nb_log_error("shm loan pool leaked (release does not return chunks): %d", lrc);
+                failed = 1;
+                break;
+            }
+            nb_publisher_loan_release(loan);
+        }
+    }
+
     if (sub_st.sem) {
         ntk_sem_destroy(sub_st.sem);
     }

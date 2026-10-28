@@ -42,6 +42,19 @@ typedef struct nb_transport_ops {
 
     /* 查询某对端的链路统计（可选）：1 = 找到，0 = 无此对端，负数 = 出错。 */
     int (*peer_stats)(nb_transport_t *t, const char *ip, uint16_t port, nb_peer_stats_t *out);
+
+    /* 零拷贝发布（可选）：不支持时返回 NB_ERR_NOT_SUPPORTED（见 provider loan 注释）。 */
+    int (*loan)(nb_transport_t *t,
+                const char *route,
+                uint32_t payload_capacity,
+                void **payload_data,
+                uint32_t *payload_capacity_out,
+                void **loan);
+    int (*send_loan)(nb_transport_t *t,
+                     const char *route,
+                     void *loan,
+                     const nb_message_t *message);
+    void (*release_loan)(nb_transport_t *t, void *loan);
 } nb_transport_ops_t;
 
 struct nb_transport {
@@ -84,6 +97,17 @@ void nb_transport_stop(nb_transport_t *t);
 void nb_transport_destroy(nb_transport_t *t);
 int nb_transport_send(nb_transport_t *t, const nb_message_t *message);
 int nb_transport_reply(nb_transport_t *t, const nb_message_t *message);
+int nb_transport_loan(nb_transport_t *t,
+                      const char *route,
+                      uint32_t payload_capacity,
+                      void **payload_data,
+                      uint32_t *payload_capacity_out,
+                      void **loan);
+int nb_transport_send_loan(nb_transport_t *t,
+                           const char *route,
+                           void *loan,
+                           const nb_message_t *message);
+void nb_transport_release_loan(nb_transport_t *t, void *loan);
 int nb_transport_subscribe(nb_transport_t *t, const char *service, const char *method);
 void nb_transport_unsubscribe(nb_transport_t *t, const char *service, const char *method);
 const nb_transport_provider_t *nb_transport_provider_find(const char *scheme);

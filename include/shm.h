@@ -34,6 +34,11 @@
  * every subscribed node (excluding the publisher) by route ("service.method").
  * Each node may subscribe to at most NB_SHM_MAX_TOPICS_PER_NODE topics, and one
  * channel supports at most NB_SHM_MAX_NODES nodes.
+ *
+ * Zero-copy publish: the shm provider implements the loan/borrow SPI, so
+ * nb_publisher_loan / nb_publisher_publish_loan (see publish.h) write the
+ * payload straight into a segment chunk and skip the send-side copy that the
+ * ordinary event path performs.
  */
 
 #include <transport_provider.h>

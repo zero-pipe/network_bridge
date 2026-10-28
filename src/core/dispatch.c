@@ -400,18 +400,13 @@ void nb_node_on_message(nb_node_t *node, nb_transport_t *transport, nb_message_t
     }
 }
 
-int nb_node_send(nb_node_t *node, const nb_endpoint_t *target, const nb_message_t *msg)
+nb_transport_t *nb_node_find_transport(nb_node_t *node, const nb_endpoint_t *target)
 {
     size_t i;
-    nb_message_t outbound;
 
-    if (!node || !msg || !target || !target->port) {
-        return NB_ERR_INVALID;
+    if (!node || !target) {
+        return NULL;
     }
-    outbound = *msg;
-    outbound.target = target;
-    outbound.peer_host = target->host;
-    outbound.peer_port = target->port;
     for (i = 0; i < node->transport_count; i++) {
         nb_transport_t *transport = node->transports[i];
         if (!transport) {
@@ -427,9 +422,28 @@ int nb_node_send(nb_node_t *node, const nb_endpoint_t *target, const nb_message_
             transport->bind_host[0] && strcmp(transport->bind_host, target->host) != 0) {
             continue;
         }
-        return nb_transport_send(transport, &outbound);
+        return transport;
     }
-    return NB_ERR_NOTFOUND;
+    return NULL;
+}
+
+int nb_node_send(nb_node_t *node, const nb_endpoint_t *target, const nb_message_t *msg)
+{
+    nb_message_t outbound;
+    nb_transport_t *transport;
+
+    if (!node || !msg || !target || !target->port) {
+        return NB_ERR_INVALID;
+    }
+    outbound = *msg;
+    outbound.target = target;
+    outbound.peer_host = target->host;
+    outbound.peer_port = target->port;
+    transport = nb_node_find_transport(node, target);
+    if (!transport) {
+        return NB_ERR_NOTFOUND;
+    }
+    return nb_transport_send(transport, &outbound);
 }
 
 int nb_node_send_call(nb_node_t *node, const nb_stub_request_t *request)

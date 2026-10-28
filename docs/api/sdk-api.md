@@ -218,6 +218,30 @@ nb_proxy_cancel(proxy, request_id);
 `nb_stub_t` 是 proxy 下方的调用原语。`nb_proxy_create` 会自动创建一个注入路由 send 钩子的
 stub。只有需要自定义发送逻辑时才直接使用 `nb_stub_create` 与 `nb_stub_call_*`。
 
+### 零拷贝发布（loan/borrow）
+
+普通 `nb_proxy_call_event` 会把 payload 拷进传输的发送缓冲；对 shm 这类 payload 直接住在
+共享段里的后端，可以借一块 chunk 直写、再发布，省掉那次拷贝：
+
+```c
+nb_loan_t *loan = NULL;
+uint8_t *data = NULL;
+uint32_t cap = 0;
+
+if (nb_publisher_loan(pub, "TopicService", "chat", len, &loan, &data, &cap) == NB_OK) {
+    memcpy(data, my_bytes, len);                 /* 直接写段内内存 */
+    nb_publisher_publish_loan(loan, len, NULL);  /* 补 envelope 前缀并扇出 */
+} else {
+    /* NB_ERR_NOT_SUPPORTED：目标传输不支持；NB_ERR_AGAIN：暂无可借 chunk，稍后重试 */
+}
+```
+
+- loan 在借出时就把目标传输固定下来（经 proxy 的固定端点或服务发现解析），因此
+  `publish_loan` 不再查路由；只支持 EVENT 发布。
+- `nb_publisher_publish_loan` 无论成败都接管 loan；未发布想放弃时调用
+  `nb_publisher_loan_release`。loan 是线程私有的，不要跨线程传递。
+- `cap` 可能大于请求的 `capacity`（按段内 size class 向上取整），实际写入不要超过 `len`。
+
 ## Codec
 
 ```c

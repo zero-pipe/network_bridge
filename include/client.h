@@ -11,6 +11,7 @@
 
 #include <runtime.h>
 #include <proxy.h>
+#include <publish.h>
 #include <stub.h>
 
 #endif /* NB_CLIENT_H */

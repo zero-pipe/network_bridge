@@ -63,6 +63,32 @@ typedef struct nb_transport_provider_ops {
     void (*unregister_method)(nb_transport_instance_t *instance,
                               const char *service,
                               const char *method);
+    /*
+     * Optional zero-copy publish path (iceoryx-style loan/borrow). Providers
+     * that keep payloads in inspectable memory (shm) implement all three; the
+     * core then lets publishers write the payload in place instead of copying.
+     *
+     *   loan: reserve a chunk big enough for a message with this route and
+     *         payload_capacity. *payload_data receives the writable payload
+     *         area (inside the chunk), *payload_capacity_out the actual
+     *         capacity, and *loan an opaque handle owned by the caller.
+     *   send_loan: encode the envelope header around the already-written
+     *         payload and publish. Takes ownership of the loan regardless of
+     *         the return value. message->route must match the loan route and
+     *         message->payload.data must be the loaned pointer.
+     *   release_loan: return an unpublished loan to the pool.
+     */
+    int (*loan)(nb_transport_instance_t *instance,
+                const char *route,
+                uint32_t payload_capacity,
+                void **payload_data,
+                uint32_t *payload_capacity_out,
+                void **loan);
+    int (*send_loan)(nb_transport_instance_t *instance,
+                     const char *route,
+                     void *loan,
+                     const nb_transport_message_t *message);
+    void (*release_loan)(nb_transport_instance_t *instance, void *loan);
 } nb_transport_provider_ops_t;
 
 /* Static descriptor registered with nb_transport_provider_register. */

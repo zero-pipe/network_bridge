@@ -453,6 +453,119 @@ static void nb_shm_op_unregister_method(nb_transport_instance_t *instance,
     (void)nb_shmseg_unsubscribe(inst->seg, topic);
 }
 
+/* loan 路径只承载 EVENT 发布：chunk 前缀固定为固定头 + route TLV。 */
+static size_t nb_shm_loan_prefix_bytes(const char *route)
+{
+    size_t route_len;
+
+    if (!route || !route[0]) {
+        return 0;
+    }
+    route_len = strlen(route);
+    if (route_len > 0xffffu) {
+        return 0;
+    }
+    return (size_t)ENVELOPE_HDR_LEN + NB_EXT_TLV_HDR_LEN + route_len;
+}
+
+/*
+ * 借出段内一块 chunk，把数据区按 envelope 前缀让出一段，剩余容量交给应用直写。
+ * loan 句柄就是 chunk 的段内偏移：无需额外分配，且与 chunk 生命周期一致。
+ */
+static int nb_shm_op_loan(nb_transport_instance_t *instance,
+                          const char *route,
+                          uint32_t payload_capacity,
+                          void **payload_data,
+                          uint32_t *payload_capacity_out,
+                          void **loan)
+{
+    nb_shm_instance_t *inst = (nb_shm_instance_t *)instance;
+    uint64_t off;
+    uint8_t *data;
+    uint32_t cap;
+    size_t hdr;
+
+    if (!inst || !inst->seg || !payload_data || !payload_capacity_out || !loan) {
+        return NB_ERR_INVALID;
+    }
+    hdr = nb_shm_loan_prefix_bytes(route);
+    if (hdr == 0 || payload_capacity > UINT32_MAX - hdr) {
+        return NB_ERR_INVALID;
+    }
+    off = nb_shmseg_alloc(inst->seg, hdr + payload_capacity);
+    if (off == 0) {
+        return NB_ERR_AGAIN;
+    }
+    data = nb_shmseg_data(inst->seg, off);
+    cap = nb_shmseg_capacity(inst->seg, off);
+    if (!data || (size_t)cap < hdr + payload_capacity) {
+        nb_shmseg_chunk_free(inst->seg, off);
+        return NB_ERR_TOOBIG;
+    }
+    *payload_data = data + hdr;
+    *payload_capacity_out = cap - (uint32_t)hdr;
+    *loan = (void *)(uintptr_t)off;
+    return NB_OK;
+}
+
+/*
+ * 补齐 envelope 前缀并以 EVENT 扇出。无论成败都接管 loan 所有权；只接受与
+ * 借出时同一 route、无 metadata/status/stream 的消息（否则前缀长度会漂移，
+ * 把 payload 覆盖掉）。
+ */
+static int nb_shm_op_send_loan(nb_transport_instance_t *instance,
+                               const char *route,
+                               void *loan,
+                               const nb_transport_message_t *message)
+{
+    nb_shm_instance_t *inst = (nb_shm_instance_t *)instance;
+    uint64_t off = (uint64_t)(uintptr_t)loan;
+    nb_envelope_t env;
+    uint8_t *data;
+    uint32_t cap;
+    size_t hdr;
+    size_t written;
+
+    if (!inst || !inst->seg || !route || !message || off == 0) {
+        return NB_ERR_INVALID;
+    }
+    hdr = nb_shm_loan_prefix_bytes(route);
+    data = nb_shmseg_data(inst->seg, off);
+    cap = nb_shmseg_capacity(inst->seg, off);
+    if (hdr == 0 || !data || (size_t)cap < hdr || !message->route ||
+        strcmp(message->route, route) != 0 || message->kind != KIND_EVENT ||
+        message->metadata_len != 0 || message->status_msg_len != 0 ||
+        message->status != 0 || message->has_stream ||
+        message->payload.data != data + hdr ||
+        message->payload.len > (size_t)cap - hdr) {
+        nb_shmseg_chunk_free(inst->seg, off);
+        return NB_ERR_INVALID;
+    }
+    nb_shm_fill_envelope(message, &env);
+    written = nb_envelope_encode_prefix(data, cap, &env);
+    if (written != hdr) {
+        nb_shmseg_chunk_free(inst->seg, off);
+        return NB_ERR_IO;
+    }
+    nb_shmseg_set_length(inst->seg, off, (uint32_t)written + message->payload.len);
+    /* publish 接管 chunk 所有权（无人订阅或部分队列满都会内部回收）。 */
+    if (nb_shmseg_publish(inst->seg, route, off) != 0) {
+        return NB_ERR_IO;
+    }
+    return NB_OK;
+}
+
+static void nb_shm_op_release_loan(nb_transport_instance_t *instance, void *loan)
+{
+    nb_shm_instance_t *inst = (nb_shm_instance_t *)instance;
+    uint64_t off = (uint64_t)(uintptr_t)loan;
+
+    if (!inst || !inst->seg || off == 0) {
+        return;
+    }
+    nb_shmseg_chunk_free(inst->seg, off);
+}
+
 static const nb_transport_provider_ops_t nb_g_shm_ops = {
     .create = nb_shm_op_create,
     .start = nb_shm_op_start,
@@ -462,6 +575,9 @@ static const nb_transport_provider_ops_t nb_g_shm_ops = {
     .reply = nb_shm_op_reply,
     .register_method = nb_shm_op_register_method,
     .unregister_method = nb_shm_op_unregister_method,
+    .loan = nb_shm_op_loan,
+    .send_loan = nb_shm_op_send_loan,
+    .release_loan = nb_shm_op_release_loan,
 };
 
 static const nb_transport_provider_t nb_g_shm_provider = {

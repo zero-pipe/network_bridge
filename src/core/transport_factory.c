@@ -98,9 +98,47 @@ static int nb_provider_op_peer_stats(nb_transport_t *t,
     return 0;
 }
 
+static int nb_provider_op_loan(nb_transport_t *t,
+                               const char *route,
+                               uint32_t payload_capacity,
+                               void **payload_data,
+                               uint32_t *payload_capacity_out,
+                               void **loan)
+{
+    if (!t || !t->provider || !t->provider->ops->loan) {
+        return NB_ERR_NOT_SUPPORTED;
+    }
+    return t->provider->ops->loan(
+        t->provider_instance, route, payload_capacity, payload_data, payload_capacity_out, loan);
+}
+
+static int nb_provider_op_send_loan(nb_transport_t *t,
+                                    const char *route,
+                                    void *loan,
+                                    const nb_message_t *message)
+{
+    if (!t || !t->provider || !t->provider->ops->send_loan) {
+        return NB_ERR_NOT_SUPPORTED;
+    }
+    return t->provider->ops->send_loan(t->provider_instance, route, loan, message);
+}
+
+static void nb_provider_op_release_loan(nb_transport_t *t, void *loan)
+{
+    if (t && t->provider && t->provider->ops->release_loan) {
+        t->provider->ops->release_loan(t->provider_instance, loan);
+    }
+}
+
 static const nb_transport_ops_t nb_g_provider_ops = {
-    nb_provider_op_start, nb_provider_op_stop,       nb_provider_op_send,
-    nb_provider_op_reply, nb_provider_op_peer_stats,
+    .start = nb_provider_op_start,
+    .stop = nb_provider_op_stop,
+    .send = nb_provider_op_send,
+    .reply = nb_provider_op_reply,
+    .peer_stats = nb_provider_op_peer_stats,
+    .loan = nb_provider_op_loan,
+    .send_loan = nb_provider_op_send_loan,
+    .release_loan = nb_provider_op_release_loan,
 };
 
 int nb_node_transport_add(nb_node_t *node,
