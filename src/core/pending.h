@@ -40,7 +40,7 @@ typedef struct nb_pending {
     uint32_t retries;
     char service[NB_SERVICE_NAME_MAX];
     char method[NB_METHOD_NAME_MAX];
-    char ip[NB_ENDPOINT_MAX];
+    char ip[NB_HOST_MAX];
     uint16_t port;
     nb_transport_kind_t transport;
     char scheme[NB_SCHEME_MAX];

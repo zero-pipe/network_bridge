@@ -184,19 +184,19 @@ int nb_endpoint_from_parts(nb_endpoint_t *out,
     return nb_endpoint_refresh(out);
 }
 
-int nb_endpoint_is_network(const nb_endpoint_t *endpoint)
+bool nb_endpoint_is_network(const nb_endpoint_t *endpoint)
 {
     if (!endpoint) {
-        return 0;
+        return false;
     }
     return endpoint->transport == NB_TRANSPORT_UDP || endpoint->transport == NB_TRANSPORT_TCP ||
            strcmp(endpoint->scheme, "udp") == 0 || strcmp(endpoint->scheme, "tcp") == 0;
 }
 
-int nb_endpoint_equal(const nb_endpoint_t *a, const nb_endpoint_t *b)
+bool nb_endpoint_equal(const nb_endpoint_t *a, const nb_endpoint_t *b)
 {
     if (!a || !b) {
-        return 0;
+        return false;
     }
     return a->port == b->port && strcmp(a->scheme, b->scheme) == 0 &&
            strcmp(a->host, b->host) == 0 && strcmp(a->path, b->path) == 0;

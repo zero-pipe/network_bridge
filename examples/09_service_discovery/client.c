@@ -28,10 +28,10 @@ int main(int argc, char **argv)
 
     nb_node_config_default(&cfg);
     cfg.name = "DiscoveryClient";
-    cfg.transport.transport = NB_TRANSPORT_TCP;
+    cfg.transport.kind = NB_TRANSPORT_TCP;
     cfg.transport.bind_host = "0.0.0.0";
     cfg.transport.data_port = 0;
-    cfg.discovery.host = "255.255.255.255";
+    cfg.discovery.broadcast_host = "255.255.255.255";
     cfg.discovery.port = client_discovery_port;
     cfg.discovery.hello_interval_ms = 500;
     cfg.discovery.node_ttl_ms = 3000;

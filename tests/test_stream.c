@@ -148,9 +148,9 @@ static int run_case(nb_transport_kind_t transport, const char *label, uint16_t s
 
     memset(&scfg, 0, sizeof(scfg));
     scfg.name = "stream-srv";
-    scfg.transport.transport = transport;
+    scfg.transport.kind = transport;
     scfg.transport.bind_host = "127.0.0.1";
-    scfg.discovery.host = "127.0.0.1";
+    scfg.discovery.broadcast_host = "127.0.0.1";
     scfg.discovery.port = sdisc;
     scfg.runtime.io_threads = 1;
     scfg.discovery.hello_interval_ms = 200;
@@ -158,9 +158,9 @@ static int run_case(nb_transport_kind_t transport, const char *label, uint16_t s
 
     memset(&ccfg, 0, sizeof(ccfg));
     ccfg.name = "stream-cli";
-    ccfg.transport.transport = transport;
+    ccfg.transport.kind = transport;
     ccfg.transport.bind_host = "127.0.0.1";
-    ccfg.discovery.host = "127.0.0.1";
+    ccfg.discovery.broadcast_host = "127.0.0.1";
     ccfg.discovery.port = cdisc;
     ccfg.runtime.io_threads = 1;
     ccfg.discovery.hello_interval_ms = 200;
@@ -196,7 +196,7 @@ static int run_case(nb_transport_kind_t transport, const char *label, uint16_t s
     cst.sem = ntk_sem_create(0);
     if (!cst.sem) {
         failed = 1;
-    } else if (nb_proxy_stream_open(proxy, "upload", "chunk", on_response, &cst, 3000, &stream) !=
+    } else if (nb_proxy_open_client_stream(proxy, "upload", "chunk", on_response, &cst, 3000, &stream) !=
                NB_OK) {
         nb_log_error("[%s] open failed", label);
         failed = 1;
@@ -259,7 +259,7 @@ static int run_case(nb_transport_kind_t transport, const char *label, uint16_t s
         dc.sem = ntk_sem_create(0);
         if (!dc.sem) {
             failed = 1;
-        } else if (nb_proxy_call_stream(proxy,
+        } else if (nb_proxy_call_server_stream(proxy,
                                      "upload",
                                      "download",
                                      NULL,
@@ -296,7 +296,7 @@ static int run_case(nb_transport_kind_t transport, const char *label, uint16_t s
         cc.sem = ntk_sem_create(0);
         if (!cc.sem) {
             failed = 1;
-        } else if (nb_proxy_stream_open(proxy, "upload", "chunk", on_response, &cc, 3000, &s2) != NB_OK) {
+        } else if (nb_proxy_open_client_stream(proxy, "upload", "chunk", on_response, &cc, 3000, &s2) != NB_OK) {
             nb_log_error("[%s] cancel open failed", label);
             failed = 1;
         } else {
@@ -329,7 +329,7 @@ static int run_case(nb_transport_kind_t transport, const char *label, uint16_t s
         memset(&bc, 0, sizeof(bc));
         bc.sem = ntk_sem_create(0);
         if (!bc.sem ||
-            nb_proxy_stream_open_bidi(
+            nb_proxy_open_bidi_stream(
                 proxy, "upload", "chat", on_bidi_chunk, on_download_done, &bc, 3000, &bidi) != NB_OK) {
             nb_log_error("[%s] bidi open failed", label);
             failed = 1;

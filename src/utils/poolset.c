@@ -26,7 +26,7 @@ nb_poolset_t *nb_poolset_create(const size_t *slot_sizes,
     set->slot_sizes = (size_t *)nb_malloc(class_count * sizeof(size_t));
     set->pools = (nb_buf_pool_t **)nb_malloc(class_count * sizeof(nb_buf_pool_t *));
     if (!set->slot_sizes || !set->pools) {
-        nb_poolset_uninit(&set);
+        nb_poolset_destroy(set);
         return NULL;
     }
     memset(set->pools, 0, class_count * sizeof(nb_buf_pool_t *));
@@ -92,19 +92,18 @@ void nb_poolset_get_stats(const nb_poolset_t *set, nb_buf_pool_stats_t *out)
     }
 }
 
-void nb_poolset_uninit(nb_poolset_t **set)
+void nb_poolset_destroy(nb_poolset_t *set)
 {
     nb_poolset_t *p;
     size_t i;
 
-    if (!set || !*set) {
+    if (!set) {
         return;
     }
-    p = *set;
-    *set = NULL;
+    p = set;
     for (i = 0; i < p->class_count; i++) {
         if (p->pools && p->pools[i]) {
-            nb_buf_pool_uninit(&p->pools[i]);
+            nb_buf_pool_destroy(p->pools[i]);
         }
     }
     nb_free(p->pools);

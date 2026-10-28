@@ -2,10 +2,10 @@
 #define NB_PUBLISH_H
 
 /*
- * Publisher-facing aliases. A publisher is an ordinary proxy that sends
- * one-way EVENT messages. The second argument of nb_publisher_publish is the
- * target method for route-based transports and the topic for topic-based
- * transports such as DDS.
+ * Publisher-facing aliases. A publisher is an ordinary proxy that sends one-way
+ * EVENT messages. The second argument of nb_publisher_publish is the target
+ * method for route-based transports and the topic for topic-based transports
+ * such as DDS.
  */
 
 #include <proxy.h>

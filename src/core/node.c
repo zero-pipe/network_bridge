@@ -210,13 +210,13 @@ int nb_node_create(const nb_node_config_t *cfg, nb_node_t **out)
     if (!node) {
         return NB_ERR_NOMEM;
     }
-    if (cfg->service_table && nb_install_service_table(cfg->service_table) != NB_OK) {
+    if (cfg->service_table && nb_service_table_install(cfg->service_table) != NB_OK) {
         free(node);
         return NB_ERR_INVALID;
     }
     nb_copy_str(node->name, sizeof(node->name), cfg->name, NULL);
     nb_copy_str(node->bind_host, sizeof(node->bind_host), cfg->transport.bind_host, NULL);
-    nb_copy_str(node->discovery_host, sizeof(node->discovery_host), cfg->discovery.host, NULL);
+    nb_copy_str(node->discovery_host, sizeof(node->discovery_host), cfg->discovery.broadcast_host, NULL);
     node->discovery_port = cfg->discovery.port;
     node->io_threads = cfg->runtime.io_threads;
     node->hello_interval_ms = cfg->discovery.hello_interval_ms;
@@ -226,7 +226,7 @@ int nb_node_create(const nb_node_config_t *cfg, nb_node_t **out)
     node->max_msg_bytes = cfg->transport.max_msg_bytes;
     node->bp_high_water = cfg->transport.backpressure_bytes;
     node->rtcp_interval_ms = cfg->transport.rtcp_interval_ms;
-    node->rtcp_disabled = cfg->transport.rtcp_disabled;
+    node->disable_rtcp = cfg->transport.disable_rtcp;
     node->default_qos = cfg->transport.qos;
     node->max_recv_streams = cfg->runtime.max_streams;
     node->rate_limit_pps = cfg->runtime.peer_rate_limit_pps;
@@ -236,10 +236,10 @@ int nb_node_create(const nb_node_config_t *cfg, nb_node_t **out)
      * metrics / log 运行期开关：关闭后热路径只多一次全局标志判断（见 atomic.h /
      * log.h）。sample_every 只作用于延迟直方图采样。
      */
-    nb_metrics_enabled = cfg->metrics.disabled ? 0 : 1;
-    nb_latency_enabled = (cfg->metrics.disabled || cfg->metrics.latency_disabled) ? 0 : 1;
+    nb_metrics_enabled = cfg->metrics.disable ? 0 : 1;
+    nb_latency_enabled = (cfg->metrics.disable || cfg->metrics.disable_latency_histogram) ? 0 : 1;
     nb_metrics_sample_every = cfg->metrics.sample_every;
-    nb_log_configure(cfg->log.disabled ? 0 : 1, cfg->log.level);
+    nb_log_configure(cfg->log.disable ? 0 : 1, cfg->log.level);
     {
         const char *dp = getenv("DROP_PERCENT");
         int v = dp ? atoi(dp) : 0;
@@ -358,7 +358,7 @@ int nb_node_create(const nb_node_config_t *cfg, nb_node_t **out)
             }
         }
     } else {
-        const char *scheme = cfg->transport.transport == NB_TRANSPORT_TCP ? "tcp" : "udp";
+        const char *scheme = cfg->transport.kind == NB_TRANSPORT_TCP ? "tcp" : "udp";
         if (nb_node_transport_add(node,
                                   scheme,
                                   node->bind_host,
@@ -743,7 +743,7 @@ int nb_node_add_static_route(
     return nb_route_set(&node->routes, service, ip, port, transport);
 }
 
-int nb_node_add_static_endpoint(nb_node_t *node, const char *service, const char *endpoint)
+int nb_node_add_static_route_uri(nb_node_t *node, const char *service, const char *endpoint)
 {
     return nb_route_add_endpoint(&node->routes, service, endpoint, 1);
 }
@@ -753,7 +753,7 @@ int nb_node_add_static_endpoint(nb_node_t *node, const char *service, const char
 int nb_node_wait_for_service(nb_node_t *node, const char *service, uint64_t timeout_ms)
 {
     uint64_t deadline;
-    char ip[NB_ENDPOINT_MAX];
+    char ip[NB_HOST_MAX];
     uint16_t port = 0;
     if (!node || !service) {
         return NB_ERR_INVALID;
@@ -851,7 +851,7 @@ static void nb_signal_handler(int signo)
     nb_g_signal = 1;
 }
 
-int nb_node_spin_once(nb_node_t *node, uint64_t timeout_ms)
+int nb_node_run_once(nb_node_t *node, uint64_t timeout_ms)
 {
     uint64_t deadline;
     int installed = 0;
@@ -873,7 +873,7 @@ int nb_node_spin_once(nb_node_t *node, uint64_t timeout_ms)
     return NB_OK;
 }
 
-int nb_node_spin(nb_node_t *node)
+int nb_node_run(nb_node_t *node)
 {
-    return nb_node_spin_once(node, 0);
+    return nb_node_run_once(node, 0);
 }

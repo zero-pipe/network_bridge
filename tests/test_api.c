@@ -20,21 +20,21 @@ static int test_service_table(void)
 {
     uint16_t id = 0;
     int failed = 0;
-    nb_reset_service_table();
-    if (nb_service_table_active()) {
+    nb_service_table_reset();
+    if (nb_service_table_is_active()) {
         nb_log_error("table should be inactive after reset");
         failed = 1;
     }
-    if (nb_install_service_table(&g_order_table) != NB_OK) {
+    if (nb_service_table_install(&g_order_table) != NB_OK) {
         nb_log_error("install failed");
         return 1;
     }
     /* 幂等。 */
-    if (nb_install_service_table(&g_order_table) != NB_OK) {
+    if (nb_service_table_install(&g_order_table) != NB_OK) {
         nb_log_error("re-install should be idempotent");
         failed = 1;
     }
-    if (!nb_service_table_active()) {
+    if (!nb_service_table_is_active()) {
         nb_log_error("table should be active");
         failed = 1;
     }
@@ -46,7 +46,7 @@ static int test_service_table(void)
         nb_log_error("missing method should not be found");
         failed = 1;
     }
-    nb_reset_service_table();
+    nb_service_table_reset();
     return failed;
 }
 
@@ -63,7 +63,7 @@ static int test_message_view(void)
         failed = 1;
     }
     nb_message_view_release(&view);
-    if (view.data != NULL || view.len != 0 || view.owned != NULL) {
+    if (view.data != NULL || view.len != 0 || view.internal != NULL) {
         nb_log_error("release did not clear view");
         failed = 1;
     }
@@ -72,7 +72,7 @@ static int test_message_view(void)
         failed = 1;
     }
     nb_message_view_set_borrowed(&view, borrowed, sizeof(borrowed) - 1);
-    if (view.owned != NULL) {
+    if (view.internal != NULL) {
         nb_log_error("borrowed view should not own memory");
         failed = 1;
     }
@@ -141,9 +141,9 @@ static int test_stub_and_sync(void)
 
     memset(&scfg, 0, sizeof(scfg));
     scfg.name = "api_srv";
-    scfg.transport.transport = NB_TRANSPORT_UDP;
+    scfg.transport.kind = NB_TRANSPORT_UDP;
     scfg.transport.bind_host = "127.0.0.1";
-    scfg.discovery.host = "127.0.0.1";
+    scfg.discovery.broadcast_host = "127.0.0.1";
     scfg.discovery.port = sport;
     scfg.runtime.io_threads = 1;
     scfg.discovery.hello_interval_ms = 200;
@@ -152,9 +152,9 @@ static int test_stub_and_sync(void)
 
     memset(&ccfg, 0, sizeof(ccfg));
     ccfg.name = "api_cli";
-    ccfg.transport.transport = NB_TRANSPORT_UDP;
+    ccfg.transport.kind = NB_TRANSPORT_UDP;
     ccfg.transport.bind_host = "127.0.0.1";
-    ccfg.discovery.host = "127.0.0.1";
+    ccfg.discovery.broadcast_host = "127.0.0.1";
     ccfg.discovery.port = cport;
     ccfg.runtime.io_threads = 1;
     ccfg.discovery.hello_interval_ms = 200;

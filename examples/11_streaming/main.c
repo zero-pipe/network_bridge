@@ -58,7 +58,7 @@ static int wait_done(nb_node_t *client, response_state_t *st)
     int i;
 
     for (i = 0; i < 50 && !st->done; ++i) {
-        (void)nb_node_spin_once(client, 100);
+        (void)nb_node_run_once(client, 100);
     }
     return st->done ? NB_OK : NB_ERR_TIMEOUT;
 }
@@ -84,7 +84,7 @@ int main(void)
     nb_node_config_default(&scfg);
     scfg.name = "StreamServer";
     scfg.mode = NB_MODE_STATIC;
-    scfg.transport.transport = NB_TRANSPORT_TCP;
+    scfg.transport.kind = NB_TRANSPORT_TCP;
     scfg.transport.bind_host = "127.0.0.1";
     scfg.transport.data_port = 0;
     scfg.runtime.io_threads = 1;
@@ -92,7 +92,7 @@ int main(void)
     nb_node_config_default(&ccfg);
     ccfg.name = "StreamClient";
     ccfg.mode = NB_MODE_STATIC;
-    ccfg.transport.transport = NB_TRANSPORT_TCP;
+    ccfg.transport.kind = NB_TRANSPORT_TCP;
     ccfg.transport.bind_host = "127.0.0.1";
     ccfg.transport.data_port = 0;
     ccfg.runtime.io_threads = 1;
@@ -115,10 +115,10 @@ int main(void)
                  sizeof(endpoint),
                  "tcp://127.0.0.1:%u",
                  (unsigned)nb_node_data_port(server));
-        rc = nb_proxy_set_endpoint_uri(proxy, endpoint);
+        rc = nb_proxy_set_target_uri(proxy, endpoint);
     }
     if (rc == NB_OK) {
-        rc = nb_proxy_stream_open(
+        rc = nb_proxy_open_client_stream(
             proxy, "UploadService", "chunk", on_response, &response, 3000, &stream);
     }
     if (rc != NB_OK) {

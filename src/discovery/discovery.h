@@ -27,7 +27,7 @@ typedef struct nb_node nb_node_t;
 typedef struct nb_peer {
     int used;
     uint32_t ip;
-    char ip_s[NB_ENDPOINT_MAX];
+    char ip_s[NB_HOST_MAX];
     nb_endpoint_t endpoints[NB_MAX_BINDINGS];
     size_t endpoint_count;
     uint32_t node_id;
@@ -39,7 +39,7 @@ typedef struct nb_peer {
 /* 显式发现目标（单播 HELLO）。 */
 typedef struct nb_disc_target {
     int used;
-    char ip[NB_ENDPOINT_MAX];
+    char ip[NB_HOST_MAX];
     uint16_t port;
 } nb_disc_target_t;
 

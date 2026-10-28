@@ -52,17 +52,17 @@ int nb_transport_subscribe(nb_transport_t *t, const char *service, const char *m
     if (!t || !service || !method) {
         return NB_ERR_INVALID;
     }
-    if (!t->provider || !t->provider_instance || !t->provider->ops->subscribe) {
+    if (!t->provider || !t->provider_instance || !t->provider->ops->register_method) {
         return NB_OK;
     }
-    return t->provider->ops->subscribe(t->provider_instance, service, method);
+    return t->provider->ops->register_method(t->provider_instance, service, method);
 }
 
 void nb_transport_unsubscribe(nb_transport_t *t, const char *service, const char *method)
 {
     if (!t || !service || !method || !t->provider || !t->provider_instance ||
-        !t->provider->ops->unsubscribe) {
+        !t->provider->ops->unregister_method) {
         return;
     }
-    t->provider->ops->unsubscribe(t->provider_instance, service, method);
+    t->provider->ops->unregister_method(t->provider_instance, service, method);
 }

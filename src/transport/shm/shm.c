@@ -44,7 +44,7 @@
 
 typedef struct nb_shm_instance {
     nb_transport_provider_options_t options;
-    char channel[NB_ENDPOINT_MAX];
+    char channel[NB_HOST_MAX];
     uint16_t self_id;
     nb_shmseg_t *seg;
     pthread_t thread;
@@ -52,7 +52,7 @@ typedef struct nb_shm_instance {
     int thread_started;
 } nb_shm_instance_t;
 
-/* 用指针宽度承载回程 client id：入站时放 peer_token，回复时取回。 */
+/* 用指针宽度承载回程 client id：入站时放 reply_token，回复时取回。 */
 static void *nb_shm_token(uint16_t client_id)
 {
     return (void *)(uintptr_t)client_id;
@@ -229,7 +229,7 @@ static void nb_shm_deliver(nb_shm_instance_t *inst, uint64_t off, uint16_t sourc
                                nb_transport_kind_from_scheme("shm")) == NB_OK) {
         msg.peer = &peer;
     }
-    inst->options.on_receive(inst->options.receiver, reply_token, &msg);
+    inst->options.on_receive(inst->options.user, reply_token, &msg);
 }
 
 static void *nb_shm_thread_main(void *arg)
@@ -373,12 +373,13 @@ static int nb_shm_op_reply(nb_transport_instance_t *instance,
 }
 
 /*
- * service 方法注册即声明“本节点要接收该 route 的入站消息”。RPC 请求由
- * server/client 角色决定队列，无需此表；事件发布则依赖这张订阅表做扇出。
+ * Registering a service method means "this node wants inbound messages for that
+ * route". RPC requests are queued based on server/client role and need no table;
+ * event publish relies on this subscription table for fan-out.
  */
-static int nb_shm_op_subscribe(nb_transport_instance_t *instance,
-                               const char *service,
-                               const char *method)
+static int nb_shm_op_register_method(nb_transport_instance_t *instance,
+                                     const char *service,
+                                     const char *method)
 {
     nb_shm_instance_t *inst = (nb_shm_instance_t *)instance;
     char topic[NB_GLOBAL_MAX_ROUTE_BYTES];
@@ -392,9 +393,9 @@ static int nb_shm_op_subscribe(nb_transport_instance_t *instance,
     return nb_shmseg_subscribe(inst->seg, topic) == 0 ? NB_OK : NB_ERR_NOMEM;
 }
 
-static void nb_shm_op_unsubscribe(nb_transport_instance_t *instance,
-                                  const char *service,
-                                  const char *method)
+static void nb_shm_op_unregister_method(nb_transport_instance_t *instance,
+                                        const char *service,
+                                        const char *method)
 {
     nb_shm_instance_t *inst = (nb_shm_instance_t *)instance;
     char topic[NB_GLOBAL_MAX_ROUTE_BYTES];
@@ -409,19 +410,19 @@ static void nb_shm_op_unsubscribe(nb_transport_instance_t *instance,
 }
 
 static const nb_transport_provider_ops_t nb_g_shm_ops = {
-    nb_shm_op_create,
-    nb_shm_op_start,
-    nb_shm_op_stop,
-    nb_shm_op_destroy,
-    nb_shm_op_send,
-    nb_shm_op_reply,
-    nb_shm_op_subscribe,
-    nb_shm_op_unsubscribe,
+    .create = nb_shm_op_create,
+    .start = nb_shm_op_start,
+    .stop = nb_shm_op_stop,
+    .destroy = nb_shm_op_destroy,
+    .send = nb_shm_op_send,
+    .reply = nb_shm_op_reply,
+    .register_method = nb_shm_op_register_method,
+    .unregister_method = nb_shm_op_unregister_method,
 };
 
 static const nb_transport_provider_t nb_g_shm_provider = {
-    "shm",
-    &nb_g_shm_ops,
+    .scheme = "shm",
+    .ops = &nb_g_shm_ops,
 };
 
 const nb_transport_provider_t *nb_shm_provider(void)

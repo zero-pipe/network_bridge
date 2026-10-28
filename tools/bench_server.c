@@ -134,14 +134,14 @@ int main(int argc, char **argv)
     nb_node_config_default(&node_cfg);
     node_cfg.name = "bench_server";
     node_cfg.transport.bind_host = "127.0.0.1";
-    node_cfg.discovery.host = "127.0.0.1";
+    node_cfg.discovery.broadcast_host = "127.0.0.1";
     node_cfg.discovery.port = NB_DISCOVERY_PORT;
     node_cfg.runtime.io_threads = 0; /* 0 = auto (hardware_concurrency); O1: was 2 */
 
     for (index = 1; index < argc; ++index) {
         if (strcmp(argv[index], "--transport") == 0 && index + 1 < argc) {
             const char *t = argv[++index];
-            node_cfg.transport.transport =
+            node_cfg.transport.kind =
                 (strcmp(t, "tcp") == 0 || strcmp(t, "TCP") == 0) ? NB_TRANSPORT_TCP : NB_TRANSPORT_UDP;
         } else if (strcmp(argv[index], "--io-threads") == 0 && index + 1 < argc) {
             node_cfg.runtime.io_threads = (unsigned)atoi(argv[++index]);
@@ -281,11 +281,11 @@ int main(int argc, char **argv)
             if (!main_executor_pool) {
                 rc = NB_ERR_NOMEM;
             } else {
-                main_executor.ctx = main_executor_pool;
+                main_executor.user = main_executor_pool;
                 main_executor.submit = executor_submit;
                 mopts.exec = NB_SERVICE_EXEC_EXECUTOR;
                 mopts.executor = &main_executor;
-                rc = nb_service_add_method_ex(service, method_name, order_get, &fast_options, &mopts);
+                rc = nb_service_add_method_with_options(service, method_name, order_get, &fast_options, &mopts);
             }
         } else {
             rc = use_worker ?
@@ -306,11 +306,11 @@ int main(int argc, char **argv)
             if (!block_executor_pool) {
                 rc = NB_ERR_NOMEM;
             } else {
-                block_executor.ctx = block_executor_pool;
+                block_executor.user = block_executor_pool;
                 block_executor.submit = executor_submit;
                 mopts.exec = NB_SERVICE_EXEC_EXECUTOR;
                 mopts.executor = &block_executor;
-                rc = nb_service_add_method_ex(
+                rc = nb_service_add_method_with_options(
                     service, block_method_name, order_get, &block_options, &mopts);
             }
         } else if (block_worker) {

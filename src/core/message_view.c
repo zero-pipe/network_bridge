@@ -14,7 +14,7 @@ void nb_message_view_init(nb_message_view_t *view)
     view->data = NULL;
     view->len = 0;
     view->encoding = 0;
-    view->owned = NULL;
+    view->internal = NULL;
 }
 
 void nb_message_view_release(nb_message_view_t *view)
@@ -22,9 +22,9 @@ void nb_message_view_release(nb_message_view_t *view)
     if (!view) {
         return;
     }
-    if (view->owned) {
-        free(view->owned);
-        view->owned = NULL;
+    if (view->internal) {
+        free(view->internal);
+        view->internal = NULL;
     }
     view->data = NULL;
     view->len = 0;
@@ -37,9 +37,9 @@ int nb_message_view_set_borrowed(nb_message_view_t *view, const void *data, size
     if (!view || (len > 0 && !data)) {
         return NB_ERR_INVALID;
     }
-    if (view->owned) {
-        free(view->owned);
-        view->owned = NULL;
+    if (view->internal) {
+        free(view->internal);
+        view->internal = NULL;
     }
     view->data = data;
     view->len = len;
@@ -59,10 +59,10 @@ int nb_message_view_set_data(nb_message_view_t *view, const void *data, size_t l
         }
         memcpy(copy, data, len);
     }
-    if (view->owned) {
-        free(view->owned);
+    if (view->internal) {
+        free(view->internal);
     }
-    view->owned = copy;
+    view->internal = copy;
     view->data = copy;
     view->len = len;
     return NB_OK;
@@ -83,9 +83,9 @@ int nb_message_view_set_payload(nb_message_view_t *view, const nb_payload_t *pay
         return NB_ERR_INVALID;
     }
     if (!payload) {
-        if (view->owned) {
-            free(view->owned);
-            view->owned = NULL;
+        if (view->internal) {
+            free(view->internal);
+            view->internal = NULL;
         }
         view->data = NULL;
         view->len = 0;

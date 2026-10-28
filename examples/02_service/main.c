@@ -31,7 +31,7 @@ int main(int argc, char **argv)
 
     nb_node_config_default(&cfg);
     cfg.name = "HealthServer";
-    cfg.transport.transport = NB_TRANSPORT_TCP;
+    cfg.transport.kind = NB_TRANSPORT_TCP;
     cfg.transport.bind_host = "127.0.0.1";
     cfg.transport.data_port = port;
     cfg.mode = NB_MODE_STATIC;
@@ -52,7 +52,7 @@ int main(int argc, char **argv)
 
     nb_log_info("service=HealthService method=check endpoint=tcp://127.0.0.1:%u (Ctrl+C to stop)",
                  (unsigned)port);
-    (void)nb_node_spin(node);
+    (void)nb_node_run(node);
     nb_node_destroy(node);
     return 0;
 }

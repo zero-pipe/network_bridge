@@ -39,7 +39,7 @@ int main(void)
     nb_node_config_default(&scfg);
     scfg.name = "WorkerServer";
     scfg.mode = NB_MODE_STATIC;
-    scfg.transport.transport = NB_TRANSPORT_TCP;
+    scfg.transport.kind = NB_TRANSPORT_TCP;
     scfg.transport.bind_host = "127.0.0.1";
     scfg.transport.data_port = 0;
     scfg.runtime.io_threads = 1;
@@ -48,7 +48,7 @@ int main(void)
     nb_node_config_default(&ccfg);
     ccfg.name = "WorkerClient";
     ccfg.mode = NB_MODE_STATIC;
-    ccfg.transport.transport = NB_TRANSPORT_TCP;
+    ccfg.transport.kind = NB_TRANSPORT_TCP;
     ccfg.transport.bind_host = "127.0.0.1";
     ccfg.transport.data_port = 0;
     ccfg.runtime.io_threads = 1;
@@ -60,7 +60,7 @@ int main(void)
         rc = nb_service_create(server, "WorkerService", &svc);
     }
     if (rc == NB_OK) {
-        rc = nb_service_add_method_ex(svc, "slow", slow_handler, NULL, &options);
+        rc = nb_service_add_method_with_options(svc, "slow", slow_handler, NULL, &options);
     }
     if (rc == NB_OK) {
         rc = nb_node_create(&ccfg, &client);
@@ -73,7 +73,7 @@ int main(void)
                  sizeof(endpoint),
                  "tcp://127.0.0.1:%u",
                  (unsigned)nb_node_data_port(server));
-        rc = nb_proxy_set_endpoint_uri(proxy, endpoint);
+        rc = nb_proxy_set_target_uri(proxy, endpoint);
     }
     if (rc != NB_OK) {
         nb_log_error("worker setup failed: %d (%s)", rc, nb_error_name(rc));

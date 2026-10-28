@@ -37,7 +37,7 @@ static const nb_method_descriptor_t *nb_find_method(const char *service, const c
 
 /* ---- 安装 ---- */
 
-int nb_install_service_table(const nb_service_table_t *table)
+int nb_service_table_install(const nb_service_table_t *table)
 {
     size_t i;
     if (!table || (!table->services && table->service_count > 0)) {
@@ -85,14 +85,14 @@ int nb_install_service_table(const nb_service_table_t *table)
     return NB_OK;
 }
 
-/* ---- 状态与查询 ---- */
+/* ---- State and queries ---- */
 
-void nb_reset_service_table(void)
+void nb_service_table_reset(void)
 {
     nb_g_table_count = 0;
 }
 
-int nb_service_table_active(void)
+bool nb_service_table_is_active(void)
 {
     return nb_g_table_count > 0;
 }

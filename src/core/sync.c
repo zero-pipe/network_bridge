@@ -63,11 +63,11 @@ static void nb_sync_response_cb(int status, const nb_response_t *resp, void *use
                 oom = 1;
             }
         }
-        if (!oom && resp->message && resp->message[0]) {
-            size_t n = strlen(resp->message) + 1;
+        if (!oom && resp->status_msg && resp->status_msg[0]) {
+            size_t n = strlen(resp->status_msg) + 1;
             c->message = (char *)malloc(n);
             if (c->message) {
-                memcpy(c->message, resp->message, n);
+                memcpy(c->message, resp->status_msg, n);
             } else {
                 oom = 1;
             }
@@ -100,14 +100,14 @@ static void nb_sync_response_cb(int status, const nb_response_t *resp, void *use
 
 /* ---- 同步调用 ---- */
 
-int nb_proxy_call_sync_ex(nb_proxy_t *proxy,
-                       const char *service,
-                       const char *method,
-                       const nb_payload_t *request,
-                       const nb_metadata_t *metadata,
-                       nb_response_t *response,
-                       uint64_t timeout_ms,
-                       uint64_t *out_request_id)
+int nb_proxy_call_sync_with_metadata(nb_proxy_t *proxy,
+                                     const char *service,
+                                     const char *method,
+                                     const nb_payload_t *payload,
+                                     const nb_metadata_t *metadata,
+                                     nb_response_t *response,
+                                     uint64_t timeout_ms,
+                                     uint64_t *out_request_id)
 {
     nb_sync_ctx_t *c;
     uint64_t id = 0;
@@ -135,8 +135,8 @@ int nb_proxy_call_sync_ex(nb_proxy_t *proxy,
     }
     c->refs = 2;
 
-    rc = nb_proxy_call_async_ex(
-        proxy, service, method, request, metadata, nb_sync_response_cb, c, timeout_ms, &id);
+    rc = nb_proxy_call_async_with_metadata(
+        proxy, service, method, payload, metadata, nb_sync_response_cb, c, timeout_ms, &id);
     if (rc != NB_OK) {
         nb_sync_ctx_put(c);
         nb_sync_ctx_put(c);
@@ -154,7 +154,7 @@ int nb_proxy_call_sync_ex(nb_proxy_t *proxy,
     }
     if (c->status == NB_OK) {
         response->status = c->app_status;
-        response->message = c->message;
+        response->status_msg = c->message;
         response->metadata = c->metadata;
         response->payload.data = c->data;
         response->payload.len = c->len;
@@ -171,15 +171,15 @@ int nb_proxy_call_sync_ex(nb_proxy_t *proxy,
 }
 
 int nb_proxy_call_sync(nb_proxy_t *proxy,
-                    const char *service,
-                    const char *method,
-                    const nb_payload_t *request,
-                    nb_response_t *response,
-                    uint64_t timeout_ms,
-                    uint64_t *out_request_id)
+                       const char *service,
+                       const char *method,
+                       const nb_payload_t *payload,
+                       nb_response_t *response,
+                       uint64_t timeout_ms,
+                       uint64_t *out_request_id)
 {
-    return nb_proxy_call_sync_ex(
-        proxy, service, method, request, NULL, response, timeout_ms, out_request_id);
+    return nb_proxy_call_sync_with_metadata(
+        proxy, service, method, payload, NULL, response, timeout_ms, out_request_id);
 }
 
 void nb_response_release(nb_response_t *response)
@@ -189,11 +189,11 @@ void nb_response_release(nb_response_t *response)
     }
     free((void *)response->payload.data);
     free((void *)response->metadata);
-    free((void *)response->message);
+    free((void *)response->status_msg);
     response->payload.data = NULL;
     response->payload.len = 0;
     response->payload.encoding = 0;
     response->status = 0;
     response->metadata = NULL;
-    response->message = NULL;
+    response->status_msg = NULL;
 }

@@ -17,7 +17,7 @@ int main(void)
     uint16_t id = 0;
     int rc;
 
-    rc = nb_install_service_table(&order_table);
+    rc = nb_service_table_install(&order_table);
     if (rc != NB_OK) {
         nb_log_error("install table failed: %d", rc);
         return 1;
@@ -28,6 +28,6 @@ int main(void)
     if (nb_service_table_find_id("OrderService", "put", &id) == NB_OK) {
         nb_log_info("OrderService.put -> id=%u", (unsigned)id);
     }
-    nb_reset_service_table();
+    nb_service_table_reset();
     return 0;
 }

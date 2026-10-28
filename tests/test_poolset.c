@@ -54,8 +54,7 @@ int main(void)
     nb_buf_release(b);
     nb_buf_release(c);
     nb_buf_release(d);
-    nb_poolset_uninit(&set);
-    CHECK(set == NULL);
+    nb_poolset_destroy(set);
 
     if (g_fail) {
         fprintf(stderr, "POOLSET FAIL\n");

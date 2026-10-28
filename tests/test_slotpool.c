@@ -48,8 +48,7 @@ static void test_basic(void)
     c = nb_slotpool_alloc(pool); /* exhausted */
     CHECK(c == NB_SLOT_ID_NONE);
 
-    nb_slotpool_uninit(&pool);
-    CHECK(pool == NULL);
+    nb_slotpool_destroy(pool);
 }
 
 static void test_stale_and_double_free(void)
@@ -83,7 +82,7 @@ static void test_stale_and_double_free(void)
     CHECK(nb_slotpool_get(pool, b) != NULL);
     CHECK(nb_slotpool_get(pool, a) == NULL);
 
-    nb_slotpool_uninit(&pool);
+    nb_slotpool_destroy(pool);
 }
 
 static void test_batch_and_invalid(void)
@@ -112,7 +111,7 @@ static void test_batch_and_invalid(void)
     CHECK(nb_slotpool_get(pool, NB_SLOT_ID_NONE) == NULL);
     CHECK(nb_slotpool_get(pool, 0xffffffffu) == NULL);
     nb_slotpool_free(pool, NB_SLOT_ID_NONE); /* no-op */
-    nb_slotpool_uninit(&pool);
+    nb_slotpool_destroy(pool);
 
     /* invalid configs */
     memset(&cfg, 0, sizeof(cfg));

@@ -194,7 +194,7 @@ static void test_pooled_concurrent_release(void)
     buf = nb_buf_acquire(pool);
     CHECK(buf != NULL);
     if (!buf) {
-        nb_buf_pool_uninit(&pool);
+        nb_buf_pool_destroy(pool);
         return;
     }
     CHECK(nb_buf_share(buf) == NB_OK);
@@ -210,8 +210,7 @@ static void test_pooled_concurrent_release(void)
     CHECK(stats.cached == 1);
     CHECK(stats.created == 1);
 
-    nb_buf_pool_uninit(&pool);
-    CHECK(pool == NULL);
+    nb_buf_pool_destroy(pool);
 }
 
 int main(void)

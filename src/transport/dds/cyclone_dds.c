@@ -60,7 +60,7 @@ typedef struct nb_dds_endpoint {
 struct nb_dds_instance {
     nb_transport_provider_options_t options;
     dds_entity_t participant;
-    char authority[NB_ENDPOINT_MAX];
+    char authority[NB_HOST_MAX];
     ntk_mutex *lock;
     nb_dds_endpoint_t endpoints[NB_DDS_MAX_ENDPOINTS];
     size_t endpoint_count;
@@ -325,7 +325,7 @@ static void nb_dds_on_data(dds_entity_t reader, void *arg)
                                    nb_transport_kind_from_scheme("dds")) == NB_OK) {
             msg.peer = &peer;
         }
-        ep->owner->options.on_receive(ep->owner->options.receiver, ep, &msg);
+        ep->owner->options.on_receive(ep->owner->options.user, ep, &msg);
     }
     dds_return_loan(reader, samples, count);
 }
@@ -507,7 +507,7 @@ static void nb_dds_local_deliver(nb_dds_instance_t *inst,
     ntk_mutex_unlock(inst->lock);
 
     for (i = 0; i < count; ++i) {
-        inst->options.on_receive(inst->options.receiver, targets[i], message);
+        inst->options.on_receive(inst->options.user, targets[i], message);
     }
 }
 
@@ -658,7 +658,7 @@ static int nb_dds_op_reply(nb_transport_instance_t *instance,
     return nb_dds_publish(inst, ep->wr_res, message);
 }
 
-static int nb_dds_op_subscribe(nb_transport_instance_t *instance,
+static int nb_dds_op_register_method(nb_transport_instance_t *instance,
                                const char *service,
                                const char *method)
 {
@@ -670,7 +670,7 @@ static int nb_dds_op_subscribe(nb_transport_instance_t *instance,
     return nb_dds_endpoint_ensure(inst, method, 1) ? NB_OK : NB_ERR_NOMEM;
 }
 
-static void nb_dds_op_unsubscribe(nb_transport_instance_t *instance,
+static void nb_dds_op_unregister_method(nb_transport_instance_t *instance,
                                   const char *service,
                                   const char *method)
 {
@@ -680,19 +680,19 @@ static void nb_dds_op_unsubscribe(nb_transport_instance_t *instance,
 }
 
 static const nb_transport_provider_ops_t nb_g_dds_ops = {
-    nb_dds_op_create,
-    nb_dds_op_start,
-    nb_dds_op_stop,
-    nb_dds_op_destroy,
-    nb_dds_op_send,
-    nb_dds_op_reply,
-    nb_dds_op_subscribe,
-    nb_dds_op_unsubscribe,
+    .create = nb_dds_op_create,
+    .start = nb_dds_op_start,
+    .stop = nb_dds_op_stop,
+    .destroy = nb_dds_op_destroy,
+    .send = nb_dds_op_send,
+    .reply = nb_dds_op_reply,
+    .register_method = nb_dds_op_register_method,
+    .unregister_method = nb_dds_op_unregister_method,
 };
 
 static const nb_transport_provider_t nb_g_dds_provider = {
-    "dds",
-    &nb_g_dds_ops,
+    .scheme = "dds",
+    .ops = &nb_g_dds_ops,
 };
 
 const nb_transport_provider_t *nb_cyclone_dds_provider(void)

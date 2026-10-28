@@ -49,7 +49,7 @@ static void echo_meta_handler(nb_call_t *call, const nb_request_t *req, void *us
     if (k) {
         nb_metadata_set_string(&out, "seen", k);
     }
-    nb_reply_ex(call, 0, "done", &req->payload, &out);
+    nb_reply_with_metadata(call, 0, &req->payload, "done", &out);
 }
 
 static void on_response(int status, const nb_response_t *resp, void *user)
@@ -58,8 +58,8 @@ static void on_response(int status, const nb_response_t *resp, void *user)
     st->status = status;
     st->app_status = resp ? resp->status : status;
     if (resp) {
-        if (resp->message) {
-            snprintf(st->message, sizeof(st->message), "%s", resp->message);
+        if (resp->status_msg) {
+            snprintf(st->message, sizeof(st->message), "%s", resp->status_msg);
         }
         if (resp->metadata) {
             const char *m = nb_metadata_get_string(resp->metadata, "resp");
@@ -159,9 +159,9 @@ static int test_rpc_semantics(void)
 
     memset(&scfg, 0, sizeof(scfg));
     scfg.name = "sem-srv";
-    scfg.transport.transport = NB_TRANSPORT_TCP;
+    scfg.transport.kind = NB_TRANSPORT_TCP;
     scfg.transport.bind_host = "127.0.0.1";
-    scfg.discovery.host = "127.0.0.1";
+    scfg.discovery.broadcast_host = "127.0.0.1";
     scfg.discovery.port = sport;
     scfg.runtime.io_threads = 1;
     scfg.discovery.hello_interval_ms = 200;
@@ -169,9 +169,9 @@ static int test_rpc_semantics(void)
 
     memset(&ccfg, 0, sizeof(ccfg));
     ccfg.name = "sem-cli";
-    ccfg.transport.transport = NB_TRANSPORT_TCP;
+    ccfg.transport.kind = NB_TRANSPORT_TCP;
     ccfg.transport.bind_host = "127.0.0.1";
-    ccfg.discovery.host = "127.0.0.1";
+    ccfg.discovery.broadcast_host = "127.0.0.1";
     ccfg.discovery.port = cport;
     ccfg.runtime.io_threads = 1;
     ccfg.discovery.hello_interval_ms = 200;
@@ -211,7 +211,7 @@ static int test_rpc_semantics(void)
     nb_metadata_init(&req_md);
     nb_metadata_set_string(&req_md, "k", "v");
 
-    if (nb_proxy_call_async_ex(proxy, "sem", "echo", &pl, &req_md, on_response, &ok, 3000, NULL) !=
+    if (nb_proxy_call_async_with_metadata(proxy, "sem", "echo", &pl, &req_md, on_response, &ok, 3000, NULL) !=
         NB_OK) {
         failed = 1;
         goto cleanup;
@@ -229,7 +229,7 @@ static int test_rpc_semantics(void)
         failed = 1;
     }
 
-    if (nb_proxy_call_async_ex(proxy, "sem", "deny", &pl, NULL, on_response, &denied, 3000, NULL) !=
+    if (nb_proxy_call_async_with_metadata(proxy, "sem", "deny", &pl, NULL, on_response, &denied, 3000, NULL) !=
         NB_OK) {
         failed = 1;
         goto cleanup;

@@ -2,7 +2,7 @@
 
 #include <buf.h>
 
-void nb_payload_move_init(nb_payload_move_t *payload,
+void nb_owned_payload_init(nb_owned_payload_t *payload,
                           nb_buf_t *buf,
                           size_t offset,
                           size_t len,
@@ -17,7 +17,7 @@ void nb_payload_move_init(nb_payload_move_t *payload,
     payload->encoding = encoding;
 }
 
-nb_buf_t *nb_payload_move_take(nb_payload_move_t *payload)
+nb_buf_t *nb_owned_payload_take(nb_owned_payload_t *payload)
 {
     nb_buf_t *buf;
 
@@ -31,7 +31,7 @@ nb_buf_t *nb_payload_move_take(nb_payload_move_t *payload)
     return buf;
 }
 
-void nb_payload_move_release(nb_payload_move_t *payload)
+void nb_owned_payload_release(nb_owned_payload_t *payload)
 {
     if (!payload || !payload->buf) {
         return;
@@ -42,7 +42,7 @@ void nb_payload_move_release(nb_payload_move_t *payload)
     payload->len = 0;
 }
 
-nb_payload_t nb_payload_move_view(const nb_payload_move_t *payload)
+nb_payload_t nb_owned_payload_view(const nb_owned_payload_t *payload)
 {
     nb_payload_t view;
     size_t size;

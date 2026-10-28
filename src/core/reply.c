@@ -61,29 +61,18 @@ static int nb_send_reply(nb_transport_t *transport,
          */
         if (rc == NB_OK && flags == 0 && !stream && request->kind == KIND_REQUEST &&
             request->request_id != 0 && transport->kind == NB_TRANSPORT_UDP && transport->node) {
-            if (payload_owner && *payload_owner) {
-                if (nb_dedup_complete_owned(&transport->node->dedup,
-                                             transport,
-                                             request,
-                                             status,
-                                             payload,
-                                             metadata,
-                                             metadata_len,
-                                             message,
-                                             message_len,
-                                             *payload_owner)) {
-                    *payload_owner = NULL;
-                }
-            } else {
-                nb_dedup_complete(&transport->node->dedup,
-                                   transport,
-                                   request,
-                                   status,
-                                   payload,
-                                   metadata,
-                                   metadata_len,
-                                   message,
-                                   message_len);
+            nb_buf_t *owner = payload_owner ? *payload_owner : NULL;
+            if (nb_dedup_complete(&transport->node->dedup,
+                                  request,
+                                  status,
+                                  payload,
+                                  metadata,
+                                  metadata_len,
+                                  message,
+                                  message_len,
+                                  owner) &&
+                payload_owner) {
+                *payload_owner = NULL;
             }
         }
         return rc;
@@ -95,9 +84,9 @@ static void nb_call_request_context(const nb_call_t *call, nb_message_t *out)
 {
     memset(out, 0, sizeof(*out));
     out->request_id = call->msg_id;
-    out->peer_ip = call->peer_ip;
+    out->peer_host = call->peer_host;
     out->peer_port = call->peer_port;
-    out->peer_token = call->token;
+    out->reply_token = call->token;
 }
 
 /*
@@ -119,8 +108,8 @@ static void nb_call_release(nb_call_t *call)
 typedef struct nb_reply_task {
     nb_node_t *node;
     nb_transport_t *transport;
-    nb_peer_token_t token;
-    char peer_ip[NB_ENDPOINT_MAX];
+    nb_reply_token_t token;
+    char peer_host[NB_HOST_MAX];
     uint16_t peer_port;
     uint32_t msg_id;
     int status;
@@ -166,9 +155,9 @@ static void nb_reply_task_fn(void *user)
 
     memset(&request, 0, sizeof(request));
     request.request_id = t->msg_id;
-    request.peer_ip = t->peer_ip;
+    request.peer_host = t->peer_host;
     request.peer_port = t->peer_port;
-    request.peer_token = t->token;
+    request.reply_token = t->token;
     request.metadata = t->metadata_len ? t->metadata : NULL;
     request.metadata_len = t->metadata_len;
     request.status_msg = t->message_len ? t->message : NULL;
@@ -241,7 +230,7 @@ static int nb_reply_marshal(nb_call_t *call,
     t->node = call->node;
     t->transport = call->transport;
     t->token = call->token;
-    nb_copy_str(t->peer_ip, sizeof(t->peer_ip), call->peer_ip, "0.0.0.0");
+    nb_copy_str(t->peer_host, sizeof(t->peer_host), call->peer_host, "0.0.0.0");
     t->peer_port = call->peer_port;
     t->msg_id = call->msg_id;
     t->status = status;
@@ -376,34 +365,34 @@ static void nb_reply_ex_impl(nb_call_t *call,
     }
 }
 
-void nb_reply_ex(nb_call_t *call,
-              int status,
-              const char *message,
-              const nb_payload_t *payload,
-              const nb_metadata_t *metadata)
+void nb_reply_with_metadata(nb_call_t *call,
+                            int status,
+                            const nb_payload_t *payload,
+                            const char *message,
+                            const nb_metadata_t *metadata)
 {
     nb_reply_ex_impl(call, status, message, payload, metadata, NULL);
 }
 
-void nb_reply_move_ex(nb_call_t *call,
-                   int status,
-                   const char *message,
-                   nb_payload_move_t *payload,
-                   const nb_metadata_t *metadata)
+void nb_reply_owned_with_metadata(nb_call_t *call,
+                                  int status,
+                                  nb_owned_payload_t *payload,
+                                  const char *message,
+                                  const nb_metadata_t *metadata)
 {
-    nb_payload_t view = nb_payload_move_view(payload);
-    nb_buf_t *buf_owner = nb_payload_move_take(payload);
+    nb_payload_t view = nb_owned_payload_view(payload);
+    nb_buf_t *buf_owner = nb_owned_payload_take(payload);
     nb_reply_ex_impl(call, status, message, &view, metadata, buf_owner);
 }
 
-void nb_reply_move(nb_call_t *call, int status, nb_payload_move_t *payload)
+void nb_reply_owned(nb_call_t *call, int status, nb_owned_payload_t *payload)
 {
-    nb_reply_move_ex(call, status, NULL, payload, NULL);
+    nb_reply_owned_with_metadata(call, status, payload, NULL, NULL);
 }
 
 void nb_reply(nb_call_t *call, int status, const nb_payload_t *payload)
 {
-    nb_reply_ex(call, status, NULL, payload, NULL);
+    nb_reply_with_metadata(call, status, payload, NULL, NULL);
 }
 
 void nb_reply_bytes(nb_call_t *call, int status, const void *data, size_t len)
@@ -450,7 +439,7 @@ int nb_reply_stream(nb_call_t *call, int status, const nb_chunk_t *chunk)
                              &stream,
                              last,
                              chunk ? chunk->metadata : NULL,
-                             chunk ? chunk->message : NULL);
+                             chunk ? chunk->status_msg : NULL);
     }
 
     if (chunk && chunk->metadata && chunk->metadata->count > 0) {
@@ -466,8 +455,8 @@ int nb_reply_stream(nb_call_t *call, int status, const nb_chunk_t *chunk)
                     status,
                     meta_len ? meta_buf : NULL,
                     (uint16_t)meta_len,
-                    chunk ? chunk->message : NULL,
-                    chunk && chunk->message ? (uint16_t)strlen(chunk->message) : 0,
+                    chunk ? chunk->status_msg : NULL,
+                    chunk && chunk->status_msg ? (uint16_t)strlen(chunk->status_msg) : 0,
                     &payload,
                     &stream,
                     NULL,

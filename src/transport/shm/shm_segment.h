@@ -36,9 +36,12 @@ extern "C" {
 #define NB_SHM_CLASS_COUNT 7u
 /* 1 = server，2..(NB_SHM_MAX_CLIENTS+1) = client id。 */
 #define NB_SHM_MAX_CLIENTS 8u
-/* 可寻址节点数（含 server），同时也是订阅表槽位数。 */
+/* Addressable node count (including server), also the number of subscriber
+ * slots. Kept in sync with the public shm.h value. */
+#ifndef NB_SHM_MAX_NODES
 #define NB_SHM_MAX_NODES (NB_SHM_MAX_CLIENTS + 1u)
-/* 每个节点最多订阅的主题（service.method）数。 */
+#endif
+/* Max topics (service.method) a single node may subscribe to. */
 #define NB_SHM_TOPICS_PER_NODE 16u
 #define NB_SHM_QUEUE_DEPTH 256u
 #define NB_SHM_CHUNK_HDR_BYTES 64u

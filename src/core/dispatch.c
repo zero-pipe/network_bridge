@@ -106,14 +106,14 @@ static int nb_node_rate_allow(nb_node_t *node, const nb_message_t *msg)
     uint64_t now;
     int i;
     int free_slot = -1;
-    if (!node->rate_limit_pps || !msg->peer_ip) {
+    if (!node->rate_limit_pps || !msg->peer_host) {
         return 1;
     }
     now = nb_now_ms();
     ntk_mutex_lock(node->rate_lock);
     for (i = 0; i < NB_NODE_RATE_LIMIT_SLOTS; i++) {
         nb_rate_slot_t *s = &node->rates[i];
-        if (s->used && s->port == msg->peer_port && strcmp(s->ip, msg->peer_ip) == 0) {
+        if (s->used && s->port == msg->peer_port && strcmp(s->ip, msg->peer_host) == 0) {
             if (now - s->window_start_ms >= NB_NODE_RATE_WINDOW_MS) {
                 s->window_start_ms = now;
                 s->count = 0;
@@ -139,7 +139,7 @@ static int nb_node_rate_allow(nb_node_t *node, const nb_message_t *msg)
     {
         nb_rate_slot_t *s = &node->rates[free_slot];
         s->used = 1;
-        nb_copy_str(s->ip, sizeof(s->ip), msg->peer_ip, "0.0.0.0");
+        nb_copy_str(s->ip, sizeof(s->ip), msg->peer_host, "0.0.0.0");
         s->port = msg->peer_port;
         s->window_start_ms = now;
         s->count = 1;
@@ -159,7 +159,7 @@ typedef struct nb_response_task {
     nb_transport_t *transport;
     nb_message_t msg;
     char *route;
-    char *peer_ip;
+    char *peer_host;
     uint8_t *metadata;
     uint8_t *status_msg;
     uint8_t *payload;
@@ -175,7 +175,7 @@ static void nb_response_task_destroy(nb_response_task_t *t)
         t->msg.frame_owner = NULL;
     }
     free(t->route);
-    free(t->peer_ip);
+    free(t->peer_host);
     free(t->metadata);
     free(t->status_msg);
     free(t->payload);
@@ -189,14 +189,14 @@ static int nb_response_task_init(nb_response_task_t *t,
                               nb_buf_t *frame_owner)
 {
     size_t route_len = msg->route ? strlen(msg->route) + 1 : 0;
-    size_t ip_len = msg->peer_ip ? strlen(msg->peer_ip) + 1 : 0;
+    size_t ip_len = msg->peer_host ? strlen(msg->peer_host) + 1 : 0;
 
     memset(t, 0, sizeof(*t));
     t->node = node;
     t->transport = transport;
     t->msg = *msg;
     t->msg.frame_owner = frame_owner;
-    t->msg.peer_token = NULL;
+    t->msg.reply_token = NULL;
     if (route_len) {
         t->route = (char *)malloc(route_len);
         if (!t->route) {
@@ -208,14 +208,14 @@ static int nb_response_task_init(nb_response_task_t *t,
         t->msg.route = NULL;
     }
     if (ip_len) {
-        t->peer_ip = (char *)malloc(ip_len);
-        if (!t->peer_ip) {
+        t->peer_host = (char *)malloc(ip_len);
+        if (!t->peer_host) {
             goto fail;
         }
-        memcpy(t->peer_ip, msg->peer_ip, ip_len);
-        t->msg.peer_ip = t->peer_ip;
+        memcpy(t->peer_host, msg->peer_host, ip_len);
+        t->msg.peer_host = t->peer_host;
     } else {
-        t->msg.peer_ip = NULL;
+        t->msg.peer_host = NULL;
     }
     if (frame_owner) {
         t->msg.metadata = msg->metadata;
@@ -282,9 +282,9 @@ static void nb_node_dispatch(nb_node_t *node, nb_transport_t *transport, nb_mess
         memset(&pong, 0, sizeof(pong));
         pong.kind = KIND_PING;
         pong.request_id = msg->request_id;
-        pong.peer_ip = msg->peer_ip;
+        pong.peer_host = msg->peer_host;
         pong.peer_port = msg->peer_port;
-        pong.peer_token = msg->peer_token;
+        pong.reply_token = msg->reply_token;
         if (transport && transport->ops && transport->ops->reply) {
             (void)transport->ops->reply(transport, &pong);
         }
@@ -293,7 +293,7 @@ static void nb_node_dispatch(nb_node_t *node, nb_transport_t *transport, nb_mess
     if (msg->kind == KIND_GOAWAY) {
         /* 对端声明不再接收新请求；已发起的调用仍按各自超时处理。 */
         nb_log_warn("GOAWAY from %s:%u (request_id=%u)",
-                     msg->peer_ip ? msg->peer_ip : "?",
+                     msg->peer_host ? msg->peer_host : "?",
                      (unsigned)msg->peer_port,
                      (unsigned)msg->request_id);
         return;
@@ -359,7 +359,7 @@ static void nb_node_dispatch(nb_node_t *node, nb_transport_t *transport, nb_mess
             chunk.offset = msg->has_stream ? msg->stream.offset : p->expected_offset;
             chunk.flags = msg->has_stream ? msg->stream.flags : 0;
             chunk.metadata = p->response_metadata;
-            chunk.message = p->response_message;
+            chunk.status_msg = p->response_message;
             if (p->chunk_cb) {
                 p->chunk_cb(app_status, &chunk, p->stream_user);
             }
@@ -378,7 +378,7 @@ static void nb_node_dispatch(nb_node_t *node, nb_transport_t *transport, nb_mess
             return;
         }
         resp.status = msg->status;
-        resp.message = p->response_message;
+        resp.status_msg = p->response_message;
         resp.payload = msg->payload;
         resp.metadata = p->response_metadata;
         nb_pending_record_latency(node, p);
@@ -410,7 +410,7 @@ int nb_node_send(nb_node_t *node, const nb_endpoint_t *target, const nb_message_
     }
     outbound = *msg;
     outbound.target = target;
-    outbound.peer_ip = target->host;
+    outbound.peer_host = target->host;
     outbound.peer_port = target->port;
     for (i = 0; i < node->transport_count; i++) {
         nb_transport_t *transport = node->transports[i];

@@ -40,7 +40,7 @@ node
 ```text
 nb_node_create
   -> nb_service_create / nb_proxy_create
-  -> nb_node_spin 或业务事件循环
+  -> nb_node_run 或业务事件循环
   -> nb_service_destroy / nb_proxy_destroy
   -> nb_node_destroy
 ```
@@ -65,26 +65,26 @@ payload。调用方始终拥有自己的缓冲区，可以在调用返回后立�
 
 接收侧请求/响应视图只在本次回调内有效。需要跨回调保存时必须复制。
 
-### Move API
+### Owned Payload API
 
-需要避免整包复制时，可以使用 `nb_payload_move_t` 配合 `*_move` 变体：
+需要避免整包复制时，可以使用 `nb_owned_payload_t` 配合 `*_owned` 变体：
 
 ```c
 nb_buf_t *buf = nb_buf_alloc(12);
 memcpy(nb_buf_data(buf), "hello", 5);
-nb_payload_move_t request;
-nb_payload_move_init(&request, buf, 0, 5, 0);
+nb_owned_payload_t request;
+nb_owned_payload_init(&request, buf, 0, 5, 0);
 
-rc = nb_proxy_call_async_move(proxy, "Svc", "method", &request, on_response, NULL, 1000, NULL);
+rc = nb_proxy_call_async_owned(proxy, "Svc", "method", &request, on_response, NULL, 1000, NULL);
 /* 返回后 request.buf 已置 NULL；即使失败，所有权也已由框架接管或释放。 */
 ```
 
-- `nb_proxy_call_async_move` / `nb_proxy_call_event_move`：客户端请求。
-- `nb_stub_call_ex_move` / `nb_stub_call_event_move_ex`：底层 stub。
-- `nb_reply_move`：服务端回复。
+- `nb_proxy_call_async_owned` / `nb_proxy_call_event_owned`：客户端请求。
+- `nb_stub_call_owned` / `nb_stub_call_event_owned_with_metadata`：底层 stub。
+- `nb_reply_owned`：服务端回复。
 
-Move API 在入口接管 `payload->buf`；旧 `nb_payload_t` API 的借用+复制语义保持不变。
-不带 metadata 的 `_move` 和带 metadata 的 `_move_ex` 都存在。缓冲区由 `nb_base` 的
+Owned API 在入口接管 `payload->buf`；旧 `nb_payload_t` API 的借用+复制语义保持不变。
+不带 metadata 的 `_owned` 和带 metadata 的 `_owned_with_metadata` 都存在。缓冲区由 `nb_base` 的
 `nb_buf_*` 管理，唯一所有权路径默认不做原子引用计数。
 
 ### 同步调用
@@ -130,10 +130,10 @@ void nb_node_destroy(nb_node_t *node);
 运行与路由：
 
 - `nb_node_add_discovery_peer`
-- `nb_node_add_static_route` / `nb_node_add_static_endpoint`
+- `nb_node_add_static_route` / `nb_node_add_static_route_uri`
 - `nb_node_wait_for_service`
 - `nb_node_post` / `nb_node_post_delay`
-- `nb_node_spin_once` / `nb_node_spin`
+- `nb_node_run_once` / `nb_node_run`
 
 配置字段见 [配置参考](config.md)。
 
@@ -152,7 +152,7 @@ typedef int (*sync_handler_fn)(const nb_request_t *req, nb_message_view_t *resp,
 ```
 
 同步 handler 的返回值会作为应用状态码写回响应。异步 handler 必须调用一次 `nb_reply`、
-`nb_reply_ex` 或 `nb_reply_stream`。
+`nb_reply_with_metadata` 或 `nb_reply_stream`。
 
 注册：
 
@@ -163,12 +163,12 @@ nb_service_add_method(svc, "get", on_get, user);
 nb_service_add_sync_method(svc, "put", on_put_sync, user);
 ```
 
-`*_ex` 版本通过 `nb_service_method_options_t` 选择 INLINE、WORKER 或 EXECUTOR。
+`*_with_options` 版本通过 `nb_service_method_options_t` 选择 INLINE、WORKER 或 EXECUTOR。
 WORKER 需要 `runtime.handler_threads > 0`；未配置时退化为 INLINE 并告警。
 
 流式：
 
-- `nb_service_add_stream_method` / `_ex`
+- `nb_service_add_stream_method` / `_with_options`
 - `nb_reply_stream`
 - 请求 chunk 的最后一个必须带 `NB_STREAM_LAST`
 
@@ -196,12 +196,12 @@ nb_proxy_call_async(proxy, "EchoService", "echo", &request, on_response, user, 1
 - `nb_proxy_call_sync`：阻塞等待并写出 `nb_response_t`。
 - `nb_proxy_call_event`：单向事件，不等待响应。
 
-带 metadata 的变体为 `_ex` 版本。metadata 使用固定容量容器，二进制 value 可安全传输。
+带 metadata 的变体为 `_with_metadata` 版本。metadata 使用固定容量容器，二进制 value 可安全传输。
 
 流式调用：
 
-- `nb_proxy_call_stream`：普通请求，响应分片。
-- `nb_proxy_stream_open` / `nb_proxy_stream_open_bidi`：打开客户端请求流。
+- `nb_proxy_call_server_stream`：普通请求，响应分片。
+- `nb_proxy_open_client_stream` / `nb_proxy_open_bidi_stream`：打开客户端请求流。
 - `nb_proxy_stream_send` / `nb_proxy_stream_cancel` / `nb_proxy_stream_destroy`。
 
 取消：
@@ -251,7 +251,7 @@ NB_SERVICE_DEFINE(order_table, 7u, "OrderService",
 ```
 
 然后把 `&order_table` 填入 `nb_node_config_t.service_table`，或在创建节点前调用
-`nb_install_service_table`。服务表是声明契约，路由仍使用 `service.method` 字符串。
+`nb_service_table_install`。服务表是声明契约，路由仍使用 `service.method` 字符串。
 
 ## Transport Provider
 
@@ -335,7 +335,7 @@ nb_node_metrics(node, &metrics);
 const nb_metric_desc_t *desc = nb_metric_find("requests_sent");
 ```
 
-指标可通过 `node.metrics.disabled` 关闭；关闭后热路径只保留一次全局标志判断。
+指标可通过 `node.metrics.disable` 关闭；关闭后热路径只保留一次全局标志判断。
 
 日志：
 
@@ -346,7 +346,7 @@ const nb_metric_desc_t *desc = nb_metric_find("requests_sent");
 nb_log_info("started node=%s", nb_node_name(node));
 ```
 
-`nb_log_configure(0, level)` 可运行期关闭全部日志输出。
+`nb_log_configure(false, level)` 可运行期关闭全部日志输出。
 
 ## 错误处理
 

@@ -53,8 +53,8 @@ core 不感知具体 scheme 的私有地址格式。
 - 入站：provider 填 `peer`、route、payload、metadata、stream，
   `frame_owner` 可延长零拷贝缓冲生命周期。
 - 出站：core 填 `target`、route、payload；UDP/TCP 使用派生的
-  `peer_ip/peer_port` 快路径。
-- `peer_token` 是 provider 私有回程标识，只用于 reply。
+  `peer_host/peer_port` 快路径。
+- `reply_token` 是 provider 私有回程标识，只用于 reply。
 
 ## QoS
 

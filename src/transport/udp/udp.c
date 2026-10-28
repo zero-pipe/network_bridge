@@ -44,8 +44,8 @@ typedef struct nb_session {
     int io;
     nb_metrics_t *metrics;
     ntk_socket *sock;
-    uint32_t peer_ip;
-    char peer_ip_s[NB_ENDPOINT_MAX];
+    uint32_t peer_host;
+    char peer_ip_s[NB_HOST_MAX];
     uint16_t peer_port;
     uint64_t last_use_ms;
     uint32_t ssrc_local;
@@ -825,9 +825,9 @@ static void nb_deliver_message(nb_udp_transport_t *udp,
         return;
     }
     nb_envelope_to_message(&env, route, sizeof(route), &msg);
-    msg.peer_ip = s->peer_ip_s;
+    msg.peer_host = s->peer_ip_s;
     msg.peer_port = s->peer_port;
-    msg.peer_token = s;
+    msg.reply_token = s;
     msg.frame_owner = owner;
     nb_node_on_message(udp->base.node, &udp->base, &msg);
 }
@@ -1286,7 +1286,7 @@ static void nb_session_tick(nb_udp_transport_t *udp, nb_session_t *s, uint64_t n
         s->first_gap_ms = 0;
     }
 
-    if (!udp->base.rtcp_disabled && (s->rx_pkts > 0 || s->tx_pkts > 0) &&
+    if (!udp->base.disable_rtcp && (s->rx_pkts > 0 || s->tx_pkts > 0) &&
         now_ms - s->rtcp_last_send_ms >=
             (udp->base.rtcp_interval_ms ? udp->base.rtcp_interval_ms : NB_UDP_RTCP_INTERVAL_MS)) {
         nb_session_send_rtcp(udp, s, now_ms);
@@ -1522,7 +1522,8 @@ static void nb_udp_stop(nb_transport_t *t)
                 (unsigned long long)s.cached,
                 (unsigned long long)s.created);
         }
-        nb_poolset_uninit(&udp->reasm_pools[i]);
+        nb_poolset_destroy(udp->reasm_pools[i]);
+        udp->reasm_pools[i] = NULL;
     }
 }
 
@@ -1531,11 +1532,11 @@ static int nb_udp_send(nb_transport_t *t, const nb_message_t *msg)
     nb_udp_transport_t *udp = (nb_udp_transport_t *)t;
     nb_session_t *s;
     int io;
-    if (!msg || !msg->peer_ip || !msg->peer_port || udp->io_count == 0) {
+    if (!msg || !msg->peer_host || !msg->peer_port || udp->io_count == 0) {
         return NB_ERR_INVALID;
     }
     io = nb_udp_io_current(udp);
-    s = nb_session_for(udp, io, udp->socks[io], msg->peer_ip, msg->peer_port, nb_now_ms());
+    s = nb_session_for(udp, io, udp->socks[io], msg->peer_host, msg->peer_port, nb_now_ms());
     if (!s) {
         return NB_ERR_NOMEM;
     }
@@ -1549,14 +1550,14 @@ static int nb_udp_reply(nb_transport_t *t, const nb_message_t *msg)
     if (!msg) {
         return NB_ERR_INVALID;
     }
-    s = (nb_session_t *)msg->peer_token;
+    s = (nb_session_t *)msg->reply_token;
     if (!s || !s->used) {
         int io;
-        if (!msg->peer_ip || !msg->peer_port || udp->io_count == 0) {
+        if (!msg->peer_host || !msg->peer_port || udp->io_count == 0) {
             return NB_ERR_INVALID;
         }
         io = nb_udp_io_current(udp);
-        s = nb_session_for(udp, io, udp->socks[io], msg->peer_ip, msg->peer_port, nb_now_ms());
+        s = nb_session_for(udp, io, udp->socks[io], msg->peer_host, msg->peer_port, nb_now_ms());
         if (!s) {
             return NB_ERR_NOMEM;
         }
@@ -1580,7 +1581,7 @@ static int nb_udp_peer_stats(nb_transport_t *t, const char *ip, uint16_t port, n
                 out->remote_id = nb_atomic_load_u32(&s->ssrc_remote);
                 out->rtt_ms = nb_atomic_load_u32(&s->last_rtt_ms);
                 out->jitter_ms = nb_atomic_load_u32(&s->jitter_ms_u32);
-                out->lost = (int32_t)nb_atomic_load_u32((uint32_t *)&s->rtcp_remote_lost);
+                out->lost_packets = (int32_t)nb_atomic_load_u32((uint32_t *)&s->rtcp_remote_lost);
                 out->feedback_sent =
                     nb_atomic_load_u64(&s->rtcp_sr_sent) + nb_atomic_load_u64(&s->rtcp_rr_sent);
                 out->feedback_received = nb_atomic_load_u64(&s->rtcp_sr_received) +

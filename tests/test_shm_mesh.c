@@ -81,7 +81,7 @@ int main(void)
     cfg1.name = "shm-mesh-a";
     cfg1.mode = NB_MODE_MESH;
     cfg1.runtime.io_threads = 1;
-    cfg1.discovery.host = "127.0.0.1";
+    cfg1.discovery.broadcast_host = "127.0.0.1";
     cfg1.discovery.port = 42621;
     cfg1.discovery.hello_interval_ms = 100;
     cfg1.discovery.node_ttl_ms = 3000;
@@ -92,7 +92,7 @@ int main(void)
     cfg2.name = "shm-mesh-b";
     cfg2.mode = NB_MODE_MESH;
     cfg2.runtime.io_threads = 1;
-    cfg2.discovery.host = "127.0.0.1";
+    cfg2.discovery.broadcast_host = "127.0.0.1";
     cfg2.discovery.port = 42622;
     cfg2.discovery.hello_interval_ms = 100;
     cfg2.discovery.node_ttl_ms = 3000;

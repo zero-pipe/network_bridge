@@ -25,12 +25,12 @@ struct nb_proxy {
     nb_proxy_interceptor_t interceptor;
 };
 
-/* Stub：node 之上的传输无关调用原语；proxy 在它之上注入路由。 */
+/* Stub: transport-agnostic call primitive above node; proxy injects routing. */
 struct nb_stub {
     nb_node_t *node;
     uint8_t payload_encoding;
     stub_send_fn send;
-    void *user_data;
+    void *user;
 };
 
 struct nb_stream {

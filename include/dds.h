@@ -4,10 +4,10 @@
 /*
  * Cyclone DDS transport provider.
  *
- * Register the provider before creating any node, then use a DDS binding URI
- * of the form "dds://<domain>:1". The host component selects the DDS domain;
- * the port component is ignored by the provider but must be non-zero so the
- * existing endpoint parser and proxy routing accept the URI.
+ * Register the provider before creating any node, then use a DDS binding URI of
+ * the form "dds://<domain>:1". The host component selects the DDS domain; the
+ * provider ignores the port, but it must be non-zero so the existing endpoint
+ * parser and proxy routing accept the URI.
  *
  * Topics are derived from the method name:
  *   <method>_req  request topic

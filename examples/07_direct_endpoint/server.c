@@ -25,7 +25,7 @@ int main(void)
 
     nb_node_config_default(&cfg);
     cfg.name = "DirectServer";
-    cfg.transport.transport = NB_TRANSPORT_TCP;
+    cfg.transport.kind = NB_TRANSPORT_TCP;
     cfg.transport.bind_host = "127.0.0.1";
     cfg.transport.data_port = 42430;
     cfg.mode = NB_MODE_STATIC;
@@ -44,7 +44,7 @@ int main(void)
         return 1;
     }
     nb_log_info("direct endpoint server ready on tcp://127.0.0.1:42430 (Ctrl+C to stop)");
-    (void)nb_node_spin(node);
+    (void)nb_node_run(node);
     nb_node_destroy(node);
     return 0;
 }

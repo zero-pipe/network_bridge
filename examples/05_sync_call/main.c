@@ -28,7 +28,7 @@ int main(int argc, char **argv)
 
     nb_node_config_default(&cfg);
     cfg.name = "SyncClient";
-    cfg.transport.transport = NB_TRANSPORT_TCP;
+    cfg.transport.kind = NB_TRANSPORT_TCP;
     cfg.transport.bind_host = "127.0.0.1";
     cfg.mode = NB_MODE_STATIC;
     cfg.runtime.io_threads = 1;
@@ -43,7 +43,7 @@ int main(int argc, char **argv)
     }
 
     snprintf(endpoint, sizeof(endpoint), "tcp://127.0.0.1:%u", (unsigned)port);
-    if (nb_proxy_set_endpoint_uri(proxy, endpoint) != NB_OK) {
+    if (nb_proxy_set_target_uri(proxy, endpoint) != NB_OK) {
         nb_log_error("bad endpoint: %s", endpoint);
         nb_proxy_destroy(proxy);
         nb_node_destroy(node);

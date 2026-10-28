@@ -45,7 +45,7 @@ typedef struct nb_tcp_rx {
 typedef struct nb_tcp_link {
     int used;
     int server_side;
-    char ip[NB_ENDPOINT_MAX];
+    char ip[NB_HOST_MAX];
     uint16_t port;
     ntk_tcp_session *session; /* 服务端侧：accept 得到 */
     ntk_tcp_client *client;   /* 客户端侧：connect 发起 */
@@ -123,9 +123,9 @@ static void nb_tcp_link_dispatch(nb_tcp_transport_t *t,
         return;
     }
     nb_envelope_to_message(&env, route, sizeof(route), &msg);
-    msg.peer_ip = link->ip;
+    msg.peer_host = link->ip;
     msg.peer_port = link->port;
-    msg.peer_token = link;
+    msg.reply_token = link;
     msg.frame_owner = frame_owner;
     nb_node_on_message(t->base.node, &t->base, &msg);
 }
@@ -456,7 +456,7 @@ static nb_tcp_link_t *nb_link_for_session(nb_tcp_transport_t *t,
     {
         nb_tcp_link_t *link = &row[free_slot];
         ntk_socket *sock;
-        char ip[NB_ENDPOINT_MAX];
+        char ip[NB_HOST_MAX];
         uint16_t port = 0;
         memset(link, 0, sizeof(*link));
         link->used = 1;
@@ -581,7 +581,7 @@ static void nb_tcp_client_on_error(ntk_tcp_client *client, void *user)
 
 /* ---- 传输接口 ---- */
 
-static void nb_tcp_pools_uninit(nb_tcp_transport_t *t)
+static void nb_tcp_pools_destroy(nb_tcp_transport_t *t)
 {
     int i;
     for (i = 0; i < NB_TRANSPORT_MAX_IO; i++) {
@@ -599,7 +599,8 @@ static void nb_tcp_pools_uninit(nb_tcp_transport_t *t)
                 (unsigned long long)s.cached,
                 (unsigned long long)s.created);
         }
-        nb_poolset_uninit(&t->rx_pools[i]);
+        nb_poolset_destroy(t->rx_pools[i]);
+        t->rx_pools[i] = NULL;
     }
 }
 
@@ -646,7 +647,7 @@ static int nb_tcp_start(nb_transport_t *base)
 
     t->server = ntk_tcp_server_create(&opts);
     if (!t->server) {
-        nb_tcp_pools_uninit(t);
+        nb_tcp_pools_destroy(t);
         free(t->io_ctx);
         t->io_ctx = NULL;
         return NB_ERR_IO;
@@ -654,7 +655,7 @@ static int nb_tcp_start(nb_transport_t *base)
     if (ntk_tcp_server_start(t->server) != NTK_OK) {
         ntk_tcp_server_destroy(t->server);
         t->server = NULL;
-        nb_tcp_pools_uninit(t);
+        nb_tcp_pools_destroy(t);
         free(t->io_ctx);
         t->io_ctx = NULL;
         return NB_ERR_IO;
@@ -705,7 +706,7 @@ static void nb_tcp_stop(nb_transport_t *base)
             nb_tcp_free_link(t, &t->links[i][j]);
         }
     }
-    nb_tcp_pools_uninit(t);
+    nb_tcp_pools_destroy(t);
     free(t->io_ctx);
     t->io_ctx = NULL;
 }
@@ -751,7 +752,7 @@ static int nb_tcp_send_common(nb_tcp_transport_t *t, nb_tcp_link_t *link, const 
     prefix_expect = body_len - payload_len;
     need = TCP_HDR_LEN + body_len;
     if (!link) {
-        link = nb_link_find_out(t, msg->peer_ip, msg->peer_port, 1);
+        link = nb_link_find_out(t, msg->peer_host, msg->peer_port, 1);
         if (!link) {
             return NB_ERR_NOMEM;
         }
@@ -798,7 +799,7 @@ static int nb_tcp_send_common(nb_tcp_transport_t *t, nb_tcp_link_t *link, const 
 static int nb_tcp_send(nb_transport_t *base, const nb_message_t *msg)
 {
     nb_tcp_transport_t *t = (nb_tcp_transport_t *)base;
-    if (!msg || !msg->peer_ip || !msg->peer_port) {
+    if (!msg || !msg->peer_host || !msg->peer_port) {
         return NB_ERR_INVALID;
     }
     return nb_tcp_send_common(t, NULL, msg);
@@ -811,7 +812,7 @@ static int nb_tcp_reply(nb_transport_t *base, const nb_message_t *msg)
     if (!msg) {
         return NB_ERR_INVALID;
     }
-    link = (nb_tcp_link_t *)msg->peer_token;
+    link = (nb_tcp_link_t *)msg->reply_token;
     if (!link || !link->used) {
         return nb_tcp_send(base, msg);
     }

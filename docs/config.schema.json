@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://network-bridge.local/config.schema.json",
   "title": "network bridge framework configuration",
-  "description": "JSON configuration accepted by nb_config_load and nb_config_load_file.",
+  "description": "JSON configuration accepted by nb_config_parse and nb_config_parse_file.",
   "type": "object",
   "properties": {
     "name": {
@@ -128,9 +128,9 @@
           "minimum": 0,
           "description": "UDP RTCP report interval. Default 1000 ms."
         },
-        "rtcp": {
+        "disable_rtcp": {
           "type": "boolean",
-          "description": "Set false to disable RTCP."
+          "description": "Set true to disable RTCP."
         }
       },
       "additionalProperties": true
@@ -171,11 +171,11 @@
     "metrics": {
       "type": "object",
       "properties": {
-        "disabled": {
+        "disable": {
           "type": "boolean",
           "description": "Disable all metric collection."
         },
-        "latency_disabled": {
+        "disable_latency_histogram": {
           "type": "boolean",
           "description": "Disable the latency histogram only."
         },
@@ -184,7 +184,7 @@
           "minimum": 0,
           "description": "Latency sampling interval. 0 or 1 means every call."
         },
-        "per_peer_disabled": {
+        "disable_per_peer_stats": {
           "type": "boolean",
           "description": "Disable per-peer link statistics."
         }
@@ -194,7 +194,7 @@
     "log": {
       "type": "object",
       "properties": {
-        "disabled": {
+        "disable": {
           "type": "boolean",
           "description": "Disable log output."
         },
@@ -203,7 +203,7 @@
           "enum": ["assert", "error", "warn", "info", "debug", "verbose"],
           "description": "Log level. Default: info."
         },
-        "sink": {
+        "sink_kind": {
           "type": "string",
           "description": "Reserved output backend selector."
         },

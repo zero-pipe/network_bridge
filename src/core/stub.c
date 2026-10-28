@@ -39,13 +39,13 @@ typedef struct nb_stub_resend_task {
 
 static void nb_stub_task_free(nb_stub_task_t *task);
 
-/* 默认解析：静态路由表 + 服务发现。 */
+/* Default resolver: static route table + service discovery. */
 static int nb_stub_default_send(nb_stub_t *stub,
                                 const nb_stub_request_t *request,
-                                void *user_data)
+                                void *user)
 {
     nb_node_t *node = stub->node;
-    (void)user_data;
+    (void)user;
     if (nb_node_resolve(node, request->service, 0, request->target) != NB_OK) {
         return NB_ERR_NOTFOUND;
     }
@@ -207,7 +207,7 @@ static void nb_stub_call_now(nb_stub_t *stub,
     request.metadata = metadata;
     request.metadata_len = metadata_len;
     request.target = &target;
-    rc = stub->send(stub, &request, stub->user_data);
+    rc = stub->send(stub, &request, stub->user);
     /* 目标在解析成功时即已回填，先落进 pending 供重传使用。 */
     nb_copy_str(p->ip, sizeof(p->ip), target.host, "0.0.0.0");
     p->port = target.port;
@@ -285,7 +285,7 @@ static void nb_stub_event_now(nb_stub_t *stub,
     request.metadata = metadata;
     request.metadata_len = metadata_len;
     request.target = &target;
-    (void)stub->send(stub, &request, stub->user_data);
+    (void)stub->send(stub, &request, stub->user);
     if (buf_owner) {
         nb_buf_release(buf_owner);
     }
@@ -480,7 +480,7 @@ int nb_stub_create(nb_node_t *node, const nb_stub_options_t *options, nb_stub_t 
     stub->node = node;
     stub->payload_encoding = options ? options->payload_encoding : 0;
     stub->send = (options && options->send) ? options->send : nb_stub_default_send;
-    stub->user_data = options ? options->user_data : NULL;
+    stub->user = options ? options->user : NULL;
     *out = stub;
     return NB_OK;
 }
@@ -498,7 +498,7 @@ nb_node_t *nb_stub_node(const nb_stub_t *stub)
 /* ---- 调用 ---- */
 
 static int nb_stub_payload_prepare_move(const nb_stub_t *stub,
-                                        nb_payload_move_t *payload,
+                                        nb_owned_payload_t *payload,
                                         const uint8_t **data,
                                         size_t *len,
                                         uint8_t *encoding,
@@ -509,19 +509,19 @@ static int nb_stub_payload_prepare_move(const nb_stub_t *stub,
     if (!stub || !stub->node || !payload || !payload->buf || !data || !len || !encoding ||
         !owner) {
         if (payload) {
-            nb_payload_move_release(payload);
+            nb_owned_payload_release(payload);
         }
         return NB_ERR_INVALID;
     }
-    view = nb_payload_move_view(payload);
+    view = nb_owned_payload_view(payload);
     if (view.len > stub->node->max_msg_bytes || (view.len > 0 && !view.data)) {
-        nb_payload_move_release(payload);
+        nb_owned_payload_release(payload);
         return NB_ERR_INVALID;
     }
     *data = (const uint8_t *)view.data;
     *len = view.len;
     *encoding = view.encoding ? view.encoding : stub->payload_encoding;
-    *owner = nb_payload_move_take(payload);
+    *owner = nb_owned_payload_take(payload);
     return NB_OK;
 }
 
@@ -529,7 +529,7 @@ static int nb_stub_call_event_impl(nb_stub_t *stub,
                                const char *service,
                                const char *method,
                                const nb_payload_t *payload,
-                               nb_payload_move_t *move,
+                               nb_owned_payload_t *move,
                                const nb_metadata_t *metadata,
                                uint64_t *out_request_id)
 {
@@ -545,7 +545,7 @@ static int nb_stub_call_event_impl(nb_stub_t *stub,
 
     if (!stub || !stub->node || !service || !method) {
         if (move) {
-            nb_payload_move_release(move);
+            nb_owned_payload_release(move);
         }
         return NB_ERR_INVALID;
     }
@@ -586,7 +586,7 @@ static int nb_stub_call_event_impl(nb_stub_t *stub,
     return NB_OK;
 }
 
-int nb_stub_call_event_ex(nb_stub_t *stub,
+int nb_stub_call_event_with_metadata(nb_stub_t *stub,
                        const char *service,
                        const char *method,
                        const nb_payload_t *payload,
@@ -597,10 +597,10 @@ int nb_stub_call_event_ex(nb_stub_t *stub,
         stub, service, method, payload, NULL, metadata, out_request_id);
 }
 
-int nb_stub_call_event_move_ex(nb_stub_t *stub,
+int nb_stub_call_event_owned_with_metadata(nb_stub_t *stub,
                             const char *service,
                             const char *method,
-                            nb_payload_move_t *payload,
+                            nb_owned_payload_t *payload,
                             const nb_metadata_t *metadata,
                             uint64_t *out_request_id)
 {
@@ -614,14 +614,14 @@ int nb_stub_call_event(nb_stub_t *stub,
                     const nb_payload_t *payload,
                     uint64_t *out_request_id)
 {
-    return nb_stub_call_event_ex(stub, service, method, payload, NULL, out_request_id);
+    return nb_stub_call_event_with_metadata(stub, service, method, payload, NULL, out_request_id);
 }
 
 static int nb_stub_call_impl(nb_stub_t *stub,
                              const char *service,
                              const char *method,
                              const nb_payload_t *payload,
-                             nb_payload_move_t *move,
+                             nb_owned_payload_t *move,
                              response_fn cb,
                              response_chunk_fn chunk_cb,
                              stream_done_fn done_cb,
@@ -643,7 +643,7 @@ static int nb_stub_call_impl(nb_stub_t *stub,
 
     if (!stub || !stub->node || !service || !method) {
         if (move) {
-            nb_payload_move_release(move);
+            nb_owned_payload_release(move);
         }
         return NB_ERR_INVALID;
     }
@@ -741,18 +741,18 @@ int nb_stub_call_ex(nb_stub_t *stub,
                              metadata);
 }
 
-int nb_stub_call_ex_move(nb_stub_t *stub,
-                          const char *service,
-                          const char *method,
-                          nb_payload_move_t *payload,
-                          response_fn cb,
-                          response_chunk_fn chunk_cb,
-                          stream_done_fn done_cb,
-                          int streaming,
-                          void *user,
-                          uint64_t timeout_ms,
-                          uint64_t *out_request_id,
-                          const nb_metadata_t *metadata)
+int nb_stub_call_owned(nb_stub_t *stub,
+                       const char *service,
+                       const char *method,
+                       nb_owned_payload_t *payload,
+                       const nb_metadata_t *metadata,
+                       response_fn cb,
+                       response_chunk_fn chunk_cb,
+                       stream_done_fn done_cb,
+                       bool streaming,
+                       void *user,
+                       uint64_t timeout_ms,
+                       uint64_t *out_request_id)
 {
     return nb_stub_call_impl(stub,
                              service,
@@ -782,7 +782,7 @@ int nb_stub_call_async(nb_stub_t *stub,
         stub, service, method, payload, cb, NULL, NULL, 0, user, timeout_ms, out_request_id, NULL);
 }
 
-int nb_stub_call_async_ex(nb_stub_t *stub,
+int nb_stub_call_async_with_metadata(nb_stub_t *stub,
                        const char *service,
                        const char *method,
                        const nb_payload_t *payload,

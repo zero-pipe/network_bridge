@@ -3,10 +3,10 @@
 network bridge framework 使用 JSON 配置。配置可以来自文件或内存字符串：
 
 ```c
-nb_config_t cfg;
+nb_config_doc_t cfg;
 nb_config_error_t err;
 
-int rc = nb_config_load_file_ex("server.json", &cfg, &err);
+int rc = nb_config_parse_file("server.json", &cfg, &err);
 if (rc != NB_OK) {
     printf("path=%s reason=%s\n", err.path, err.reason);
 }
@@ -16,13 +16,12 @@ rc = nb_node_create_from_config(&cfg, &node);
 
 对应接口：
 
-- `nb_config_load` / `nb_config_load_ex`
-- `nb_config_load_file` / `nb_config_load_file_ex`
+- `nb_config_parse` / `nb_config_parse_file`（第三个参数 `nb_config_error_t *` 可为 NULL）
 - `nb_node_create_from_config`
 
-`nb_config_t` 拥有解析后的字符串。`nb_node_create_from_config` 会把节点需要的字段复制到
+`nb_config_doc_t` 拥有解析后的字符串。`nb_node_create_from_config` 会把节点需要的字段复制到
 节点内部，因此配置对象只需活到该调用返回。未知字段会被忽略；已知字段类型错误、越界或
-URI 非法时返回 `NB_ERR_INVALID`，`_ex` 版本会给出 `path` 和 `reason`。
+URI 非法时返回 `NB_ERR_INVALID`，传入 error 输出参数时会给出 `path` 和 `reason`。
 
 完整 JSON Schema 见 [`docs/config.schema.json`](../config.schema.json)。
 
@@ -93,7 +92,7 @@ URI 非法时返回 `NB_ERR_INVALID`，`_ex` 版本会给出 `path` 和 `reason`
 | `max_msg_bytes` | uint | `1048576` | 单条消息上限，最大 `64 MiB` |
 | `backpressure_bytes` | uint | `4194304` | 出站高水位，`0` 使用默认值 |
 | `rtcp_interval_ms` | uint | `1000` | UDP RTCP 上报周期 |
-| `rtcp` | bool | `true` | `false` 关闭 RTCP |
+| `disable_rtcp` | bool | `false` | `true` 关闭 RTCP |
 | `qos` | object | 继承 | 默认 binding 的 provider QoS，字段见下 |
 
 `bindings` 还支持 `intra_process` 字段（字符串：`off` / `auto` / `only`），
@@ -162,10 +161,10 @@ UDP/TCP/SHM 没有一一对应的链路策略，字段会保留在配置中供�
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `disabled` | bool | `false` | 关闭全部指标采集 |
-| `latency_disabled` | bool | `false` | 只关闭延迟直方图 |
+| `disable` | bool | `false` | 关闭全部指标采集 |
+| `disable_latency_histogram` | bool | `false` | 只关闭延迟直方图 |
 | `sample_every` | uint | `1` | `1` 全采；`N` 每 N 次采样一次 |
-| `per_peer_disabled` | bool | `false` | 关闭每对端链路统计 |
+| `disable_per_peer_stats` | bool | `false` | 关闭每对端链路统计 |
 
 关闭指标后热路径只保留一次全局开关判断，不做原子累加。
 
@@ -173,10 +172,10 @@ UDP/TCP/SHM 没有一一对应的链路策略，字段会保留在配置中供�
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `disabled` | bool | `false` | 关闭日志输出 |
+| `disable` | bool | `false` | 关闭日志输出 |
 | `level` | string | `"info"` | `assert` / `error` / `warn` / `info` / `debug` / `verbose` |
-| `sink` | string | 空 | 预留字段，当前不改变输出后端 |
-| `file` | string | 空 | 预留文件路径，最长 `NB_ENDPOINT_MAX - 1` |
+| `sink_kind` | string | 空 | 预留字段，当前不改变输出后端 |
+| `file` | string | 空 | 预留文件路径，最长 `NB_HOST_MAX - 1` |
 
 运行期也可以用 `nb_log_configure(enabled, level)` 修改开关和级别。
 

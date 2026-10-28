@@ -2,13 +2,15 @@
 #define NB_STUB_H
 
 /*
- * Stub：传输无关的底层发送原语。
+ * Stub: transport-independent low-level send primitive.
  *
- * 对齐 fastcall-c 的 fc_stub 分层：node 负责生命周期与传输，stub 负责把
- * service.method + payload 组装成一次调用并维护关联（request_id），
- * proxy 则在 stub 之上注入服务发现/路由（见 proxy.h）。
+ * Mirrors the fc_stub layering of fastcall-c: the node owns lifecycle and
+ * transport, the stub assembles a service.method + payload call and tracks its
+ * correlation (request_id), and a proxy layers service discovery/routing on top
+ * (see proxy.h).
  *
- * 不注入 send 回调时，stub 使用节点默认路由（静态路由表 + 服务发现）。
+ * When no send hook is injected, the stub uses the node's default routing
+ * (static route table + service discovery).
  */
 
 #include <types.h>
@@ -21,19 +23,19 @@
 extern "C" {
 #endif
 
-/* ---- 目标与发送钩子 ---- */
+/* ---- Target and send hook ---- */
 typedef struct nb_stub nb_stub_t;
 
-/* 一次调用的目标；由 send 回调解析后回填（用于出错重传）。 */
+/* Target of one call; the send hook fills it in (used for retries). */
 typedef nb_endpoint_t nb_stub_target_t;
 
 typedef enum nb_stub_kind {
-    NB_STUB_REQUEST = 0, /* 需要响应 */
-    NB_STUB_EVENT = 1,   /* 单向，不等响应 */
-    NB_STUB_CANCEL = 2   /* 控制面取消，不等待响应 */
+    NB_STUB_REQUEST = 0, /* expects a response */
+    NB_STUB_EVENT = 1,   /* one-way; does not wait for a response */
+    NB_STUB_CANCEL = 2   /* control-plane cancel; does not wait for a response */
 } nb_stub_kind_t;
 
-/* 一次调用的不可变描述 + 可回填目标端点。 */
+/* Immutable description of one call plus a fill-in target endpoint. */
 typedef struct nb_stub_request {
     const char *service;
     const char *method;
@@ -43,86 +45,97 @@ typedef struct nb_stub_request {
     uint64_t timeout_ms;
     const void *metadata;
     uint16_t metadata_len;
-    nb_endpoint_t *target; /* 入参为空时不可解析；send 成功时回填 */
+    nb_endpoint_t *target; /* unresolvable when NULL on input; filled on send success */
 } nb_stub_request_t;
 
 /*
- * 底层单条消息发送钩子。实现者负责解析目标、回填 request->target 并调用
- * 真实发送。payload 仅在本次调用期间有效。返回 NB_OK 或错误码。
+ * Low-level single-message send hook. Implementations must resolve the target,
+ * fill request->target, and perform the real send. The payload is valid only
+ * for the duration of this call. Returns NB_OK or an error code.
  */
 typedef int (*stub_send_fn)(nb_stub_t *stub,
                             const nb_stub_request_t *request,
-                            void *user_data);
+                            void *user);
 
 typedef struct nb_stub_options {
-    uint8_t payload_encoding; /* 写入请求的默认编码标识，0 = 裸字节 */
-    stub_send_fn send;        /* 可空：空则使用节点默认路由 */
-    void *user_data;          /* 传给 send 的用户数据，stub 不负责释放 */
+    uint8_t payload_encoding; /* default encoding tag for requests; 0 = raw bytes */
+    stub_send_fn send;        /* NULL uses the node's default routing */
+    void *user;               /* passed to send; the stub does not free it */
 } nb_stub_options_t;
 
-/* ---- 生命周期 ---- */
+/* ---- Lifecycle ---- */
 int nb_stub_create(nb_node_t *node, const nb_stub_options_t *options, nb_stub_t **out);
 void nb_stub_destroy(nb_stub_t *stub);
 
-/* 借用底层节点。 */
+/* Borrow the underlying node. */
 nb_node_t *nb_stub_node(const nb_stub_t *stub);
 
-/* ---- 调用 ---- */
-/* 单向发送（EVENT）。不等待响应；发送在节点 poller 线程上完成。 */
+/* ---- Calls ---- */
+/* One-way send (EVENT). Does not wait for a response; the send runs on the
+ * node poller thread. */
 int nb_stub_call_event(nb_stub_t *stub,
-                    const char *service,
-                    const char *method,
-                    const nb_payload_t *payload,
-                    uint64_t *out_request_id);
-int nb_stub_call_event_ex(nb_stub_t *stub,
                        const char *service,
                        const char *method,
                        const nb_payload_t *payload,
-                       const nb_metadata_t *metadata,
                        uint64_t *out_request_id);
-int nb_stub_call_event_move_ex(nb_stub_t *stub,
-                            const char *service,
-                            const char *method,
-                            nb_payload_move_t *payload,
-                            const nb_metadata_t *metadata,
-                            uint64_t *out_request_id);
+int nb_stub_call_event_with_metadata(nb_stub_t *stub,
+                                     const char *service,
+                                     const char *method,
+                                     const nb_payload_t *payload,
+                                     const nb_metadata_t *metadata,
+                                     uint64_t *out_request_id);
+int nb_stub_call_event_owned_with_metadata(nb_stub_t *stub,
+                                           const char *service,
+                                           const char *method,
+                                           nb_owned_payload_t *payload,
+                                           const nb_metadata_t *metadata,
+                                           uint64_t *out_request_id);
 
 /*
- * 异步请求。发现并发送后立即返回；响应或超时通过 cb 回调（在 poller 线程）。
- * timeout_ms 为 0 时使用 NB_DEFAULT_TIMEOUT_MS。
- * payload 在返回前已复制（跨线程同样），调用方可立即释放自己的缓冲区。
+ * Asynchronous request. Returns immediately after discovery and send; the
+ * response or timeout arrives through cb (on the poller thread).
+ * timeout_ms: 0 selects NB_DEFAULT_TIMEOUT_MS.
+ * The payload is copied before returning (also across threads), so the caller
+ * may release its own buffer immediately.
  */
 int nb_stub_call_async(nb_stub_t *stub,
-                    const char *service,
-                    const char *method,
-                    const nb_payload_t *payload,
-                    response_fn cb,
-                    void *user,
-                    uint64_t timeout_ms,
-                    uint64_t *out_request_id);
-/* 带 metadata 的异步请求；metadata 为 NULL 时等价于 nb_stub_call_async。 */
-int nb_stub_call_async_ex(nb_stub_t *stub,
                        const char *service,
                        const char *method,
                        const nb_payload_t *payload,
-                       const nb_metadata_t *metadata,
                        response_fn cb,
                        void *user,
                        uint64_t timeout_ms,
                        uint64_t *out_request_id);
+/* Asynchronous request with metadata; NULL metadata is equivalent to
+ * nb_stub_call_async. */
+int nb_stub_call_async_with_metadata(nb_stub_t *stub,
+                                     const char *service,
+                                     const char *method,
+                                     const nb_payload_t *payload,
+                                     const nb_metadata_t *metadata,
+                                     response_fn cb,
+                                     void *user,
+                                     uint64_t timeout_ms,
+                                     uint64_t *out_request_id);
 
-int nb_stub_call_ex_move(nb_stub_t *stub,
-                          const char *service,
-                          const char *method,
-                          nb_payload_move_t *payload,
-                          response_fn cb,
-                          response_chunk_fn chunk_cb,
-                          stream_done_fn done_cb,
-                          int streaming,
-                          void *user,
-                          uint64_t timeout_ms,
-                          uint64_t *out_request_id,
-                          const nb_metadata_t *metadata);
+/*
+ * Owned-payload call with optional streaming callbacks. metadata may be NULL.
+ * When streaming is false, cb receives the single response; when true,
+ * chunk_cb/done_cb receive response chunks instead. The stub takes ownership of
+ * payload at entry even when the call fails.
+ */
+int nb_stub_call_owned(nb_stub_t *stub,
+                       const char *service,
+                       const char *method,
+                       nb_owned_payload_t *payload,
+                       const nb_metadata_t *metadata,
+                       response_fn cb,
+                       response_chunk_fn chunk_cb,
+                       stream_done_fn done_cb,
+                       bool streaming,
+                       void *user,
+                       uint64_t timeout_ms,
+                       uint64_t *out_request_id);
 
 #ifdef __cplusplus
 }

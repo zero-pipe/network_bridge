@@ -2,10 +2,11 @@
 #define NB_SERVER_H
 
 /*
- * rpc 服务端 API。
+ * rpc server API.
  *
- * 包含节点运行时和 service 注册/回复接口。只做客户端的程序可以改用
- * client.h，避免把服务端类型带进自己的公共头文件。
+ * Includes the node runtime and service registration/reply interfaces.
+ * Client-only programs may include client.h instead, keeping server-side types
+ * out of their public headers.
  */
 
 #include <runtime.h>

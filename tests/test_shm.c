@@ -182,7 +182,7 @@ int main(void)
             rc = nb_proxy_create(client[c], NULL, &proxy[c]);
         }
         if (rc == NB_OK) {
-            rc = nb_proxy_set_endpoint_uri(proxy[c], server_endpoint);
+            rc = nb_proxy_set_target_uri(proxy[c], server_endpoint);
         }
     }
     /* client[0] 兼任订阅者：方法名即主题名，注册时会把 route 写入段内订阅表。 */

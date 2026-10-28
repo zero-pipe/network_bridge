@@ -110,7 +110,7 @@ static void nb_buf_recycle(nb_buf_t *buf)
     nb_buf_pool_return(buf->pool, buf);
 }
 
-static void nb_buf_pool_destroy(nb_buf_pool_t *pool)
+static void nb_buf_pool_free_mem(nb_buf_pool_t *pool)
 {
     if (pool) {
         nb_free(pool);
@@ -140,7 +140,7 @@ static void nb_buf_pool_return(nb_buf_pool_t *pool, nb_buf_t *buf)
     nb_spinlock_unlock(&pool->lock);
     nb_buf_destroy(buf);
     if (last) {
-        nb_buf_pool_destroy(pool);
+        nb_buf_pool_free_mem(pool);
     }
 }
 
@@ -158,7 +158,7 @@ nb_buf_t *nb_buf_create_external(void *data,
                                  size_t size,
                                  nb_buf_free_fn free_fn,
                                  void *opaque,
-                                 unsigned flags)
+                                 uint32_t flags)
 {
     nb_buf_t *buf;
 
@@ -262,14 +262,14 @@ size_t nb_buf_capacity(const nb_buf_t *buf)
     return buf ? buf->capacity : 0;
 }
 
-unsigned nb_buf_flags(const nb_buf_t *buf)
+uint32_t nb_buf_flags(const nb_buf_t *buf)
 {
     return buf ? buf->flags : 0;
 }
 
-int nb_buf_is_shared(const nb_buf_t *buf)
+bool nb_buf_is_shared(const nb_buf_t *buf)
 {
-    return buf && (buf->flags & NB_BUF_FLAG_SHARED) ? 1 : 0;
+    return buf && (buf->flags & NB_BUF_FLAG_SHARED);
 }
 
 int nb_buf_set_size(nb_buf_t *buf, size_t size)
@@ -385,18 +385,17 @@ nb_buf_t *nb_buf_acquire(nb_buf_pool_t *pool)
     return buf;
 }
 
-void nb_buf_pool_uninit(nb_buf_pool_t **pool)
+void nb_buf_pool_destroy(nb_buf_pool_t *pool)
 {
     nb_buf_pool_t *p;
     nb_buf_t *list;
     size_t count;
     int last;
 
-    if (!pool || !*pool) {
+    if (!pool) {
         return;
     }
-    p = *pool;
-    *pool = NULL;
+    p = pool;
 
     nb_spinlock_lock(&p->lock);
     p->dead = 1;
@@ -418,7 +417,7 @@ void nb_buf_pool_uninit(nb_buf_pool_t **pool)
         list = next;
     }
     if (last) {
-        nb_buf_pool_destroy(p);
+        nb_buf_pool_free_mem(p);
     }
 }
 

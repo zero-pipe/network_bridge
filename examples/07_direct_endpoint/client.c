@@ -1,6 +1,6 @@
 /*
  * 07 Direct Endpoint：客户端。对应 fastcall-c 的 07_direct_endpoint。
- * 通过 nb_proxy_set_endpoint_uri 直接指定目标端点，跳过发现与路由表。
+ * 通过 nb_proxy_set_target_uri 直接指定目标端点，跳过发现与路由表。
  */
 #include <client.h>
 
@@ -20,7 +20,7 @@ int main(void)
 
     nb_node_config_default(&cfg);
     cfg.name = "DirectClient";
-    cfg.transport.transport = NB_TRANSPORT_TCP;
+    cfg.transport.kind = NB_TRANSPORT_TCP;
     cfg.transport.bind_host = "127.0.0.1";
     cfg.mode = NB_MODE_STATIC;
     cfg.runtime.io_threads = 1;
@@ -30,7 +30,7 @@ int main(void)
         rc = nb_proxy_create(node, NULL, &proxy);
     }
     if (rc == NB_OK) {
-        rc = nb_proxy_set_endpoint_uri(proxy, "tcp://127.0.0.1:42430");
+        rc = nb_proxy_set_target_uri(proxy, "tcp://127.0.0.1:42430");
     }
     if (rc != NB_OK) {
         nb_log_error("client setup failed: %d", rc);

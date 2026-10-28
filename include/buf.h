@@ -2,19 +2,21 @@
 #define NB_BUF_H
 
 /*
- * 所有权明确的连续消息缓冲。
+ * Reference-counted contiguous message buffers with explicit ownership.
  *
- * unique 模式：默认路径，无原子操作；用 nb_buf_move() 明确转移所有权，
- * 用 nb_buf_release() 归还池或释放。
+ * unique mode: the default path, no atomics. Transfer ownership with
+ * nb_buf_move() and return memory with nb_buf_release().
  *
- * shared 模式：仅在真正的一对多广播前调用 nb_buf_share() 提升，
- * 之后用 nb_buf_ref()/nb_buf_ref_n() 分发，最后由每个持有者 release。
+ * shared mode: promote with nb_buf_share() only when a buffer really is
+ * broadcast to several owners, then hand it out with nb_buf_ref() /
+ * nb_buf_ref_n(). Every holder eventually calls nb_buf_release().
  *
- * 该模块不依赖 rpc/ntk，供 nb_base 和第三方独立使用。
+ * This module does not depend on rpc/ntk; it is usable on its own.
  */
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #include "alloc.h"
 
@@ -31,30 +33,30 @@ typedef void (*nb_buf_free_fn)(void *opaque, uint8_t *data);
 #define NB_BUF_FLAG_READONLY 0x0004u
 #define NB_BUF_FLAG_POOLED   0x0008u
 
-/* 池配置：惰性分档池按需创建 slot；需配合 slot_count > 0 作为硬上限。 */
+/* Pool flag: create slots lazily; slot_count > 0 acts as a hard cap. */
 #define NB_BUF_POOL_FLAG_LAZY 0x0001u
 
 typedef struct nb_buf_view {
-    nb_buf_t *owner; /* 借用，不增加引用 */
+    nb_buf_t *owner; /* borrowed; does not add a reference */
     const uint8_t *data;
     size_t size;
 } nb_buf_view_t;
 
 typedef struct nb_buf_pool_config {
-    size_t slot_size;
-    size_t slot_count;               /* 0 = 懒分配；>0 = 预分配并作为硬上限 */
-    size_t max_cached;               /* 0 = slot_count 或默认 64 */
-    unsigned flags;
-    const nb_allocator_t *allocator; /* 预留；当前使用全局 allocator */
+    size_t slot_size;  /* bytes per buffer slot */
+    size_t slot_count; /* 0 = lazy allocation; > 0 = preallocate and cap */
+    size_t max_cached; /* free slots kept for reuse; 0 = slot_count or the default of 64 */
+    uint32_t flags;    /* NB_BUF_POOL_FLAG_* */
+    const nb_allocator_t *allocator; /* reserved; the global allocator is used */
 } nb_buf_pool_config_t;
 
 typedef struct nb_buf_pool_stats {
-    uint64_t hits;
-    uint64_t misses;
-    uint64_t failed;
-    uint64_t outstanding;
-    uint64_t cached;
-    uint64_t created;
+    uint64_t hits;        /* acquires served from cached slots */
+    uint64_t misses;      /* acquires that had to create a slot */
+    uint64_t failed;      /* acquires that could not obtain a slot */
+    uint64_t outstanding; /* slots currently checked out */
+    uint64_t cached;      /* free slots currently kept */
+    uint64_t created;     /* total slots ever created */
 } nb_buf_pool_stats_t;
 
 nb_buf_t *nb_buf_alloc(size_t size);
@@ -63,34 +65,37 @@ nb_buf_t *nb_buf_create_external(void *data,
                                  size_t size,
                                  nb_buf_free_fn free_fn,
                                  void *opaque,
-                                 unsigned flags);
+                                 uint32_t flags);
 
-/* unique 所有权转移；成功后把 *buf 置 NULL。 */
+/* Transfer unique ownership; sets *buf to NULL on success. */
 nb_buf_t *nb_buf_move(nb_buf_t **buf);
-/* unique 直接回收；shared 减少引用并由最后一个持有者回收。 */
+/* Reclaim a unique buffer, or drop one reference of a shared buffer. */
 void nb_buf_release(nb_buf_t *buf);
 
-/* 由唯一所有者调用，把 unique 提升为 shared；重复调用返回 NB_ERR_ALREADY。 */
+/* Promote a unique buffer to shared; a second call returns NB_ERR_ALREADY. */
 int nb_buf_share(nb_buf_t *buf);
-/* 仅 shared 可用；unique 返回 NULL。 */
+/* Shared buffers only; returns NULL for unique buffers. */
 nb_buf_t *nb_buf_ref(nb_buf_t *buf);
-/* 一次性增加 n 个引用，返回 buf；仅 shared 可用。 */
+/* Add n references at once and return buf; shared buffers only. */
 nb_buf_t *nb_buf_ref_n(nb_buf_t *buf, size_t n);
 
 uint8_t *nb_buf_data(nb_buf_t *buf);
 const uint8_t *nb_buf_const_data(const nb_buf_t *buf);
 size_t nb_buf_size(const nb_buf_t *buf);
 size_t nb_buf_capacity(const nb_buf_t *buf);
-unsigned nb_buf_flags(const nb_buf_t *buf);
-int nb_buf_is_shared(const nb_buf_t *buf);
+uint32_t nb_buf_flags(const nb_buf_t *buf);
+bool nb_buf_is_shared(const nb_buf_t *buf);
+/* Set the logical size (<= capacity); returns NB_ERR_INVALID when it exceeds the
+ * capacity. */
 int nb_buf_set_size(nb_buf_t *buf, size_t size);
 
-/* 借用切片；owner 必须比 view 存活更久。 */
+/* Borrow a slice; owner must outlive the view. */
 int nb_buf_slice(nb_buf_t *owner, size_t offset, size_t size, nb_buf_view_t *out);
 
 nb_buf_pool_t *nb_buf_pool_create(const nb_buf_pool_config_t *config);
 nb_buf_t *nb_buf_acquire(nb_buf_pool_t *pool);
-void nb_buf_pool_uninit(nb_buf_pool_t **pool);
+/* Release the pool and all cached slots. */
+void nb_buf_pool_destroy(nb_buf_pool_t *pool);
 void nb_buf_pool_get_stats(const nb_buf_pool_t *pool, nb_buf_pool_stats_t *out);
 
 #ifdef __cplusplus

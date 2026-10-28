@@ -29,7 +29,7 @@ static void echo_handler(nb_call_t *call, const nb_request_t *req, void *user)
     nb_log_info("server deadline=%llu ms, client=%s",
                 (unsigned long long)nb_call_deadline_ms(call),
                 client ? client : "(none)");
-    nb_reply_ex(call, NB_OK, "metadata-ok", &req->payload, &out);
+    nb_reply_with_metadata(call, NB_OK, &req->payload, "metadata-ok", &out);
 }
 
 static void slow_handler(nb_call_t *call, const nb_request_t *req, void *user)
@@ -44,7 +44,7 @@ static int wait_done(nb_node_t *client, client_state_t *st)
     int i;
 
     for (i = 0; i < 50 && !st->done; ++i) {
-        (void)nb_node_spin_once(client, 100);
+        (void)nb_node_run_once(client, 100);
     }
     return st->done ? NB_OK : NB_ERR_TIMEOUT;
 }
@@ -56,8 +56,8 @@ static void on_echo(int status, const nb_response_t *resp, void *user)
     st->done = 1;
     if (status == NB_OK && resp) {
         const char *meta = resp->metadata ? nb_metadata_get_string(resp->metadata, "server") : NULL;
-        if (resp->message) {
-            snprintf(st->message, sizeof(st->message), "%s", resp->message);
+        if (resp->status_msg) {
+            snprintf(st->message, sizeof(st->message), "%s", resp->status_msg);
         }
         if (meta) {
             snprintf(st->meta, sizeof(st->meta), "%s", meta);
@@ -92,7 +92,7 @@ int main(void)
     nb_node_config_default(&scfg);
     scfg.name = "SemanticsServer";
     scfg.mode = NB_MODE_STATIC;
-    scfg.transport.transport = NB_TRANSPORT_TCP;
+    scfg.transport.kind = NB_TRANSPORT_TCP;
     scfg.transport.bind_host = "127.0.0.1";
     scfg.transport.data_port = 0;
     scfg.runtime.io_threads = 1;
@@ -101,7 +101,7 @@ int main(void)
     nb_node_config_default(&ccfg);
     ccfg.name = "SemanticsClient";
     ccfg.mode = NB_MODE_STATIC;
-    ccfg.transport.transport = NB_TRANSPORT_TCP;
+    ccfg.transport.kind = NB_TRANSPORT_TCP;
     ccfg.transport.bind_host = "127.0.0.1";
     ccfg.transport.data_port = 0;
     ccfg.runtime.io_threads = 1;
@@ -113,10 +113,10 @@ int main(void)
         rc = nb_service_create(server, "SemanticsService", &svc);
     }
     if (rc == NB_OK) {
-        rc = nb_service_add_method_ex(svc, "echo", echo_handler, NULL, &options);
+        rc = nb_service_add_method_with_options(svc, "echo", echo_handler, NULL, &options);
     }
     if (rc == NB_OK) {
-        rc = nb_service_add_method_ex(svc, "slow", slow_handler, NULL, &options);
+        rc = nb_service_add_method_with_options(svc, "slow", slow_handler, NULL, &options);
     }
     if (rc == NB_OK) {
         rc = nb_node_create(&ccfg, &client);
@@ -129,7 +129,7 @@ int main(void)
                  sizeof(endpoint),
                  "tcp://127.0.0.1:%u",
                  (unsigned)nb_node_data_port(server));
-        rc = nb_proxy_set_endpoint_uri(proxy, endpoint);
+        rc = nb_proxy_set_target_uri(proxy, endpoint);
     }
     if (rc != NB_OK) {
         nb_log_error("semantics setup failed: %d (%s)", rc, nb_error_name(rc));
@@ -143,7 +143,7 @@ int main(void)
     request.encoding = 0;
     memset(&state, 0, sizeof(state));
 
-    rc = nb_proxy_call_async_ex(proxy,
+    rc = nb_proxy_call_async_with_metadata(proxy,
                                 "SemanticsService",
                                 "echo",
                                 &request,

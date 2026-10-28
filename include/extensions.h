@@ -2,7 +2,8 @@
 #define NB_EXTENSIONS_H
 
 /*
- * 可插拔扩展 API：payload 编解码、消息视图和服务/方法声明表。
+ * Pluggable extension API: payload codecs, message views, and service/method
+ * declaration tables.
  */
 
 #include <codec.h>

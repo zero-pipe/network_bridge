@@ -48,9 +48,9 @@ const char *nb_strerror(int status)
     return entry ? entry->description : "unknown error";
 }
 
-int nb_error_is_retryable(int status)
+bool nb_error_is_retryable(int status)
 {
     const nb_error_entry_t *entry = nb_error_find(status);
 
-    return entry ? entry->retryable : 0;
+    return entry && entry->retryable != 0;
 }

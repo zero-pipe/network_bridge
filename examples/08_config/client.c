@@ -14,7 +14,7 @@
 int main(int argc, char **argv)
 {
     const char *path = argc > 1 ? argv[1] : "client.json";
-    nb_config_t cfg;
+    nb_config_doc_t cfg;
     nb_config_error_t err;
     nb_node_t *node = NULL;
     nb_proxy_t *proxy = NULL;
@@ -22,7 +22,7 @@ int main(int argc, char **argv)
     nb_payload_t request;
     int rc;
 
-    rc = nb_config_load_file_ex(path, &cfg, &err);
+    rc = nb_config_parse_file(path, &cfg, &err);
     if (rc != NB_OK) {
         nb_log_error(
             "load config failed: %s (%d) path=%s reason=%s", path, rc, err.path, err.reason);

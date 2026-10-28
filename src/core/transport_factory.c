@@ -14,31 +14,32 @@ static nb_transport_t *nb_create_transport(nb_transport_kind_t kind)
     return kind == NB_TRANSPORT_TCP ? nb_tcp_transport_create() : nb_udp_transport_create();
 }
 
-/* 自定义 provider 收到消息后，适配回 node 的统一分发入口。 */
-static void nb_provider_on_receive(void *receiver,
+/* Adapt a custom provider's receive callback back into the node dispatch path. */
+static void nb_provider_on_receive(void *user,
                                    void *reply_token,
                                    const nb_transport_message_t *message)
 {
-    nb_transport_t *transport = (nb_transport_t *)receiver;
+    nb_transport_t *transport = (nb_transport_t *)user;
     nb_message_t msg;
     if (!transport || !transport->node || !message) {
         return;
     }
     msg = *message;
     if (message->peer) {
-        msg.peer_ip = message->peer->host;
+        msg.peer_host = message->peer->host;
         msg.peer_port = message->peer->port;
     }
     /* peer/target point at provider stack storage; keep only borrowed values. */
     msg.peer = NULL;
     msg.target = NULL;
-    msg.peer_token = reply_token;
+    msg.reply_token = reply_token;
     nb_node_on_message(transport->node, transport, &msg);
 }
 
 /*
- * provider 适配层：把外部 provider SPI 适配成统一的 nb_transport_ops_t，
- * 使 node/upper 层只面对单一传输接口（不再有 provider/ops 双分支）。
+ * Provider adapter: wraps an external provider SPI as the unified
+ * nb_transport_ops_t so node/upper layers see a single transport interface
+ * (no more provider/ops dual branches).
  */
 static int nb_provider_op_start(nb_transport_t *t)
 {
@@ -58,7 +59,7 @@ static int nb_provider_op_send(nb_transport_t *t, const nb_message_t *message)
     }
     if (nb_endpoint_from_parts(&target,
                                t->scheme,
-                               message->peer_ip,
+                               message->peer_host,
                                message->peer_port,
                                nb_transport_kind_from_scheme(t->scheme)) != NB_OK) {
         return NB_ERR_INVALID;
@@ -74,13 +75,13 @@ static int nb_provider_op_reply(nb_transport_t *t, const nb_message_t *message)
     }
     if (nb_endpoint_from_parts(&peer,
                                t->scheme,
-                               message->peer_ip,
+                               message->peer_host,
                                message->peer_port,
                                nb_transport_kind_from_scheme(t->scheme)) != NB_OK) {
         return NB_ERR_INVALID;
     }
     return t->provider->ops->reply(t->provider_instance,
-                                   message->peer_token,
+                                   message->reply_token,
                                    &peer,
                                    message);
 }
@@ -151,7 +152,7 @@ int nb_node_transport_add(nb_node_t *node,
     transport->bp_high_water = node->bp_high_water;
     transport->drop_percent = node->drop_percent;
     transport->rtcp_interval_ms = node->rtcp_interval_ms;
-    transport->rtcp_disabled = node->rtcp_disabled;
+    transport->disable_rtcp = node->disable_rtcp;
     transport->io_threads = node->io_threads;
     transport->pool = node->pool;
     transport->poller = node->poller;
@@ -166,7 +167,7 @@ int nb_node_transport_add(nb_node_t *node,
         memset(&options, 0, sizeof(options));
         options.scheme = scheme;
         options.endpoint = endpoint.uri;
-        options.receiver = transport;
+        options.user = transport;
         options.on_receive = nb_provider_on_receive;
         options.intra_process = intra_process;
         nb_qos_inherit(&effective_qos, qos);

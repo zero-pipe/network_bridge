@@ -58,9 +58,9 @@ static const char *nb_cfg_codec_reason(int status)
 
 static int nb_cfg_qos_enum(const cJSON *qos,
                            const char *key,
-                           uint8_t *out,
+                           int *out,
                            const char *const *names,
-                           const uint8_t *values,
+                           const int *values,
                            size_t count,
                            nb_config_error_t *err,
                            const char *path)
@@ -106,19 +106,19 @@ static int nb_cfg_load_qos(const cJSON *parent,
                            const char *path)
 {
     static const char *const reliability_names[] = {"best_effort", "reliable"};
-    static const uint8_t reliability_values[] = {NB_QOS_BEST_EFFORT, NB_QOS_RELIABLE};
+    static const int reliability_values[] = {NB_QOS_BEST_EFFORT, NB_QOS_RELIABLE};
     static const char *const durability_names[] = {"volatile", "transient_local"};
-    static const uint8_t durability_values[] = {NB_QOS_VOLATILE, NB_QOS_TRANSIENT_LOCAL};
+    static const int durability_values[] = {NB_QOS_VOLATILE, NB_QOS_TRANSIENT_LOCAL};
     static const char *const history_names[] = {"keep_last", "keep_all"};
-    static const uint8_t history_values[] = {NB_QOS_KEEP_LAST, NB_QOS_KEEP_ALL};
+    static const int history_values[] = {NB_QOS_KEEP_LAST, NB_QOS_KEEP_ALL};
     static const char *const liveliness_names[] = {
         "automatic", "manual_by_participant", "manual_by_topic"};
-    static const uint8_t liveliness_values[] = {
+    static const int liveliness_values[] = {
         NB_QOS_LIVELINESS_AUTOMATIC,
         NB_QOS_LIVELINESS_MANUAL_BY_PARTICIPANT,
         NB_QOS_LIVELINESS_MANUAL_BY_TOPIC};
     static const char *const ownership_names[] = {"shared", "exclusive"};
-    static const uint8_t ownership_values[] = {NB_QOS_OWNERSHIP_SHARED, NB_QOS_OWNERSHIP_EXCLUSIVE};
+    static const int ownership_values[] = {NB_QOS_OWNERSHIP_SHARED, NB_QOS_OWNERSHIP_EXCLUSIVE};
     const cJSON *qos;
     const cJSON *partition;
     int rc;
@@ -136,7 +136,7 @@ static int nb_cfg_load_qos(const cJSON *parent,
     nb_qos_init(out);
     rc = nb_cfg_qos_enum(qos,
                          "reliability",
-                         &out->reliability,
+                         (int *)&out->reliability,
                          reliability_names,
                          reliability_values,
                          2,
@@ -145,7 +145,7 @@ static int nb_cfg_load_qos(const cJSON *parent,
     if (rc == NB_OK) {
         rc = nb_cfg_qos_enum(qos,
                              "durability",
-                             &out->durability,
+                             (int *)&out->durability,
                              durability_names,
                              durability_values,
                              2,
@@ -154,12 +154,12 @@ static int nb_cfg_load_qos(const cJSON *parent,
     }
     if (rc == NB_OK) {
         rc = nb_cfg_qos_enum(
-            qos, "history", &out->history, history_names, history_values, 2, err, path);
+            qos, "history", (int *)&out->history, history_names, history_values, 2, err, path);
     }
     if (rc == NB_OK) {
         rc = nb_cfg_qos_enum(qos,
                              "liveliness",
-                             &out->liveliness,
+                             (int *)&out->liveliness,
                              liveliness_names,
                              liveliness_values,
                              3,
@@ -168,7 +168,7 @@ static int nb_cfg_load_qos(const cJSON *parent,
     }
     if (rc == NB_OK) {
         rc = nb_cfg_qos_enum(
-            qos, "ownership", &out->ownership, ownership_names, ownership_values, 2, err, path);
+            qos, "ownership", (int *)&out->ownership, ownership_names, ownership_values, 2, err, path);
     }
     if (rc == NB_OK) {
         rc = nb_cfg_qos_u32(qos, "depth", &out->depth, err, path);
@@ -220,7 +220,7 @@ void nb_node_transport_config_default(nb_node_transport_config_t *cfg)
         return;
     }
     memset(cfg, 0, sizeof(*cfg));
-    cfg->transport = NB_TRANSPORT_UDP;
+    cfg->kind = NB_TRANSPORT_UDP;
     cfg->bind_host = NB_DEFAULT_BIND_HOST;
     nb_qos_init(&cfg->qos);
 }
@@ -231,7 +231,7 @@ void nb_node_discovery_config_default(nb_node_discovery_config_t *cfg)
         return;
     }
     memset(cfg, 0, sizeof(*cfg));
-    cfg->host = NB_DEFAULT_DISCOVERY_HOST;
+    cfg->broadcast_host = NB_DEFAULT_DISCOVERY_HOST;
 }
 
 void nb_node_metrics_config_default(nb_node_metrics_config_t *cfg)
@@ -288,8 +288,8 @@ void nb_node_config_normalize(nb_node_config_t *cfg)
     if (!cfg->transport.bind_host) {
         cfg->transport.bind_host = NB_DEFAULT_BIND_HOST;
     }
-    if (!cfg->discovery.host) {
-        cfg->discovery.host = NB_DEFAULT_DISCOVERY_HOST;
+    if (!cfg->discovery.broadcast_host) {
+        cfg->discovery.broadcast_host = NB_DEFAULT_DISCOVERY_HOST;
     }
     if (!cfg->runtime.io_threads) {
         unsigned hw = ntk_thread_hardware_concurrency();
@@ -359,8 +359,8 @@ typedef struct nb_cfg_transport_in {
     uint32_t max_msg_bytes;
     uint32_t backpressure_bytes;
     uint32_t rtcp_interval_ms;
-    uint8_t rtcp;
-    uint8_t rtcp_present;
+    uint8_t disable_rtcp;
+    uint8_t disable_rtcp_present;
 } nb_cfg_transport_in_t;
 
 typedef struct nb_cfg_discovery_in {
@@ -371,16 +371,16 @@ typedef struct nb_cfg_discovery_in {
 } nb_cfg_discovery_in_t;
 
 typedef struct nb_cfg_metrics_in {
-    uint8_t disabled;
-    uint8_t latency_disabled;
+    uint8_t disable;
+    uint8_t disable_latency_histogram;
     uint32_t sample_every;
-    uint8_t per_peer_disabled;
+    uint8_t disable_per_peer_stats;
 } nb_cfg_metrics_in_t;
 
 typedef struct nb_cfg_log_in {
-    uint8_t disabled;
+    uint8_t disable;
     char *level;
-    char *sink;
+    char *sink_kind;
     char *file;
 } nb_cfg_log_in_t;
 
@@ -432,9 +432,9 @@ static const nb_codec_json_model_t nb_g_transport_model[] = {
       0,
       { 0 } },
     { NB_CODEC_JSON_BOOL,
-      "rtcp",
-      offsetof(nb_cfg_transport_in_t, rtcp),
-      offsetof(nb_cfg_transport_in_t, rtcp_present),
+      "disable_rtcp",
+      offsetof(nb_cfg_transport_in_t, disable_rtcp),
+      offsetof(nb_cfg_transport_in_t, disable_rtcp_present),
       { 0 } },
 };
 
@@ -452,25 +452,25 @@ static const nb_codec_json_model_t nb_g_discovery_model[] = {
 
 static const nb_codec_json_model_t nb_g_metrics_model[] = {
     { NB_CODEC_JSON_OBJ, NULL, 0, 0, { .obj_size = sizeof(nb_cfg_metrics_in_t) } },
-    { NB_CODEC_JSON_BOOL, "disabled", offsetof(nb_cfg_metrics_in_t, disabled), 0, { 0 } },
+    { NB_CODEC_JSON_BOOL, "disable", offsetof(nb_cfg_metrics_in_t, disable), 0, { 0 } },
     { NB_CODEC_JSON_BOOL,
-      "latency_disabled",
-      offsetof(nb_cfg_metrics_in_t, latency_disabled),
+      "disable_latency_histogram",
+      offsetof(nb_cfg_metrics_in_t, disable_latency_histogram),
       0,
       { 0 } },
     { NB_CODEC_JSON_U32, "sample_every", offsetof(nb_cfg_metrics_in_t, sample_every), 0, { 0 } },
     { NB_CODEC_JSON_BOOL,
-      "per_peer_disabled",
-      offsetof(nb_cfg_metrics_in_t, per_peer_disabled),
+      "disable_per_peer_stats",
+      offsetof(nb_cfg_metrics_in_t, disable_per_peer_stats),
       0,
       { 0 } },
 };
 
 static const nb_codec_json_model_t nb_g_log_model[] = {
     { NB_CODEC_JSON_OBJ, NULL, 0, 0, { .obj_size = sizeof(nb_cfg_log_in_t) } },
-    { NB_CODEC_JSON_BOOL, "disabled", offsetof(nb_cfg_log_in_t, disabled), 0, { 0 } },
+    { NB_CODEC_JSON_BOOL, "disable", offsetof(nb_cfg_log_in_t, disable), 0, { 0 } },
     { NB_CODEC_JSON_STRING, "level", offsetof(nb_cfg_log_in_t, level), 0, { 0 } },
-    { NB_CODEC_JSON_STRING, "sink", offsetof(nb_cfg_log_in_t, sink), 0, { 0 } },
+    { NB_CODEC_JSON_STRING, "sink_kind", offsetof(nb_cfg_log_in_t, sink_kind), 0, { 0 } },
     { NB_CODEC_JSON_STRING, "file", offsetof(nb_cfg_log_in_t, file), 0, { 0 } },
 };
 
@@ -587,29 +587,29 @@ static int nb_cfg_mode(const char *text, nb_node_mode_t *out)
     return NB_ERR_INVALID;
 }
 
-/* discovery.mode：mesh=开启发现，static/off/none=关闭。 */
-static int nb_cfg_discovery_mode(const char *text, int *disabled)
+/* discovery.mode: mesh enables discovery; static/off/none disables it. */
+static int nb_cfg_discovery_mode(const char *text, bool *disable)
 {
     if (!text) {
         return NB_ERR_INVALID;
     }
     if (strcmp(text, "mesh") == 0 || strcmp(text, "MESH") == 0 || strcmp(text, "on") == 0) {
-        *disabled = 0;
+        *disable = false;
         return NB_OK;
     }
     if (strcmp(text, "static") == 0 || strcmp(text, "off") == 0 || strcmp(text, "none") == 0 ||
         strcmp(text, "disabled") == 0) {
-        *disabled = 1;
+        *disable = true;
         return NB_OK;
     }
     return NB_ERR_INVALID;
 }
 
-static int nb_cfg_log_level(const char *text, uint8_t *out)
+static int nb_cfg_log_level(const char *text, nb_log_level_t *out)
 {
     static const struct {
         const char *name;
-        uint8_t level;
+        nb_log_level_t level;
     } levels[] = {
         { "assert", NB_NODE_LOG_ASSERT },
         { "error", NB_NODE_LOG_ERROR },
@@ -635,7 +635,7 @@ static int nb_cfg_log_level(const char *text, uint8_t *out)
 static int nb_cfg_host_port(const char *text, char *host, size_t host_cap, uint16_t *port)
 {
     nb_endpoint_t endpoint;
-    char uri[NB_ENDPOINT_MAX * 2];
+    char uri[NB_HOST_MAX * 2];
     int n;
     if (!text || !host || !port) {
         return NB_ERR_INVALID;
@@ -740,9 +740,9 @@ static int nb_load_log(const cJSON *root, nb_cfg_log_in_t *in, nb_config_error_t
     return rc == NB_CODEC_OK ? NB_OK : nb_cfg_fail(err, "log", nb_cfg_codec_reason(rc));
 }
 
-/* ---- 转换到 nb_config_t ---- */
+/* ---- 转换到 nb_config_doc_t ---- */
 
-static int nb_fill_bindings(nb_config_t *out, const cJSON *bindings, nb_config_error_t *err)
+static int nb_fill_bindings(nb_config_doc_t *out, const cJSON *bindings, nb_config_error_t *err)
 {
     const cJSON *item;
 
@@ -848,7 +848,7 @@ static int nb_fill_bindings(nb_config_t *out, const cJSON *bindings, nb_config_e
     return NB_OK;
 }
 
-static int nb_fill_peers(nb_config_t *out, const cJSON *peers, nb_config_error_t *err)
+static int nb_fill_peers(nb_config_doc_t *out, const cJSON *peers, nb_config_error_t *err)
 {
     const cJSON *item;
 
@@ -865,10 +865,11 @@ static int nb_fill_peers(nb_config_t *out, const cJSON *peers, nb_config_error_t
             return nb_cfg_fail(err, "discovery.peers", "must be a string");
         }
         peer = &out->peers[out->peer_count];
-        if (nb_cfg_host_port(item->valuestring, peer->ip, sizeof(peer->ip), &peer->port) != NB_OK) {
+        if (nb_cfg_host_port(item->valuestring, peer->host, sizeof(peer->host), &peer->port) !=
+            NB_OK) {
             return nb_cfg_fail(err, "discovery.peers", "invalid host:port");
         }
-        if (!peer->ip[0] || !peer->port) {
+        if (!peer->host[0] || !peer->port) {
             return nb_cfg_fail(err, "discovery.peers", "invalid host:port");
         }
         out->peer_count++;
@@ -876,7 +877,7 @@ static int nb_fill_peers(nb_config_t *out, const cJSON *peers, nb_config_error_t
     return NB_OK;
 }
 
-static int nb_fill_routes(nb_config_t *out, const cJSON *routes, nb_config_error_t *err)
+static int nb_fill_routes(nb_config_doc_t *out, const cJSON *routes, nb_config_error_t *err)
 {
     const cJSON *item;
 
@@ -929,8 +930,8 @@ static int nb_fill_routes(nb_config_t *out, const cJSON *routes, nb_config_error
     return NB_OK;
 }
 
-/* 把中间结构合入 nb_config_t.node，应用默认值并校验范围。 */
-static int nb_apply_config(nb_config_t *out,
+/* 把中间结构合入 nb_config_doc_t.node，应用默认值并校验范围。 */
+static int nb_apply_config(nb_config_doc_t *out,
                         const nb_cfg_runtime_in_t *rt,
                         const nb_cfg_transport_in_t *tp,
                         const nb_cfg_discovery_in_t *disc,
@@ -995,7 +996,7 @@ static int nb_apply_config(nb_config_t *out,
     if (tp->frag_bytes > UINT16_MAX) {
         return nb_cfg_fail(err, "transport.frag_bytes", "out of range");
     }
-    node->transport.transport = kind;
+    node->transport.kind = kind;
     if (nb_cfg_copy(out->bind_host, sizeof(out->bind_host), tp->bind_host, NB_DEFAULT_BIND_HOST) !=
         NB_OK) {
         return nb_cfg_fail(err, "transport.bind_host", "too long");
@@ -1006,7 +1007,7 @@ static int nb_apply_config(nb_config_t *out,
     node->transport.max_msg_bytes = tp->max_msg_bytes;
     node->transport.backpressure_bytes = tp->backpressure_bytes;
     node->transport.rtcp_interval_ms = tp->rtcp_interval_ms;
-    node->transport.rtcp_disabled = tp->rtcp_present ? (tp->rtcp ? 0 : 1) : 0;
+    node->transport.disable_rtcp = tp->disable_rtcp ? true : false;
     {
         const cJSON *transport_obj = cJSON_GetObjectItemCaseSensitive(root, "transport");
         if (transport_obj) {
@@ -1018,7 +1019,7 @@ static int nb_apply_config(nb_config_t *out,
     }
 
     /* discovery */
-    if (disc->mode && nb_cfg_discovery_mode(disc->mode, &node->discovery.disabled) != NB_OK) {
+    if (disc->mode && nb_cfg_discovery_mode(disc->mode, &node->discovery.disable) != NB_OK) {
         return nb_cfg_fail(err, "discovery.mode", "must be mesh/static/off/none");
     }
     if (disc->broadcast) {
@@ -1033,19 +1034,19 @@ static int nb_apply_config(nb_config_t *out,
                         NB_DEFAULT_DISCOVERY_HOST) != NB_OK) {
         return nb_cfg_fail(err, "discovery.broadcast", "default host too long");
     }
-    node->discovery.host = out->discovery_host;
+    node->discovery.broadcast_host = out->discovery_host;
     node->discovery.hello_interval_ms = disc->hello_interval_ms;
     node->discovery.node_ttl_ms = disc->node_ttl_ms;
 
     /* metrics */
-    node->metrics.disabled = mt->disabled;
-    node->metrics.latency_disabled = mt->latency_disabled;
+    node->metrics.disable = mt->disable ? true : false;
+    node->metrics.disable_latency_histogram = mt->disable_latency_histogram ? true : false;
     node->metrics.sample_every =
         mt->sample_every ? mt->sample_every : NB_DEFAULT_METRICS_SAMPLE_EVERY;
-    node->metrics.per_peer_disabled = mt->per_peer_disabled;
+    node->metrics.disable_per_peer_stats = mt->disable_per_peer_stats ? true : false;
 
     /* log */
-    node->log.disabled = lg->disabled;
+    node->log.disable = lg->disable ? true : false;
     if (lg->level && nb_cfg_log_level(lg->level, &node->log.level) != NB_OK) {
         return nb_cfg_fail(err, "log.level", "invalid level");
     }
@@ -1076,7 +1077,7 @@ static int nb_apply_config(nb_config_t *out,
 
 /* ---- 配置加载 ---- */
 
-int nb_config_load_ex(const char *json, nb_config_t *out, nb_config_error_t *err)
+int nb_config_parse(const char *json, nb_config_doc_t *out, nb_config_error_t *err)
 {
     cJSON *root = NULL;
     nb_cfg_runtime_in_t rt;
@@ -1151,12 +1152,7 @@ done:
     return rc;
 }
 
-int nb_config_load(const char *json, nb_config_t *out)
-{
-    return nb_config_load_ex(json, out, NULL);
-}
-
-int nb_config_load_file_ex(const char *path, nb_config_t *out, nb_config_error_t *err)
+int nb_config_parse_file(const char *path, nb_config_doc_t *out, nb_config_error_t *err)
 {
     FILE *f;
     long size;
@@ -1195,19 +1191,14 @@ int nb_config_load_file_ex(const char *path, nb_config_t *out, nb_config_error_t
     }
     buf[size] = '\0';
     fclose(f);
-    rc = nb_config_load_ex(buf, out, err);
+    rc = nb_config_parse(buf, out, err);
     free(buf);
     return rc;
 }
 
-int nb_config_load_file(const char *path, nb_config_t *out)
-{
-    return nb_config_load_file_ex(path, out, NULL);
-}
+/* ---- Node creation ---- */
 
-/* ---- 节点创建 ---- */
-
-int nb_node_create_from_config(const nb_config_t *cfg, nb_node_t **out)
+int nb_node_create_from_config(const nb_config_doc_t *cfg, nb_node_t **out)
 {
     int rc;
     size_t i;
@@ -1219,10 +1210,10 @@ int nb_node_create_from_config(const nb_config_t *cfg, nb_node_t **out)
         return rc;
     }
     for (i = 0; i < cfg->peer_count; i++) {
-        (void)nb_node_add_discovery_peer(*out, cfg->peers[i].ip, cfg->peers[i].port);
+        (void)nb_node_add_discovery_peer(*out, cfg->peers[i].host, cfg->peers[i].port);
     }
     for (i = 0; i < cfg->route_count; i++) {
-        (void)nb_node_add_static_endpoint(*out, cfg->routes[i].service, cfg->routes[i].endpoint);
+        (void)nb_node_add_static_route_uri(*out, cfg->routes[i].service, cfg->routes[i].endpoint);
     }
     return NB_OK;
 }

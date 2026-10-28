@@ -144,7 +144,7 @@ static uint64_t nb_stream_send_task_fn(void *user)
     message.payload = payload;
     message.stream = meta;
     message.has_stream = 1;
-    message.peer_ip = stream->endpoint.host;
+    message.peer_host = stream->endpoint.host;
     message.peer_port = stream->endpoint.port;
     rc = nb_node_send(stream->node, &stream->endpoint, &message);
     if (rc == NB_ERR_AGAIN && task->retries++ < 1000) {
@@ -188,7 +188,7 @@ static void nb_stream_cancel_task_fn(void *user)
             message.payload = empty;
             message.stream = meta;
             message.has_stream = 1;
-            message.peer_ip = stream->endpoint.host;
+            message.peer_host = stream->endpoint.host;
             message.peer_port = stream->endpoint.port;
             (void)nb_node_send(stream->node, &stream->endpoint, &message);
         }
@@ -203,7 +203,7 @@ static void nb_stream_cancel_task_fn(void *user)
 
 /* ---- 流打开 ---- */
 
-int nb_proxy_stream_open(nb_proxy_t *proxy,
+int nb_proxy_open_client_stream(nb_proxy_t *proxy,
                       const char *service,
                       const char *method,
                       response_fn cb,
@@ -255,7 +255,7 @@ int nb_proxy_stream_open(nb_proxy_t *proxy,
     return NB_OK;
 }
 
-int nb_proxy_stream_open_bidi(nb_proxy_t *proxy,
+int nb_proxy_open_bidi_stream(nb_proxy_t *proxy,
                            const char *service,
                            const char *method,
                            response_chunk_fn on_chunk,
@@ -352,12 +352,12 @@ int nb_proxy_stream_send(nb_stream_t *stream, const nb_chunk_t *chunk)
         }
         task->metadata_len = (uint16_t)metadata_len;
     }
-    if (chunk->message && chunk->message[0]) {
-        size_t message_len = strlen(chunk->message);
+    if (chunk->status_msg && chunk->status_msg[0]) {
+        size_t message_len = strlen(chunk->status_msg);
         if (message_len >= sizeof(task->message)) {
             message_len = sizeof(task->message) - 1;
         }
-        memcpy(task->message, chunk->message, message_len);
+        memcpy(task->message, chunk->status_msg, message_len);
         task->message[message_len] = '\0';
         task->message_len = (uint16_t)message_len;
     }

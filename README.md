@@ -60,7 +60,7 @@ int main(void)
                               NULL,
                               1000,
                               NULL);
-    (void)nb_node_spin_once(node, 1000);
+    (void)nb_node_run_once(node, 1000);
 
     nb_proxy_destroy(proxy);
     nb_node_destroy(node);

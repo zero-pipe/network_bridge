@@ -36,7 +36,7 @@ static int wait_for_receive(nb_node_t *node, int timeout_ms)
 {
     int elapsed = 0;
     while (elapsed < timeout_ms && g_received == 0) {
-        (void)nb_node_spin_once(node, 100);
+        (void)nb_node_run_once(node, 100);
         elapsed += 100;
     }
     return g_received > 0 ? NB_OK : NB_ERR_TIMEOUT;
@@ -81,7 +81,7 @@ int main(void)
         rc = nb_proxy_create(node, NULL, &pub);
     }
     if (rc == NB_OK) {
-        rc = nb_proxy_set_endpoint_uri(pub, "dds://0:1");
+        rc = nb_proxy_set_target_uri(pub, "dds://0:1");
     }
     if (rc != NB_OK) {
         nb_log_error("dds pub/sub setup failed: %d (%s)", rc, nb_error_name(rc));

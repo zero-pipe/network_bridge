@@ -243,9 +243,9 @@ static int run_case(nb_transport_kind_t kind, const char *label)
 
     memset(&scfg, 0, sizeof(scfg));
     scfg.name = "worker-srv";
-    scfg.transport.transport = kind;
+    scfg.transport.kind = kind;
     scfg.transport.bind_host = "127.0.0.1";
-    scfg.discovery.host = "127.0.0.1";
+    scfg.discovery.broadcast_host = "127.0.0.1";
     scfg.discovery.port = sport;
     scfg.runtime.io_threads = 1;
     scfg.runtime.handler_threads = 2;
@@ -254,9 +254,9 @@ static int run_case(nb_transport_kind_t kind, const char *label)
 
     memset(&ccfg, 0, sizeof(ccfg));
     ccfg.name = "worker-cli";
-    ccfg.transport.transport = kind;
+    ccfg.transport.kind = kind;
     ccfg.transport.bind_host = "127.0.0.1";
-    ccfg.discovery.host = "127.0.0.1";
+    ccfg.discovery.broadcast_host = "127.0.0.1";
     ccfg.discovery.port = cport;
     ccfg.runtime.io_threads = 1;
     ccfg.discovery.hello_interval_ms = 200;
@@ -279,7 +279,7 @@ static int run_case(nb_transport_kind_t kind, const char *label)
         nb_service_method_options_t worker = NB_SERVICE_METHOD_OPTIONS_INIT;
         worker.exec = NB_SERVICE_EXEC_WORKER;
         if (nb_service_create(server, "pool", &svc) != NB_OK ||
-            nb_service_add_method_ex(svc, "slow", slow_handler, NULL, &worker) != NB_OK ||
+            nb_service_add_method_with_options(svc, "slow", slow_handler, NULL, &worker) != NB_OK ||
             nb_service_add_method(svc, "fast", fast_handler, NULL) != NB_OK) {
             nb_log_error("[%s] service setup failed", label);
             failed = 1;
@@ -392,9 +392,9 @@ static int run_fallback_case(nb_transport_kind_t kind, const char *label)
 
     memset(&scfg, 0, sizeof(scfg));
     scfg.name = "fallback-srv";
-    scfg.transport.transport = kind;
+    scfg.transport.kind = kind;
     scfg.transport.bind_host = "127.0.0.1";
-    scfg.discovery.host = "127.0.0.1";
+    scfg.discovery.broadcast_host = "127.0.0.1";
     scfg.discovery.port = sport;
     scfg.runtime.io_threads = 1;
     scfg.runtime.handler_threads = 0;
@@ -403,9 +403,9 @@ static int run_fallback_case(nb_transport_kind_t kind, const char *label)
 
     memset(&ccfg, 0, sizeof(ccfg));
     ccfg.name = "fallback-cli";
-    ccfg.transport.transport = kind;
+    ccfg.transport.kind = kind;
     ccfg.transport.bind_host = "127.0.0.1";
-    ccfg.discovery.host = "127.0.0.1";
+    ccfg.discovery.broadcast_host = "127.0.0.1";
     ccfg.discovery.port = cport;
     ccfg.runtime.io_threads = 1;
     ccfg.discovery.hello_interval_ms = 200;
@@ -485,7 +485,7 @@ static int run_api_checks(void)
 
     memset(&cfg, 0, sizeof(cfg));
     cfg.name = "worker-api";
-    cfg.transport.transport = NB_TRANSPORT_UDP;
+    cfg.transport.kind = NB_TRANSPORT_UDP;
     cfg.transport.bind_host = "127.0.0.1";
     cfg.transport.data_port = 0;
     cfg.runtime.io_threads = 1;
@@ -493,9 +493,9 @@ static int run_api_checks(void)
     cfg.mode = NB_MODE_STATIC;
 
     memset(&direct, 0, sizeof(direct));
-    good_exec.ctx = &direct;
+    good_exec.user = &direct;
     good_exec.submit = direct_executor_submit;
-    bad_exec.ctx = NULL;
+    bad_exec.user = NULL;
     bad_exec.submit = NULL;
 
     if (nb_node_create(&cfg, &node) != NB_OK || nb_service_create(node, "api", &svc) != NB_OK) {
@@ -505,62 +505,62 @@ static int run_api_checks(void)
     }
 
     opts = method_opts((nb_service_exec_mode_t)99, NULL);
-    if (nb_service_add_method_ex(svc, "bad", fast_handler, NULL, &opts) != NB_ERR_INVALID) {
+    if (nb_service_add_method_with_options(svc, "bad", fast_handler, NULL, &opts) != NB_ERR_INVALID) {
         nb_log_error("[api] invalid exec accepted");
         failed = 1;
     }
 
     opts = method_opts(NB_SERVICE_EXEC_WORKER, NULL);
-    if (nb_service_add_stream_method_ex(svc, "workerstream", dummy_chunk_handler, NULL, &opts) != NB_OK) {
+    if (nb_service_add_stream_method_with_options(svc, "workerstream", dummy_chunk_handler, NULL, &opts) != NB_OK) {
         nb_log_error("[api] stream worker registration failed");
         failed = 1;
     }
 
     opts = method_opts(NB_SERVICE_EXEC_EXECUTOR, &good_exec);
-    if (nb_service_add_stream_method_ex(svc, "execstream", dummy_chunk_handler, NULL, &opts) != NB_OK) {
+    if (nb_service_add_stream_method_with_options(svc, "execstream", dummy_chunk_handler, NULL, &opts) != NB_OK) {
         nb_log_error("[api] stream executor registration failed");
         failed = 1;
     }
 
     opts = method_opts(NB_SERVICE_EXEC_EXECUTOR, NULL);
-    if (nb_service_add_method_ex(svc, "noexec", fast_handler, NULL, &opts) != NB_ERR_INVALID) {
+    if (nb_service_add_method_with_options(svc, "noexec", fast_handler, NULL, &opts) != NB_ERR_INVALID) {
         nb_log_error("[api] executor without impl accepted");
         failed = 1;
     }
 
     opts = method_opts(NB_SERVICE_EXEC_EXECUTOR, &bad_exec);
-    if (nb_service_add_method_ex(svc, "badsubmit", fast_handler, NULL, &opts) != NB_ERR_INVALID) {
+    if (nb_service_add_method_with_options(svc, "badsubmit", fast_handler, NULL, &opts) != NB_ERR_INVALID) {
         nb_log_error("[api] executor without submit accepted");
         failed = 1;
     }
 
     opts = method_opts(NB_SERVICE_EXEC_INLINE, &good_exec);
-    if (nb_service_add_method_ex(svc, "inlineexec", fast_handler, NULL, &opts) != NB_ERR_INVALID) {
+    if (nb_service_add_method_with_options(svc, "inlineexec", fast_handler, NULL, &opts) != NB_ERR_INVALID) {
         nb_log_error("[api] inline with executor accepted");
         failed = 1;
     }
 
     opts = method_opts(NB_SERVICE_EXEC_WORKER, &good_exec);
-    if (nb_service_add_method_ex(svc, "workerexec", fast_handler, NULL, &opts) != NB_ERR_INVALID) {
+    if (nb_service_add_method_with_options(svc, "workerexec", fast_handler, NULL, &opts) != NB_ERR_INVALID) {
         nb_log_error("[api] worker with executor accepted");
         failed = 1;
     }
 
-    if (nb_service_add_method_ex(svc, "inline", fast_handler, NULL, NULL) != NB_OK) {
+    if (nb_service_add_method_with_options(svc, "inline", fast_handler, NULL, NULL) != NB_OK) {
         nb_log_error("[api] inline registration failed");
         failed = 1;
     }
 
     opts = method_opts(NB_SERVICE_EXEC_WORKER, NULL);
-    if (nb_service_add_method_ex(svc, "worker", fast_handler, NULL, &opts) != NB_OK ||
-        nb_service_add_sync_method_ex(svc, "syncworker", sync_echo_handler, NULL, &opts) != NB_OK) {
+    if (nb_service_add_method_with_options(svc, "worker", fast_handler, NULL, &opts) != NB_OK ||
+        nb_service_add_sync_method_with_options(svc, "syncworker", sync_echo_handler, NULL, &opts) != NB_OK) {
         nb_log_error("[api] worker registration failed");
         failed = 1;
     }
 
     opts = method_opts(NB_SERVICE_EXEC_EXECUTOR, &good_exec);
-    if (nb_service_add_method_ex(svc, "executor", fast_handler, NULL, &opts) != NB_OK ||
-        nb_service_add_sync_method_ex(svc, "syncexecutor", sync_echo_handler, NULL, &opts) != NB_OK) {
+    if (nb_service_add_method_with_options(svc, "executor", fast_handler, NULL, &opts) != NB_OK ||
+        nb_service_add_sync_method_with_options(svc, "syncexecutor", sync_echo_handler, NULL, &opts) != NB_OK) {
         nb_log_error("[api] executor registration failed");
         failed = 1;
     }
@@ -603,9 +603,9 @@ static int run_overload_case(nb_transport_kind_t kind, const char *label)
 
     memset(&scfg, 0, sizeof(scfg));
     scfg.name = "overload-srv";
-    scfg.transport.transport = kind;
+    scfg.transport.kind = kind;
     scfg.transport.bind_host = "127.0.0.1";
-    scfg.discovery.host = "127.0.0.1";
+    scfg.discovery.broadcast_host = "127.0.0.1";
     scfg.discovery.port = sport;
     scfg.runtime.io_threads = 1;
     scfg.runtime.handler_threads = 1;
@@ -615,9 +615,9 @@ static int run_overload_case(nb_transport_kind_t kind, const char *label)
 
     memset(&ccfg, 0, sizeof(ccfg));
     ccfg.name = "overload-cli";
-    ccfg.transport.transport = kind;
+    ccfg.transport.kind = kind;
     ccfg.transport.bind_host = "127.0.0.1";
-    ccfg.discovery.host = "127.0.0.1";
+    ccfg.discovery.broadcast_host = "127.0.0.1";
     ccfg.discovery.port = cport;
     ccfg.runtime.io_threads = 1;
     ccfg.discovery.hello_interval_ms = 200;
@@ -641,7 +641,7 @@ static int run_overload_case(nb_transport_kind_t kind, const char *label)
         goto cleanup;
     }
     if (nb_service_create(server, "overload", &svc) != NB_OK ||
-        nb_service_add_method_ex(svc, "block", blocking_handler, &block, &worker) != NB_OK) {
+        nb_service_add_method_with_options(svc, "block", blocking_handler, &block, &worker) != NB_OK) {
         nb_log_error("[%s] service setup failed", label);
         failed = 1;
         goto cleanup;
@@ -757,16 +757,16 @@ static int run_executor_case(nb_transport_kind_t kind, const char *label)
         return 1;
     }
     te_started = 1;
-    texec.ctx = &te;
+    texec.user = &te;
     texec.submit = thread_executor_submit;
-    rexec.ctx = NULL;
+    rexec.user = NULL;
     rexec.submit = reject_executor_submit;
 
     memset(&scfg, 0, sizeof(scfg));
     scfg.name = "exec-srv";
-    scfg.transport.transport = kind;
+    scfg.transport.kind = kind;
     scfg.transport.bind_host = "127.0.0.1";
-    scfg.discovery.host = "127.0.0.1";
+    scfg.discovery.broadcast_host = "127.0.0.1";
     scfg.discovery.port = sport;
     scfg.runtime.io_threads = 1;
     scfg.runtime.handler_threads = 0; /* 证明自定义 executor 不依赖内置池 */
@@ -775,9 +775,9 @@ static int run_executor_case(nb_transport_kind_t kind, const char *label)
 
     memset(&ccfg, 0, sizeof(ccfg));
     ccfg.name = "exec-cli";
-    ccfg.transport.transport = kind;
+    ccfg.transport.kind = kind;
     ccfg.transport.bind_host = "127.0.0.1";
-    ccfg.discovery.host = "127.0.0.1";
+    ccfg.discovery.broadcast_host = "127.0.0.1";
     ccfg.discovery.port = cport;
     ccfg.runtime.io_threads = 1;
     ccfg.discovery.hello_interval_ms = 200;
@@ -797,13 +797,13 @@ static int run_executor_case(nb_transport_kind_t kind, const char *label)
         goto cleanup;
     }
     opts = method_opts(NB_SERVICE_EXEC_EXECUTOR, &texec);
-    if (nb_service_add_method_ex(svc, "custom", fast_handler, NULL, &opts) != NB_OK) {
+    if (nb_service_add_method_with_options(svc, "custom", fast_handler, NULL, &opts) != NB_OK) {
         nb_log_error("[%s] custom registration failed", label);
         failed = 1;
         goto cleanup;
     }
     opts = method_opts(NB_SERVICE_EXEC_EXECUTOR, &rexec);
-    if (nb_service_add_method_ex(svc, "reject", fast_handler, NULL, &opts) != NB_OK) {
+    if (nb_service_add_method_with_options(svc, "reject", fast_handler, NULL, &opts) != NB_OK) {
         nb_log_error("[%s] reject registration failed", label);
         failed = 1;
         goto cleanup;
@@ -944,9 +944,9 @@ static int run_deadline_case(const char *label)
 
     memset(&scfg, 0, sizeof(scfg));
     scfg.name = "deadline-srv";
-    scfg.transport.transport = NB_TRANSPORT_TCP;
+    scfg.transport.kind = NB_TRANSPORT_TCP;
     scfg.transport.bind_host = "127.0.0.1";
-    scfg.discovery.host = "127.0.0.1";
+    scfg.discovery.broadcast_host = "127.0.0.1";
     scfg.discovery.port = sport;
     scfg.runtime.io_threads = 1;
     scfg.runtime.handler_threads = 1; /* 单 worker：第二个请求必然排队 */
@@ -955,9 +955,9 @@ static int run_deadline_case(const char *label)
 
     memset(&ccfg, 0, sizeof(ccfg));
     ccfg.name = "deadline-cli";
-    ccfg.transport.transport = NB_TRANSPORT_TCP;
+    ccfg.transport.kind = NB_TRANSPORT_TCP;
     ccfg.transport.bind_host = "127.0.0.1";
-    ccfg.discovery.host = "127.0.0.1";
+    ccfg.discovery.broadcast_host = "127.0.0.1";
     ccfg.discovery.port = cport;
     ccfg.runtime.io_threads = 1;
     ccfg.discovery.hello_interval_ms = 200;
@@ -983,9 +983,9 @@ static int run_deadline_case(const char *label)
     (void)nb_node_add_discovery_peer(client, "127.0.0.1", sport);
 
     if (nb_service_create(server, "deadline", &svc) != NB_OK ||
-        nb_service_add_method_ex(svc, "probe", deadline_probe_handler, &probe, &worker) != NB_OK ||
-        nb_service_add_method_ex(svc, "block", blocking_handler, &block, &worker) != NB_OK ||
-        nb_service_add_method_ex(svc, "queued", run_count_handler, &queued, &worker) != NB_OK) {
+        nb_service_add_method_with_options(svc, "probe", deadline_probe_handler, &probe, &worker) != NB_OK ||
+        nb_service_add_method_with_options(svc, "block", blocking_handler, &block, &worker) != NB_OK ||
+        nb_service_add_method_with_options(svc, "queued", run_count_handler, &queued, &worker) != NB_OK) {
         nb_log_error("[%s] service setup failed", label);
         failed = 1;
         goto cleanup;
@@ -1124,9 +1124,9 @@ static int run_cancel_case(const char *label)
 
     memset(&scfg, 0, sizeof(scfg));
     scfg.name = "cancel-srv";
-    scfg.transport.transport = NB_TRANSPORT_TCP;
+    scfg.transport.kind = NB_TRANSPORT_TCP;
     scfg.transport.bind_host = "127.0.0.1";
-    scfg.discovery.host = "127.0.0.1";
+    scfg.discovery.broadcast_host = "127.0.0.1";
     scfg.discovery.port = sport;
     scfg.runtime.io_threads = 1;
     scfg.runtime.handler_threads = 1;
@@ -1135,9 +1135,9 @@ static int run_cancel_case(const char *label)
 
     memset(&ccfg, 0, sizeof(ccfg));
     ccfg.name = "cancel-cli";
-    ccfg.transport.transport = NB_TRANSPORT_TCP;
+    ccfg.transport.kind = NB_TRANSPORT_TCP;
     ccfg.transport.bind_host = "127.0.0.1";
-    ccfg.discovery.host = "127.0.0.1";
+    ccfg.discovery.broadcast_host = "127.0.0.1";
     ccfg.discovery.port = cport;
     ccfg.runtime.io_threads = 1;
     ccfg.discovery.hello_interval_ms = 200;
@@ -1162,8 +1162,8 @@ static int run_cancel_case(const char *label)
     (void)nb_node_add_discovery_peer(client, "127.0.0.1", sport);
 
     if (nb_service_create(server, "cancel", &svc) != NB_OK ||
-        nb_service_add_method_ex(svc, "block", blocking_handler, &block, &worker) != NB_OK ||
-        nb_service_add_method_ex(svc, "queued", run_count_handler, &queued, &worker) != NB_OK ||
+        nb_service_add_method_with_options(svc, "block", blocking_handler, &block, &worker) != NB_OK ||
+        nb_service_add_method_with_options(svc, "queued", run_count_handler, &queued, &worker) != NB_OK ||
         nb_service_add_method(svc, "ping", fast_handler, NULL) != NB_OK) {
         nb_log_error("[%s] service setup failed", label);
         failed = 1;

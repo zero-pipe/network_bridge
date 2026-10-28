@@ -2,10 +2,11 @@
 #define NB_CLIENT_H
 
 /*
- * rpc 客户端 API。
+ * rpc client API.
  *
- * proxy 是带服务发现/路由的高层接口，stub 是传输无关的底层调用原语。
- * 同步调用也属于 proxy API，声明在 proxy.h 中。
+ * A proxy is the high-level interface with service discovery and routing; a
+ * stub is the transport-independent low-level call primitive. Synchronous
+ * calls are part of the proxy API and are declared in proxy.h.
  */
 
 #include <runtime.h>

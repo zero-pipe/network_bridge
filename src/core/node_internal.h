@@ -48,7 +48,7 @@ typedef struct nb_obj_pool {
 /* per-peer 入站限速槽位：固定容量、rate_lock 保护，仅配置限速时使用。 */
 typedef struct nb_rate_slot {
     int used;
-    char ip[NB_ENDPOINT_MAX];
+    char ip[NB_HOST_MAX];
     uint16_t port;
     uint64_t window_start_ms;
     uint32_t count;
@@ -57,8 +57,8 @@ typedef struct nb_rate_slot {
 struct nb_node {
     char name[NB_NAME_MAX];
     uint32_t node_id;
-    char bind_host[NB_ENDPOINT_MAX];
-    char discovery_host[NB_ENDPOINT_MAX];
+    char bind_host[NB_HOST_MAX];
+    char discovery_host[NB_HOST_MAX];
     uint16_t discovery_port;
     unsigned io_threads;
     uint32_t hello_interval_ms;
@@ -68,7 +68,7 @@ struct nb_node {
     uint32_t bp_high_water;
     uint8_t drop_percent;                             /* 测试用：UDP 出站丢包百分比 */
     uint32_t rtcp_interval_ms;
-    int rtcp_disabled;
+    int disable_rtcp;
     nb_qos_t default_qos;
     uint32_t max_recv_streams;
     uint32_t rate_limit_pps;

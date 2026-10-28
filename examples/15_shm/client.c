@@ -44,7 +44,7 @@ int main(void)
         rc = nb_proxy_create(node, NULL, &proxy);
     }
     if (rc == NB_OK) {
-        rc = nb_proxy_set_endpoint_uri(proxy, "shm://zrpc-example:1");
+        rc = nb_proxy_set_target_uri(proxy, "shm://zrpc-example:1");
     }
     if (rc != NB_OK) {
         nb_log_error("shm client setup failed: %d (%s)", rc, nb_error_name(rc));

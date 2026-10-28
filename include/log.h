@@ -1,26 +1,34 @@
 #ifndef NB_LOG_H
 #define NB_LOG_H
 
+/*
+ * Thin logging macros over elog. nb_log_* short-circuit when logging is
+ * disabled; nb_node_create installs the configured switch and level.
+ */
+
 #include <elog.h>
 
+#include <types.h>
+
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* 首次调用时初始化 elog；线程安全，重复调用无副作用。 */
+/* Initialize elog on first use; thread-safe and idempotent. */
 void nb_log_init(void);
 
 /*
- * 运行期开关：enabled=0 时所有 nb_log_* 宏短路，不做任何格式化/输出。
- * level 见 node_log_level 定义（与 elog 级别一致：0=assert .. 5=verbose）。
- * nb_node_create 会按 log 配置调用一次。
+ * Runtime switch: when enabled is false every nb_log_* macro short-circuits
+ * without formatting or output. level is an nb_log_level_t (0=assert ..
+ * 5=verbose). nb_node_create calls this once from the log configuration.
  */
-void nb_log_configure(int enabled, uint8_t level);
+void nb_log_configure(bool enabled, nb_log_level_t level);
 
-/* 当前是否启用日志；首次调用会完成 elog 初始化。 */
-int nb_log_enabled(void);
+/* Whether logging is currently enabled; the first call initializes elog. */
+bool nb_log_enabled(void);
 
 #ifdef __cplusplus
 }

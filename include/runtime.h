@@ -2,10 +2,11 @@
 #define NB_RUNTIME_H
 
 /*
- * rpc 运行时 API。
+ * rpc runtime API.
  *
- * 这一层负责节点的生命周期、线程调度、服务发现、路由和运行指标。
- * 业务侧通常会在它之上再选择 server.h 或 client.h。
+ * This layer owns node lifecycle, thread scheduling, service discovery,
+ * routing, and runtime metrics. Business code usually builds on top of it via
+ * server.h or client.h.
  */
 
 #include <types.h>

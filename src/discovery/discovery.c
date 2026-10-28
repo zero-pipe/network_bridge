@@ -355,7 +355,7 @@ static void nb_disc_recv_cb(ntk_socket *sock, void *user)
         return;
     }
     for (;;) {
-        char ip[NB_ENDPOINT_MAX];
+        char ip[NB_HOST_MAX];
         uint16_t port = 0;
         ntk_ssize_t n = ntk_socket_recvfrom(st->sock, buf, sizeof(buf), ip, sizeof(ip), &port);
         if (n <= 0) {

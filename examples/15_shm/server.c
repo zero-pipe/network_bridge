@@ -58,7 +58,7 @@ int main(void)
     }
 
     nb_log_info("shm server ready on shm://zrpc-example:1 (Ctrl+C to stop)");
-    (void)nb_node_spin(node);
+    (void)nb_node_run(node);
     nb_service_destroy(svc);
     nb_node_destroy(node);
     return 0;

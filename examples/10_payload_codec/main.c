@@ -110,11 +110,11 @@ int main(void)
         nb_node_destroy(node);
         return 1;
     }
-    rc = codec->encode(codec->ctx, &order, &bytes, &len);
+    rc = codec->encode(codec->user, &order, &bytes, &len);
     if (rc == NB_OK) {
         nb_payload_t payload = { bytes, len, codec->encoding };
         nb_log_info("encoded payload: %.*s", (int)payload.len, (const char *)payload.data);
-        rc = codec->decode(codec->ctx, payload.data, payload.len, (void **)&decoded);
+        rc = codec->decode(codec->user, payload.data, payload.len, (void **)&decoded);
     }
     if (rc == NB_OK) {
         nb_log_info("decoded order: id=%d name=%s", decoded->id, decoded->name);
@@ -123,10 +123,10 @@ int main(void)
     }
 
     if (decoded) {
-        codec->release(codec->ctx, decoded);
+        codec->release(codec->user, decoded);
     }
     if (bytes) {
-        codec->release(codec->ctx, bytes);
+        codec->release(codec->user, bytes);
     }
     nb_node_destroy(node);
     return rc == NB_OK ? 0 : 1;

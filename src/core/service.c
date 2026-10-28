@@ -95,9 +95,9 @@ static void nb_svc_method_task(void *user)
 typedef struct nb_handler_task {
     nb_node_t *node;
     nb_transport_t *transport;
-    nb_peer_token_t token;
+    nb_reply_token_t token;
     ntk_poller *poller;
-    char peer_ip[NB_ENDPOINT_MAX];
+    char peer_host[NB_HOST_MAX];
     uint16_t peer_port;
     uint32_t msg_id;
     int one_way;
@@ -199,7 +199,7 @@ static void nb_handler_task_run(void *user)
     call->transport = t->transport;
     call->poller = t->poller;
     call->token = t->token;
-    nb_copy_str(call->peer_ip, sizeof(call->peer_ip), t->peer_ip, "0.0.0.0");
+    nb_copy_str(call->peer_host, sizeof(call->peer_host), t->peer_host, "0.0.0.0");
     call->peer_port = t->peer_port;
     call->msg_id = t->msg_id;
     call->one_way = one_way;
@@ -210,7 +210,7 @@ static void nb_handler_task_run(void *user)
     req.payload.data = t->payload;
     req.payload.len = t->payload_len;
     req.payload.encoding = t->encoding;
-    req.peer_ip = call->peer_ip;
+    req.peer_host = call->peer_host;
     req.peer_port = call->peer_port;
     req.deadline_ms = t->deadline_ms;
     req.metadata = t->metadata;
@@ -220,7 +220,7 @@ static void nb_handler_task_run(void *user)
      * 注定被丢弃的重活。取消/超时的响应客户端通常已不再等待，发送失败也无妨。
      */
     {
-        int canceled = nb_node_is_canceled(t->node, t->msg_id, t->peer_ip, t->peer_port);
+        int canceled = nb_node_is_canceled(t->node, t->msg_id, t->peer_host, t->peer_port);
         int expired = t->deadline_ms != 0 && nb_now_ms() >= t->deadline_ms;
         if (canceled || expired) {
             if (!one_way) {
@@ -318,7 +318,7 @@ static void nb_handler_external_release(nb_node_t *node)
 
 void nb_node_cancel_record(nb_node_t *node,
                             uint32_t request_id,
-                            const char *peer_ip,
+                            const char *peer_host,
                             uint16_t peer_port)
 {
     int i;
@@ -345,7 +345,7 @@ void nb_node_cancel_record(nb_node_t *node,
         }
         /* 同一调用的重复取消：刷新 TTL 即可。 */
         if (s->request_id == request_id && s->peer_port == peer_port &&
-            strcmp(s->peer_ip, peer_ip ? peer_ip : "") == 0) {
+            strcmp(s->peer_host, peer_host ? peer_host : "") == 0) {
             s->expires_ms = now + CANCEL_TTL_MS;
             ntk_mutex_unlock(node->handler_limit_mutex);
             return;
@@ -355,7 +355,7 @@ void nb_node_cancel_record(nb_node_t *node,
         nb_cancel_slot_t *s = &node->cancels[free_slot];
         s->used = 1;
         s->request_id = request_id;
-        nb_copy_str(s->peer_ip, sizeof(s->peer_ip), peer_ip, "0.0.0.0");
+        nb_copy_str(s->peer_host, sizeof(s->peer_host), peer_host, "0.0.0.0");
         s->peer_port = peer_port;
         s->expires_ms = now + CANCEL_TTL_MS;
         nb_atomic_add_u32(&node->cancel_count, 1u);
@@ -365,7 +365,7 @@ void nb_node_cancel_record(nb_node_t *node,
 
 int nb_node_is_canceled(const nb_node_t *node,
                          uint32_t request_id,
-                         const char *peer_ip,
+                         const char *peer_host,
                          uint16_t peer_port)
 {
     int found = 0;
@@ -380,7 +380,7 @@ int nb_node_is_canceled(const nb_node_t *node,
     for (i = 0; i < CANCEL_SLOTS; i++) {
         const nb_cancel_slot_t *s = &node->cancels[i];
         if (s->used && s->expires_ms > now && s->request_id == request_id &&
-            s->peer_port == peer_port && strcmp(s->peer_ip, peer_ip ? peer_ip : "") == 0) {
+            s->peer_port == peer_port && strcmp(s->peer_host, peer_host ? peer_host : "") == 0) {
             found = 1;
             break;
         }
@@ -465,9 +465,9 @@ static int nb_handler_task_create(nb_node_t *node,
     memset(t, 0, sizeof(*t));
     t->node = node;
     t->transport = transport;
-    t->token = msg->peer_token;
+    t->token = msg->reply_token;
     t->poller = ntk_poller_current();
-    nb_copy_str(t->peer_ip, sizeof(t->peer_ip), msg->peer_ip, "0.0.0.0");
+    nb_copy_str(t->peer_host, sizeof(t->peer_host), msg->peer_host, "0.0.0.0");
     t->peer_port = msg->peer_port;
     t->msg_id = msg->request_id;
     t->one_way = msg->kind == KIND_EVENT;
@@ -576,7 +576,7 @@ static int nb_service_dispatch_external(nb_node_t *node,
         return rc;
     }
     nb_handler_external_acquire(node);
-    rc = executor->submit(executor->ctx, nb_handler_task_run, t);
+    rc = executor->submit(executor->user, nb_handler_task_run, t);
     if (rc != NB_OK) {
         nb_handler_external_release(node);
         nb_handler_inflight_release(node);
@@ -637,13 +637,9 @@ void nb_service_handle_request(nb_node_t *node, nb_transport_t *transport, nb_me
      */
     if (transport && transport->kind == NB_TRANSPORT_UDP && msg->kind == KIND_REQUEST &&
         msg->request_id != 0) {
-        int dstate = 0;
-        (void)nb_dedup_begin(&node->dedup, transport, msg, &dstate);
-        if (dstate == 1) {
-            return;
-        }
-        if (dstate == 2) {
-            return;
+        nb_dedup_action_t action = nb_dedup_begin(&node->dedup, transport, msg);
+        if (action != NB_DEDUP_PROCESS) {
+            return; /* 已重放缓存响应，或在途重复 */
         }
         dedup_active = 1;
     }
@@ -712,7 +708,7 @@ void nb_service_handle_request(nb_node_t *node, nb_transport_t *transport, nb_me
                   dot + 1,
                   (unsigned long long)msg->request_id,
                   msg->payload.len,
-                  msg->peer_ip ? msg->peer_ip : "?",
+                  msg->peer_host ? msg->peer_host : "?",
                   (unsigned)msg->peer_port);
     {
         nb_call_t *call = (nb_call_t *)nb_poller_alloc(sizeof(*call));
@@ -730,8 +726,8 @@ void nb_service_handle_request(nb_node_t *node, nb_transport_t *transport, nb_me
         call->node = node;
         call->transport = transport;
         call->poller = ntk_poller_current();
-        call->token = msg->peer_token;
-        nb_copy_str(call->peer_ip, sizeof(call->peer_ip), msg->peer_ip, "0.0.0.0");
+        call->token = msg->reply_token;
+        nb_copy_str(call->peer_host, sizeof(call->peer_host), msg->peer_host, "0.0.0.0");
         call->peer_port = msg->peer_port;
         call->msg_id = msg->request_id;
         call->one_way = msg->kind == KIND_EVENT;
@@ -739,7 +735,7 @@ void nb_service_handle_request(nb_node_t *node, nb_transport_t *transport, nb_me
         req.service = tmp;
         req.method = dot + 1;
         req.payload = msg->payload;
-        req.peer_ip = call->peer_ip;
+        req.peer_host = call->peer_host;
         req.peer_port = msg->peer_port;
         req.deadline_ms = call->deadline_ms;
         if (msg->metadata_len > 0 && msg->metadata &&
@@ -773,7 +769,7 @@ void nb_service_handle_cancel(nb_node_t *node, nb_transport_t *transport, const 
     if (!node || !msg || msg->kind != KIND_CANCEL) {
         return;
     }
-    nb_node_cancel_record(node, msg->request_id, msg->peer_ip, msg->peer_port);
+    nb_node_cancel_record(node, msg->request_id, msg->peer_host, msg->peer_port);
 }
 
 uint64_t nb_call_deadline_ms(const nb_call_t *call)
@@ -781,12 +777,12 @@ uint64_t nb_call_deadline_ms(const nb_call_t *call)
     return call ? call->deadline_ms : 0;
 }
 
-int nb_call_canceled(const nb_call_t *call)
+bool nb_call_canceled(const nb_call_t *call)
 {
     if (!call) {
-        return 0;
+        return false;
     }
-    return nb_node_is_canceled(call->node, call->msg_id, call->peer_ip, call->peer_port);
+    return nb_node_is_canceled(call->node, call->msg_id, call->peer_host, call->peer_port);
 }
 
 static nb_recv_stream_t *nb_find_recv_stream(nb_node_t *node, const nb_message_t *msg)
@@ -796,7 +792,7 @@ static nb_recv_stream_t *nb_find_recv_stream(nb_node_t *node, const nb_message_t
         nb_recv_stream_t *stream = &node->recv_streams[i];
         if (stream->used && stream->request_id == msg->request_id &&
             stream->peer_port == msg->peer_port &&
-            strcmp(stream->peer_ip, msg->peer_ip ? msg->peer_ip : "") == 0) {
+            strcmp(stream->peer_host, msg->peer_host ? msg->peer_host : "") == 0) {
             return stream;
         }
     }
@@ -828,7 +824,7 @@ static nb_recv_stream_t *nb_alloc_recv_stream(nb_node_t *node,
             memset(call, 0, sizeof(*call));
             stream->used = 1;
             stream->request_id = msg->request_id;
-            nb_copy_str(stream->peer_ip, sizeof(stream->peer_ip), msg->peer_ip, "0.0.0.0");
+            nb_copy_str(stream->peer_host, sizeof(stream->peer_host), msg->peer_host, "0.0.0.0");
             stream->peer_port = msg->peer_port;
             stream->call = call;
             stream->last_ms = nb_now_ms();
@@ -836,8 +832,8 @@ static nb_recv_stream_t *nb_alloc_recv_stream(nb_node_t *node,
             call->node = node;
             call->transport = transport;
             call->poller = ntk_poller_current();
-            call->token = msg->peer_token;
-            nb_copy_str(call->peer_ip, sizeof(call->peer_ip), msg->peer_ip, "0.0.0.0");
+            call->token = msg->reply_token;
+            nb_copy_str(call->peer_host, sizeof(call->peer_host), msg->peer_host, "0.0.0.0");
             call->peer_port = msg->peer_port;
             call->msg_id = msg->request_id;
             call->stream_owned = 1;
@@ -917,7 +913,7 @@ static int nb_stream_submit(nb_recv_stream_t *state, nb_stream_task_t *task)
         return NB_ERR_STATE;
     }
     if (m->executor) {
-        if (m->executor->submit(m->executor->ctx, nb_stream_task_run, task) != NB_OK) {
+        if (m->executor->submit(m->executor->user, nb_stream_task_run, task) != NB_OK) {
             nb_stream_task_free(task);
             return NB_ERR_IO;
         }
@@ -974,7 +970,7 @@ static void nb_stream_task_run(void *user)
     req.payload.data = task->data;
     req.payload.len = task->len;
     req.payload.encoding = task->encoding;
-    req.peer_ip = call->peer_ip;
+    req.peer_host = call->peer_host;
     req.peer_port = call->peer_port;
     req.deadline_ms = task->deadline_ms;
     req.metadata = task->metadata;
@@ -984,7 +980,7 @@ static void nb_stream_task_run(void *user)
     chunk.offset = task->offset;
     chunk.flags = task->flags;
     chunk.metadata = task->has_chunk_metadata ? &task->chunk_metadata : NULL;
-    chunk.message = task->message_len ? task->message : NULL;
+    chunk.status_msg = task->message_len ? task->message : NULL;
     if (task->first && task->interceptor) {
         int st = task->interceptor(call, &req, task->interceptor_user);
         if (st != NB_OK) {
@@ -1202,7 +1198,7 @@ void nb_service_handle_stream_chunk(nb_node_t *node,
     request.service = state->service;
     request.method = state->method_name;
     request.payload = msg->payload;
-    request.peer_ip = state->call->peer_ip;
+    request.peer_host = state->call->peer_host;
     request.peer_port = msg->peer_port;
     request.deadline_ms = state->call->deadline_ms;
     request.metadata = state->metadata;
@@ -1227,7 +1223,7 @@ void nb_service_handle_stream_chunk(nb_node_t *node,
         chunk_message[message_len] = '\0';
         chunk_message_len = (uint16_t)message_len;
     }
-    chunk.message = chunk_message_len ? chunk_message : NULL;
+    chunk.status_msg = chunk_message_len ? chunk_message : NULL;
 
     if (!state->intercepted && state->interceptor) {
         int st = state->interceptor(state->call, &request, state->interceptor_user);
@@ -1427,7 +1423,7 @@ int nb_service_add_method(nb_service_t *svc, const char *method, handler_fn fn, 
     return nb_service_method_register(svc, method, fn, NULL, user, 0, 0, NULL);
 }
 
-int nb_service_add_method_ex(nb_service_t *svc,
+int nb_service_add_method_with_options(nb_service_t *svc,
                           const char *method,
                           handler_fn fn,
                           void *user,
@@ -1483,7 +1479,7 @@ int nb_service_add_sync_method(nb_service_t *svc, const char *method, sync_handl
     return nb_service_add_sync_ex(svc, method, fn, user, NULL);
 }
 
-int nb_service_add_sync_method_ex(nb_service_t *svc,
+int nb_service_add_sync_method_with_options(nb_service_t *svc,
                                const char *method,
                                sync_handler_fn fn,
                                void *user,
@@ -1507,7 +1503,7 @@ int nb_service_add_stream_method(nb_service_t *svc, const char *method, chunk_ha
     return nb_service_method_register(svc, method, NULL, fn, user, 0, 0, NULL);
 }
 
-int nb_service_add_stream_method_ex(nb_service_t *svc,
+int nb_service_add_stream_method_with_options(nb_service_t *svc,
                                  const char *method,
                                  chunk_handler_fn fn,
                                  void *user,

@@ -15,6 +15,8 @@
  * the same table into the lookup helpers, so values and strings cannot drift.
  */
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -64,8 +66,8 @@ const char *nb_error_name(int status);
 /* Human-readable description. Never returns NULL. */
 const char *nb_strerror(int status);
 
-/* Non-zero when the operation may be retried. */
-int nb_error_is_retryable(int status);
+/* True when the operation may be retried. */
+bool nb_error_is_retryable(int status);
 
 #ifdef __cplusplus
 }

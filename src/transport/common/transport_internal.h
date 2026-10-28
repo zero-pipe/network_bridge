@@ -34,10 +34,10 @@ typedef struct nb_transport_ops {
     int (*start)(nb_transport_t *t);
     void (*stop)(nb_transport_t *t);
 
-    /* 发起发送：目标由 message->peer_ip / message->peer_port 指定。 */
+    /* 发起发送：目标由 message->peer_host / message->peer_port 指定。 */
     int (*send)(nb_transport_t *t, const nb_message_t *message);
 
-    /* 回复：优先使用 message->peer_token，缺失时回退到 peer_ip:peer_port。 */
+    /* 回复：优先使用 message->reply_token，缺失时回退到 peer_host:peer_port。 */
     int (*reply)(nb_transport_t *t, const nb_message_t *message);
 
     /* 查询某对端的链路统计（可选）：1 = 找到，0 = 无此对端，负数 = 出错。 */
@@ -49,7 +49,7 @@ struct nb_transport {
     nb_node_t *node;
     nb_transport_kind_t kind;
     char scheme[NB_SCHEME_MAX];
-    char bind_host[NB_ENDPOINT_MAX];
+    char bind_host[NB_HOST_MAX];
     uint16_t port;
     char endpoint_uri[NB_ENDPOINT_URI_MAX];
     const nb_transport_provider_t *provider;
@@ -64,7 +64,7 @@ struct nb_transport {
     uint32_t bp_high_water;
     uint8_t drop_percent;
     uint32_t rtcp_interval_ms;
-    int rtcp_disabled;
+    int disable_rtcp;
     unsigned io_threads;
     ntk_poller_pool *pool;
     ntk_poller *poller;

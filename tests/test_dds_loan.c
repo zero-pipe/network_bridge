@@ -146,13 +146,13 @@ int main(void)
     worker_opts.exec = NB_SERVICE_EXEC_WORKER;
     worker_opts.executor = NULL;
     if (nb_service_add_method(svc, "inline", inline_handler, &loan) != NB_OK ||
-        nb_service_add_method_ex(svc, "worker", worker_handler, &loan, &worker_opts) != NB_OK) {
+        nb_service_add_method_with_options(svc, "worker", worker_handler, &loan, &worker_opts) != NB_OK) {
         nb_log_error("dds method registration failed");
         failed = 1;
         goto done;
     }
     if (nb_proxy_create(node, NULL, &proxy) != NB_OK ||
-        nb_proxy_set_endpoint_uri(proxy, endpoint) != NB_OK) {
+        nb_proxy_set_target_uri(proxy, endpoint) != NB_OK) {
         nb_log_error("dds proxy create failed");
         failed = 1;
         goto done;

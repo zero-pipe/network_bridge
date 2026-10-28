@@ -19,7 +19,7 @@ static int g_response_ok;
 static void on_worker_request(nb_call_t *call, const nb_request_t *req, void *user)
 {
     nb_buf_t *buf;
-    nb_payload_move_t payload;
+    nb_owned_payload_t payload;
 
     (void)user;
     if (!req || req->payload.len != 12 ||
@@ -33,8 +33,8 @@ static void on_worker_request(nb_call_t *call, const nb_request_t *req, void *us
         return;
     }
     memcpy(nb_buf_data(buf), "move-reply", 10);
-    nb_payload_move_init(&payload, buf, 0, 10, 0);
-    nb_reply_move(call, 0, &payload);
+    nb_owned_payload_init(&payload, buf, 0, 10, 0);
+    nb_reply_owned(call, 0, &payload);
 }
 
 static void on_event(nb_call_t *call, const nb_request_t *req, void *user)
@@ -67,14 +67,14 @@ int main(void)
     nb_proxy_t *proxy = NULL;
     nb_service_method_options_t worker_opts;
     nb_buf_t *buf;
-    nb_payload_move_t request;
+    nb_owned_payload_t request;
     int rc;
     int failed = 0;
 
     nb_node_config_default(&scfg);
     scfg.name = "move_srv";
     scfg.mode = NB_MODE_STATIC;
-    scfg.transport.transport = NB_TRANSPORT_UDP;
+    scfg.transport.kind = NB_TRANSPORT_UDP;
     scfg.transport.bind_host = "127.0.0.1";
     scfg.transport.data_port = 42511;
     scfg.runtime.io_threads = 1;
@@ -83,7 +83,7 @@ int main(void)
     nb_node_config_default(&ccfg);
     ccfg.name = "move_cli";
     ccfg.mode = NB_MODE_STATIC;
-    ccfg.transport.transport = NB_TRANSPORT_UDP;
+    ccfg.transport.kind = NB_TRANSPORT_UDP;
     ccfg.transport.bind_host = "127.0.0.1";
     ccfg.runtime.io_threads = 1;
 
@@ -94,7 +94,7 @@ int main(void)
     if (rc == NB_OK) {
         worker_opts.exec = NB_SERVICE_EXEC_WORKER;
         worker_opts.executor = NULL;
-        rc = nb_service_add_method_ex(svc, "work", on_worker_request, NULL, &worker_opts);
+        rc = nb_service_add_method_with_options(svc, "work", on_worker_request, NULL, &worker_opts);
     }
     if (rc == NB_OK) {
         rc = nb_service_add_method(svc, "event", on_event, NULL);
@@ -106,7 +106,7 @@ int main(void)
         rc = nb_proxy_create(client, NULL, &proxy);
     }
     if (rc == NB_OK) {
-        rc = nb_proxy_set_endpoint_uri(proxy, "udp://127.0.0.1:42511");
+        rc = nb_proxy_set_target_uri(proxy, "udp://127.0.0.1:42511");
     }
     if (rc != NB_OK) {
         nb_log_error("move test setup failed: %d", rc);
@@ -127,8 +127,8 @@ int main(void)
         goto done;
     }
     memcpy(nb_buf_data(buf), "move-request", 12);
-    nb_payload_move_init(&request, buf, 0, 12, 0);
-    rc = nb_proxy_call_async_move(
+    nb_owned_payload_init(&request, buf, 0, 12, 0);
+    rc = nb_proxy_call_async_owned(
         proxy, "MoveService", "work", &request, on_response, NULL, 2000, NULL);
     if (rc != NB_OK || request.buf != NULL) {
         nb_log_error("call_async_move failed: rc=%d buf=%p", rc, (void *)request.buf);
@@ -149,8 +149,8 @@ int main(void)
         goto done;
     }
     memcpy(nb_buf_data(buf), "move-event", 10);
-    nb_payload_move_init(&request, buf, 0, 10, 0);
-    rc = nb_proxy_call_event_move(proxy, "MoveService", "event", &request, NULL);
+    nb_owned_payload_init(&request, buf, 0, 10, 0);
+    rc = nb_proxy_call_event_owned(proxy, "MoveService", "event", &request, NULL);
     if (rc != NB_OK || request.buf != NULL) {
         nb_log_error("call_event_move failed: rc=%d buf=%p", rc, (void *)request.buf);
         failed = 1;

@@ -2,17 +2,19 @@
 #define NB_METRIC_MACROS_H
 
 /*
- * rpc 侧原子/指标入口。
+ * rpc-side atomic/metrics entry points.
  *
- * 通用原子原语（u32/u64、acquire/release、CAS、spinlock、refcount）统一放在
- * nb_base 的 atomic.h，nb_base 与 rpc 共用同一份实现，避免重复定义。
- * 本头只保留 rpc 特有的 metrics 开关与统计宏。
+ * Generic atomics (u32/u64, acquire/release, CAS, spinlock, refcount) live in
+ * nb_base's atomic.h; nb_base and rpc share the same implementation to avoid
+ * duplicate definitions. This header keeps only the rpc-specific metrics
+ * switches and statistics macros.
  */
 #include "atomic.h"
 
 /*
- * metrics 开关：运行期可关（node 配置 metrics.disabled），也可在编译期用
- * RPC_METRICS_ENABLED=0 彻底编译掉。关闭时热路径只多一次全局标志判断。
+ * Metrics switch: can be turned off at runtime (node metrics.disable) or
+ * compiled out entirely at build time via RPC_METRICS_ENABLED=0. When off, the
+ * hot path only pays one global flag check.
  */
 #ifndef RPC_METRICS_ENABLED
 #define RPC_METRICS_ENABLED 1
@@ -23,7 +25,7 @@ extern volatile int nb_latency_enabled;
 extern volatile uint32_t nb_metrics_sample_every;
 
 #if RPC_METRICS_ENABLED
-/* nb_metrics_t 全是 uint64_t 计数；下面三个宏让调用点保持简短。 */
+/* nb_metrics_t is all uint64_t counters; these macros keep call sites terse. */
 #define NB_METRIC_INC(field)                             \
     do {                                                  \
         if (nb_metrics_enabled) {                      \

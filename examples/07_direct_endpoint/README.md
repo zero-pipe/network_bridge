@@ -1,6 +1,6 @@
 # 07：直连端点
 
-客户端用 `nb_proxy_set_endpoint_uri` 直接指定目标地址，跳过服务发现和路由表。
+客户端用 `nb_proxy_set_target_uri` 直接指定目标地址，跳过服务发现和路由表。
 
 ```powershell
 .\example_07_direct_endpoint_server.exe

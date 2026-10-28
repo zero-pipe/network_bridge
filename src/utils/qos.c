@@ -51,12 +51,12 @@ void nb_qos_inherit(nb_qos_t *qos, const nb_qos_t *parent)
     }
 }
 
-int nb_qos_is_default(const nb_qos_t *qos)
+bool nb_qos_is_default(const nb_qos_t *qos)
 {
     static const nb_qos_t zero;
 
     if (!qos) {
-        return 1;
+        return true;
     }
     return memcmp(qos, &zero, sizeof(zero)) == 0;
 }

@@ -36,7 +36,7 @@ cfg.mode = NB_MODE_MESH;
 ```
 
 只要两个节点的 discovery 端口互通（同广播域或互加 `discovery.peers`），客户端
-即可按服务名发现 `shm://orders:2` 并直接调用，不需要 `nb_proxy_set_endpoint_uri`。
+即可按服务名发现 `shm://orders:2` 并直接调用，不需要 `nb_proxy_set_target_uri`。
 
 - 同一 channel 的 node id 必须唯一，范围 `1..9`。
 - 段由首个创建者初始化，最后一个关闭者 unlink；不再要求 node 1 常驻。

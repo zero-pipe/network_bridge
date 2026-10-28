@@ -20,13 +20,13 @@ static void echo_handler(nb_call_t *call, const nb_request_t *req, void *user)
 int main(int argc, char **argv)
 {
     const char *path = argc > 1 ? argv[1] : "server.json";
-    nb_config_t cfg;
+    nb_config_doc_t cfg;
     nb_config_error_t err;
     nb_node_t *node = NULL;
     nb_service_t *svc = NULL;
     int rc;
 
-    rc = nb_config_load_file_ex(path, &cfg, &err);
+    rc = nb_config_parse_file(path, &cfg, &err);
     if (rc != NB_OK) {
         nb_log_error(
             "load config failed: %s (%d) path=%s reason=%s", path, rc, err.path, err.reason);
@@ -46,7 +46,7 @@ int main(int argc, char **argv)
     }
 
     nb_log_info("EchoService.echo ready (config=%s, Ctrl+C to stop)", path);
-    (void)nb_node_spin(node);
+    (void)nb_node_run(node);
     nb_node_destroy(node);
     return 0;
 }

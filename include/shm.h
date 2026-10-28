@@ -9,23 +9,31 @@
  *   node A: shm://<channel>:1
  *   node B: shm://<channel>:2
  *
- * 一个 channel = 一个共享内存段；端口是节点在该段内的唯一 id（1..9），
- * 不再固定 server/client 角色。任意节点都可以接收请求、回复和事件；mesh
- * 模式下 discovery 会广播完整的 shm://channel:id URI，因此也支持按服务名发现。
- * 直连时 proxy endpoint 指向目标节点，例如 shm://<channel>:2。
+ * One channel is one shared-memory segment; the port is the node's unique id
+ * in that segment (1..NB_SHM_MAX_NODES). There are no fixed server/client
+ * roles: any node may receive requests, reply, and publish events. In MESH
+ * mode discovery broadcasts the full shm://channel:id URI, so services can also
+ * be found by name. For direct calls, point the proxy endpoint at the target
+ * node, for example shm://<channel>:2.
  *
- * 传输层采用 iceoryx 风格的分档 chunk 池 + 无锁队列 + 偏移寻址：发送方直接
- * 在段内编码 envelope，接收方把 chunk 作为 frame_owner 零拷贝交给 core，大包
- * 跨线程不再复制。单条消息上限由最大 size class 决定（见 NB_SHM_MAX_MESSAGE_BYTES）。
+ * The transport uses an iceoryx-style size-classed chunk pool, lock-free
+ * queues, and offset addressing: the sender encodes the envelope directly in
+ * the segment, and the receiver hands the chunk to the core as a frame_owner
+ * without copying, so large payloads cross threads copy-free. The maximum
+ * message size is the largest size class (see NB_SHM_MAX_MESSAGE_BYTES).
  *
- * 段大小由 NB_SHM_BYTES 环境变量控制（默认 32MB，下限 2MB）；同一 channel 的
- * 各进程必须用相同的段大小。大包并发能力受对应 size class 的块数限制：段里
- * 暂时没有空闲块时发送返回 NB_ERR_AGAIN（可重试），调大 NB_SHM_BYTES 即可提升。
+ * Segment size is controlled by the NB_SHM_BYTES environment variable
+ * (default 32 MB, minimum 2 MB); every process on a channel must use the same
+ * size. Large-message concurrency is bounded by the chunk count in that size
+ * class: when the segment temporarily has no free chunk, send returns
+ * NB_ERR_AGAIN (retryable); raise NB_SHM_BYTES to increase capacity.
  *
- * 发布/订阅：与 DDS 相同，订阅者就是“方法名即主题”的普通 service，发布者用
- * nb_proxy_call_event 发送 KIND_EVENT。事件按 route（"service.method"）在段内
- * 零拷贝扇出给所有订阅节点（发布者自身除外）；每个订阅者最多 NB_SHM_TOPICS_PER_NODE
- * 个主题，同一 channel 最多 NB_SHM_MAX_NODES 个节点。
+ * Publish/subscribe: as with DDS, a subscriber is an ordinary service whose
+ * method names a topic, and a publisher sends KIND_EVENT through
+ * nb_proxy_call_event. Events are fanned out copy-free inside the segment to
+ * every subscribed node (excluding the publisher) by route ("service.method").
+ * Each node may subscribe to at most NB_SHM_MAX_TOPICS_PER_NODE topics, and one
+ * channel supports at most NB_SHM_MAX_NODES nodes.
  */
 
 #include <transport_provider.h>
@@ -34,8 +42,13 @@
 extern "C" {
 #endif
 
-/* 单条消息（编码后 envelope）上限 = 最大 size class 容量。 */
+/* Maximum encoded envelope size = capacity of the largest size class. */
 #define NB_SHM_MAX_MESSAGE_BYTES (1024u * 1024u)
+
+/* Maximum nodes (server id 1 plus client ids 2..N). */
+#define NB_SHM_MAX_NODES 9u
+/* Maximum topics a single node may subscribe to. */
+#define NB_SHM_MAX_TOPICS_PER_NODE 16u
 
 /* Idempotently register the built-in "shm" provider. */
 int nb_shm_register(void);

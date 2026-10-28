@@ -501,10 +501,10 @@ int main(int argc, char **argv)
 
     nb_node_config_default(&cfg);
     cfg.name = opt.worker_id ? opt.worker_id : "loadgen";
-    cfg.transport.transport = opt.transport;
+    cfg.transport.kind = opt.transport;
     cfg.transport.bind_host = opt.bind;
     cfg.transport.data_port = opt.data_port;
-    cfg.discovery.host = "255.255.255.255";
+    cfg.discovery.broadcast_host = "255.255.255.255";
     cfg.discovery.port = opt.discovery_port;
     cfg.mode = mode;
     cfg.runtime.io_threads = opt.io_threads ? opt.io_threads : 1;
@@ -576,21 +576,21 @@ int main(int argc, char **argv)
         return 1;
     }
     if (opt.use_shm) {
-        rc = nb_proxy_set_endpoint_uri(proxy, shm_target);
+        rc = nb_proxy_set_target_uri(proxy, shm_target);
         if (rc != NB_OK) {
             nb_log_error("proxy set shm endpoint failed: %d", rc);
             nb_node_destroy(node);
             return 1;
         }
     } else if (opt.use_dds) {
-        rc = nb_proxy_set_endpoint_uri(proxy, dds_endpoint);
+        rc = nb_proxy_set_target_uri(proxy, dds_endpoint);
         if (rc != NB_OK) {
             nb_log_error("proxy set dds endpoint failed: %d", rc);
             nb_node_destroy(node);
             return 1;
         }
     } else if (opt.target_ip && opt.target_port) {
-        (void)nb_proxy_set_endpoint(proxy, opt.target_ip, opt.target_port, nb_node_transport(node));
+        (void)nb_proxy_set_target(proxy, opt.target_ip, opt.target_port, nb_node_transport(node));
     }
 
     memset(&co, 0, sizeof(co));

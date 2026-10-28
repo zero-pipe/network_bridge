@@ -57,7 +57,7 @@ nb_slotpool_t *nb_slotpool_create(const nb_slotpool_config_t *config)
     pool->in_use = (uint8_t *)nb_malloc(pool->slot_count);
     pool->free_ids = (uint32_t *)nb_malloc(pool->slot_count * sizeof(uint32_t));
     if (!pool->slots || !pool->gens || !pool->in_use || !pool->free_ids) {
-        nb_slotpool_uninit(&pool);
+        nb_slotpool_destroy(pool);
         return NULL;
     }
     memset(pool->slots, 0, pool->slot_count * sizeof(nb_buf_t *));
@@ -65,7 +65,7 @@ nb_slotpool_t *nb_slotpool_create(const nb_slotpool_config_t *config)
     for (i = 0; i < pool->slot_count; i++) {
         pool->slots[i] = nb_buf_alloc(pool->payload_size);
         if (!pool->slots[i]) {
-            nb_slotpool_uninit(&pool);
+            nb_slotpool_destroy(pool);
             return NULL;
         }
         pool->gens[i] = 1;
@@ -146,16 +146,15 @@ void nb_slotpool_free_batch(nb_slotpool_t *pool, const nb_slot_id_t *ids, size_t
     }
 }
 
-void nb_slotpool_uninit(nb_slotpool_t **pool)
+void nb_slotpool_destroy(nb_slotpool_t *pool)
 {
     nb_slotpool_t *p;
     size_t i;
 
-    if (!pool || !*pool) {
+    if (!pool) {
         return;
     }
-    p = *pool;
-    *pool = NULL;
+    p = pool;
     if (p->slots) {
         for (i = 0; i < p->slot_count; i++) {
             if (p->slots[i]) {

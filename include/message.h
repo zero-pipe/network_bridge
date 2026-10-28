@@ -2,11 +2,11 @@
 #define NB_MESSAGE_H
 
 /*
- * Unified message context shared by core and transport providers.
+ * Unified message context shared by the core and transport providers.
  *
  * A message crosses the transport/core boundary exactly once in this shape:
  * inbound transports fill peer + payload/route, outbound core fills target and
- * payload. This is the public provider SPI message type as well, so adding a
+ * payload. This is also the public provider-SPI message type, so adding a
  * field no longer requires a parallel adapter struct that can silently drift.
  */
 
@@ -16,40 +16,52 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef void *nb_peer_token_t;
+/* Opaque token a provider uses to route a reply back to its peer. */
+typedef void *nb_reply_token_t;
+
+/* Envelope-level message kind, stored in nb_message_t.kind. Internal code may
+ * use the short KIND_* aliases from envelope.h. */
+typedef enum nb_message_kind {
+    NB_MSG_KIND_REQUEST = 0,
+    NB_MSG_KIND_RESPONSE = 1,
+    NB_MSG_KIND_EVENT = 2,
+    NB_MSG_KIND_CANCEL = 3, /* client cancel: locate the call by request_id + peer */
+    NB_MSG_KIND_GOAWAY = 4, /* peer stops accepting new requests */
+    NB_MSG_KIND_PING = 5    /* control-plane heartbeat; echoed back unchanged */
+} nb_message_kind_t;
 
 typedef struct nb_message {
-    uint8_t kind;        /* KIND_REQUEST / RESPONSE / EVENT */
-    uint8_t flags;       /* MSG_FLAG_*；随 envelope 透传 */
-    int status;          /* RESPONSE：应用状态码，或带框架标志时的框架错误码 */
-    uint32_t request_id; /* 请求/响应关联 ID */
-    uint32_t timeout_ms; /* 请求剩余超时毫秒；0 = 无 deadline */
+    uint8_t kind;   /* nb_message_kind_t value */
+    uint8_t flags;  /* NB_MSG_FLAG_*; forwarded end-to-end in the envelope */
+    int status;     /* RESPONSE: application status, or a framework code when flagged */
+    uint32_t request_id; /* request/response correlation id (32-bit on the wire) */
+    uint32_t timeout_ms; /* remaining request timeout in ms (32-bit on the wire); 0 = no deadline */
     const void *metadata;
     uint16_t metadata_len;
     const char *status_msg;
     uint16_t status_msg_len;
-    const char *route; /* "service.method"；可为 NULL */
+    const char *route; /* "service.method"; may be NULL */
     nb_payload_t payload;
     nb_stream_meta_t stream;
-    int has_stream;
+    bool has_stream;
 
-    /* 入站来源（由 provider 设置，仅回调期间有效）。 */
+    /* Inbound source, set by the provider; valid only during the callback. */
     const nb_endpoint_t *peer;
-    /* 出站目标（由 core 设置，仅本次发送期间有效）。 */
+    /* Outbound target, set by the core; valid only for this send. */
     const nb_endpoint_t *target;
 
-    /*
-     * 兼容/热路径快照：由 peer 派生，供限速、取消登记和内置 UDP/TCP 传输
-     * 直接使用。新代码应优先读取 peer。
-     */
-    const char *peer_ip;
+    /* Address snapshot derived from peer. Kept for hot paths (rate limiting,
+     * cancel registration, built-in UDP/TCP transports). New code should read
+     * peer instead. */
+    const char *peer_host;
     uint16_t peer_port;
-    nb_peer_token_t peer_token;
+    nb_reply_token_t reply_token;
     nb_buf_t *frame_owner;
 } nb_message_t;
 

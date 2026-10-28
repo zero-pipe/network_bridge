@@ -87,7 +87,7 @@ typedef struct nb_shm_header {
 
 struct nb_shmseg {
     char name[128];
-    char channel[NB_ENDPOINT_MAX];
+    char channel[NB_HOST_MAX];
     uint16_t self_id;
     int creator;
     int fd;

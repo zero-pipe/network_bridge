@@ -202,11 +202,10 @@ static void test_pool(void)
     CHECK(stats.outstanding == 0);
     CHECK(stats.cached == 2);
     CHECK(stats.hits >= 2);
-    nb_buf_pool_uninit(&pool);
-    CHECK(pool == NULL);
+    nb_buf_pool_destroy(pool);
 }
 
-static void test_pool_uninit_outstanding(void)
+static void test_pool_destroy_outstanding(void)
 {
     nb_buf_pool_config_t config;
     nb_buf_pool_t *pool;
@@ -222,10 +221,9 @@ static void test_pool_uninit_outstanding(void)
     }
     buf = nb_buf_acquire(pool);
     CHECK(buf != NULL);
-    nb_buf_pool_uninit(&pool);
-    CHECK(pool == NULL);
+    nb_buf_pool_destroy(pool);
     if (buf) {
-        nb_buf_release(buf); /* pool 已 uninit，buffer 应直接释放 */
+        nb_buf_release(buf); /* pool 已销毁，buffer 应直接释放 */
     }
 }
 
@@ -255,7 +253,7 @@ int main(void)
     test_slice();
     test_aligned();
     test_pool();
-    test_pool_uninit_outstanding();
+    test_pool_destroy_outstanding();
     test_oom();
     if (g_fail) {
         fprintf(stderr, "BUFFER FAIL\n");

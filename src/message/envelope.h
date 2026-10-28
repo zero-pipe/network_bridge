@@ -30,13 +30,13 @@ extern "C" {
  */
 #define ENVELOPE_EXT_OVERHEAD 64u
 
-/* RPC kind (envelope-level semantics). */
-#define KIND_REQUEST 0
-#define KIND_RESPONSE 1
-#define KIND_EVENT 2
-#define KIND_CANCEL 3 /* 客户端取消：靠 request_id + 对端定位在途调用 */
-#define KIND_GOAWAY 4 /* 对端不再接收新请求 */
-#define KIND_PING 5   /* 控制面心跳；收到后原样回显 */
+/* RPC kind (envelope-level semantics); aliases of the public nb_message_kind_t. */
+#define KIND_REQUEST NB_MSG_KIND_REQUEST
+#define KIND_RESPONSE NB_MSG_KIND_RESPONSE
+#define KIND_EVENT NB_MSG_KIND_EVENT
+#define KIND_CANCEL NB_MSG_KIND_CANCEL /* 客户端取消：靠 request_id + 对端定位在途调用 */
+#define KIND_GOAWAY NB_MSG_KIND_GOAWAY /* 对端不再接收新请求 */
+#define KIND_PING NB_MSG_KIND_PING     /* 控制面心跳；收到后原样回显 */
 
 #define STREAM_FLAG_STREAM 0x80
 #define STREAM_FLAG_FIRST NB_STREAM_FIRST

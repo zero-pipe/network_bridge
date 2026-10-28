@@ -36,8 +36,8 @@ struct nb_call {
     nb_node_t *node;
     nb_transport_t *transport;
     ntk_poller *poller;   /* 请求到达时的 poller；跨线程 nb_reply 回投到这里 */
-    nb_peer_token_t token;
-    char peer_ip[NB_ENDPOINT_MAX];
+    nb_reply_token_t token;
+    char peer_host[NB_HOST_MAX];
     uint16_t peer_port;
     uint32_t msg_id;
     uint64_t deadline_ms; /* 请求 deadline（绝对单调 ms，0 = 无） */
@@ -57,7 +57,7 @@ struct nb_call {
 typedef struct nb_cancel_slot {
     int used;
     uint32_t request_id;
-    char peer_ip[NB_ENDPOINT_MAX];
+    char peer_host[NB_HOST_MAX];
     uint16_t peer_port;
     uint64_t expires_ms;
 } nb_cancel_slot_t;
@@ -65,7 +65,7 @@ typedef struct nb_cancel_slot {
 typedef struct nb_recv_stream {
     int used;
     uint32_t request_id;
-    char peer_ip[NB_ENDPOINT_MAX];
+    char peer_host[NB_HOST_MAX];
     uint16_t peer_port;
     nb_call_t *call;
     struct nb_method *method;
@@ -101,11 +101,11 @@ void nb_service_expire_streams(nb_node_t *node, uint64_t now_ms);
 /* 取消登记表：登记 / 查询 / 过期。查询不加锁地只读快照，避免热路径阻塞。 */
 void nb_node_cancel_record(nb_node_t *node,
                             uint32_t request_id,
-                            const char *peer_ip,
+                            const char *peer_host,
                             uint16_t peer_port);
 int nb_node_is_canceled(const nb_node_t *node,
                          uint32_t request_id,
-                         const char *peer_ip,
+                         const char *peer_host,
                          uint16_t peer_port);
 void nb_node_expire_cancels(nb_node_t *node, uint64_t now_ms);
 

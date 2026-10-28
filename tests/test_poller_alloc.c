@@ -111,7 +111,7 @@ int main(void)
 
     memset(&cfg, 0, sizeof(cfg));
     cfg.name = "pooltest";
-    cfg.transport.transport = NB_TRANSPORT_UDP;
+    cfg.transport.kind = NB_TRANSPORT_UDP;
     cfg.transport.bind_host = "127.0.0.1";
     cfg.mode = NB_MODE_STATIC;
     cfg.runtime.io_threads = 2;
