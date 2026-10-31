@@ -2,6 +2,8 @@
 #include "rtps_data.h"
 #include "rtps_message.h"
 #include "rtps_param.h"
+#include "rtps_participant.h"
+#include "rtps_sedp.h"
 #include "rtps_spdp.h"
 
 #define NB_LOG_TAG "test"
@@ -492,6 +494,60 @@ static void test_gap(void)
     CHECK(nb_rtps_gap_decode(truncated, 4, &parsed) == NB_ERR_BAD_MESSAGE);
 }
 
+/*
+ * SEDP samples travel inline in one DATA submessage, so the serialized
+ * ParameterList must stay below NB_RTPS_DATA_PAYLOAD_MAX. Every variable-length
+ * member is bounded by the public nb_rtps_endpoint_info_t buffers; this test
+ * fills all of them to the maximum and pins the resulting size.
+ */
+static void test_sedp_payload_bound(void)
+{
+    uint8_t buf[4096];
+    nb_rtps_endpoint_info_t info;
+    size_t len = 0;
+    size_t i;
+
+    memset(&info, 0, sizeof(info));
+    info.endpoint_guid.prefix.bytes[0] = 0x11;
+    info.endpoint_guid.entity = nb_rtps_eid_spdp_writer;
+    memset(info.topic_name, 't', sizeof(info.topic_name) - 1u);
+    memset(info.type_name, 'T', sizeof(info.type_name) - 1u);
+    memset(info.partition, 'p', sizeof(info.partition) - 1u);
+    info.reliability = NB_RTPS_RELIABILITY_RELIABLE;
+    info.durability = NB_RTPS_DURABILITY_VOLATILE;
+    info.history_kind = NB_RTPS_HISTORY_KEEP_LAST;
+    info.history_depth = 16;
+    info.unicast_count = NB_RTPS_SEDP_LOCATORS_MAX;
+    info.multicast_count = NB_RTPS_SEDP_LOCATORS_MAX;
+    for (i = 0; i < NB_RTPS_SEDP_LOCATORS_MAX; i++) {
+        info.unicast[i].kind = NB_RTPS_LOCATOR_KIND_UDPV4;
+        info.unicast[i].port = 7410;
+        info.multicast[i].kind = NB_RTPS_LOCATOR_KIND_UDPV4;
+        info.multicast[i].port = 7400;
+    }
+    info.user_data_len = sizeof(info.user_data);
+    memset(info.user_data, 'u', info.user_data_len);
+
+    CHECK(nb_rtps_sedp_build(&info, buf, sizeof(buf), &len) == NB_OK);
+    nb_log_info("maximal SEDP payload is %u bytes", (unsigned)len);
+    CHECK(len > 0);
+    /* Measured 900 bytes with every buffer full; 1000 keeps a guard band
+     * without pinning the exact parameter layout. */
+    CHECK(len <= 1000);
+    CHECK(len <= NB_RTPS_DATA_PAYLOAD_MAX);
+
+    /* Round trip keeps the strings and the locator counts. */
+    {
+        nb_rtps_endpoint_info_t parsed;
+
+        CHECK(nb_rtps_sedp_parse(buf, len, &parsed) == NB_OK);
+        CHECK(strcmp(parsed.topic_name, info.topic_name) == 0);
+        CHECK(strcmp(parsed.type_name, info.type_name) == 0);
+        CHECK(parsed.unicast_count == info.unicast_count);
+        CHECK(parsed.user_data_len == info.user_data_len);
+    }
+}
+
 static void test_spdp_roundtrip(void)
 {
     uint8_t buf[512];
@@ -566,6 +622,7 @@ int main(void)
     test_message_data();
     test_message_data_frag();
     test_heartbeat_acknack();
+    test_sedp_payload_bound();
     test_gap();
     test_spdp_roundtrip();
     if (g_fail) {

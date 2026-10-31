@@ -213,10 +213,13 @@ a fixed participant index instead.
       send path. Per-fragment `NACK_FRAG` is still not implemented
 - [x] Tests: nb-to-nb 4 KiB and 60 KiB payloads over RELIABLE QoS, plus a
       `DATA_FRAG` encode/decode wire test with malformed-input cases
-- [ ] SEDP over fragments: long topic/type names, partitions and user data
-      already exceed 1200 bytes. The receive side already reassembles SEDP
-      fragments and routes them by writer id; the SEDP *sender* still caps the
-      payload at 1200 bytes
+- [x] SEDP over fragments: not needed under the frozen public limits. A SEDP
+      sample with every `nb_rtps_endpoint_info_t` buffer full (128-byte topic
+      and type names, 64-byte partition, 256 bytes of user data, four unicast
+      and four multicast locators) serialises to 900 bytes, so it always fits
+      in one DATA submessage. `test_sedp_payload_bound` keeps that invariant.
+      The receive side still reassembles SEDP fragments and routes them by
+      writer id, so a peer with larger limits interoperates
 - [ ] Cyclone sending `DATA_FRAG` to nb and nb sending `DATA_FRAG` to a Cyclone
       reader: the `dds::Message` test type is bounded below 1200 bytes, so a
       larger IDL type is needed first (M10)
