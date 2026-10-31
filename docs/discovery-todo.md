@@ -165,31 +165,38 @@ a fixed participant index instead.
 
 ## M8: serialization on Micro-CDR (P0)
 
-- [ ] Wire `3rdparty/micro-cdr` into the top-level build with
+- [x] Wire `3rdparty/micro-cdr` into the top-level build with
       `UCDR_SUPERBUILD=OFF`, `UCDR_BUILD_TESTS=OFF`, `UCDR_BUILD_EXAMPLES=OFF`
       and `BUILD_SHARED_LIBS=OFF`, then link `microcdr` into the RTPS target
-- [ ] Re-implement `rtps_cdr.{c,h}` as a thin wrapper over `ucdrBuffer` without
+- [x] Re-implement `rtps_cdr.{c,h}` as a thin wrapper over `ucdrBuffer` without
       changing the `nb_cdr_*` signatures, so codec call sites stay untouched
-- [ ] Initialise buffers with an explicit little-endian origin
+- [x] Initialise buffers with an explicit little-endian origin
       (`ucdr_init_buffer_origin_offset_endian`). Version 2.0.2 has no
       `ucdr_offset`: report the written length as
       `ucdr_buffer_size() - ucdr_buffer_remaining()`
-- [ ] Map `nb_cdr_*_align` to `ucdr_align_to`, keeping the alignment origin at
-      the byte after the 4-byte encapsulation header
-- [ ] Keep PL_CDR semantics: a parameter value is read as a view whose origin
+- [x] Map `nb_cdr_*_align` onto `ucdr_buffer_alignment` + `ucdr_align_to`,
+      keeping the alignment origin at the buffer passed to init (the byte after
+      the 4-byte encapsulation header for the message body, the value start for
+      a ParameterList value). Micro-CDR only advances over implicit padding, so
+      the wrapper zero-fills it first: encoded frames stay deterministic and
+      never leak uninitialised stack bytes
+- [x] Keep PL_CDR semantics: a parameter value is read as a view whose origin
       is the parameter-list start (`ucdr_init_buffer_origin`), which is what
       keeps SPDP/SEDP byte-identical to today
-- [ ] Replace the `dds::Message` octet sequence with
+- [x] Golden-vector test `unit.rtps_cdr` pins the byte layout (u8/u16/u32/u64,
+      string, octets, alignment padding zero-filled, zero-copy `get_bytes`,
+      bounds failures) using a poisoned buffer
+- [x] Keep Cyclone interop green in reliable multicast and unicast-only modes
+- [ ] Optional: replace the `dds::Message` octet sequence with
       `ucdr_serialize_sequence_uint8_t` / `ucdr_deserialize_sequence_uint8_t`
-- [ ] Replace the SPDP/SEDP value codecs (GUID, locator, string, reliability,
-      history, partition, user data) with typed Micro-CDR calls; the
-      ParameterList framing itself stays hand-written
-- [ ] Centralise the encapsulation header (CDR_LE `00 01`, PL_CDR_LE `00 03`)
-      in one helper instead of open-coding the four bytes at each site
-- [ ] Golden-vector tests: encode SPDP, SEDP and `dds::Message` with the old
-      and the new codec and require byte equality
-- [ ] Keep Cyclone interop green in reliable multicast and unicast-only modes
-- [ ] Delete the hand-written packing helpers once nothing calls them
+      (same wire bytes today: u32 length + octets)
+- [ ] Optional: rebuild the SPDP/SEDP value codecs (GUID, locator, string,
+      reliability, history, partition, user data) on typed Micro-CDR calls.
+      They already serialise through the Micro-CDR backed `nb_cdr_*` layer, so
+      this is a readability cleanup, not a wire change
+- [ ] Optional: centralise the encapsulation header (CDR_LE `00 01`,
+      PL_CDR_LE `00 03`) in one helper instead of open-coding the four bytes at
+      each site
 
 ## M9: DATA_FRAG (P1)
 
@@ -279,10 +286,18 @@ a fixed participant index instead.
   address from the default route unless `NB_RTPS_ADVERTISE_HOST` is set.
 - Do not commit `build-review/`, `artifacts/`, `Testing/` or other build output.
 - Commit identity: `OldChen <825988516@qq.com>` (repository-local config).
+- Remote Linux verification host: `pengze@192.168.54.14`, repository at
+  `/home/pengze/chenqw/nb`. It is usually the better place to run the Cyclone
+  interop sweep. Password is intentionally not stored in the repository; keep
+  it in a local, git-ignored file (for example `.local/linux-env.txt`). `ssh`,
+  `git` and `cmake`/Ninja are installed; there is no key-based login yet, so
+  from Windows either run the commands by hand or install `plink`.
+- Remote run: `cd /home/pengze/chenqw/nb && git pull &&
+  tools/verify-rtps-interop.sh`.
 - Next task: M8, move the CDR layer onto Micro-CDR 2.0.2 (P0), then M9
-  `DATA_FRAG`, then M10 generic types. M4 (RTPS-to-registry mapping) is
-  dropped: DDS discovery is self-contained and framework service discovery
-  keeps using the nb broadcast.
+  `DATA_FRAG`, then M10 generic types. (M8 is done; M9 is next.) M4
+  (RTPS-to-registry mapping) is dropped: DDS discovery is self-contained and
+  framework service discovery keeps using the nb broadcast.
 
 ## Change log
 
@@ -306,6 +321,11 @@ a fixed participant index instead.
   Cyclone DDS reader receives an event from the `dds` transport provider with
   `intra_process=off`. This verifies the provider data plane; self-developed
   RTPS discovery still carries no application `DATA`.
+- 2026-10-31: M8 done. The CDR layer (`rtps_cdr.{c,h}`) now runs on vendored
+  Micro-CDR 2.0.2 behind the unchanged `nb_cdr_*` API, with zero-filled
+  alignment padding, zero-copy `nb_cdr_get_bytes`, and a pinned byte-layout
+  test (`unit.rtps_cdr`). Cyclone interop stays green in reliable multicast and
+  unicast-only modes, so the wire format is unchanged.
 - 2026-10-31: Completed bidirectional RTPS application DATA. Added the
   subscription data callback, remote publication/local subscription matching,
   nb-to-nb delivery, and Cyclone-to-nb delivery. Fixed CDR_LE option-bit

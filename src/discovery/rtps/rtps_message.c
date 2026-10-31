@@ -122,7 +122,14 @@ int nb_rtps_submessage_end(nb_cdr_writer_t *writer, size_t start_offset)
     if (body_len > 0xffffu) {
         return NB_ERR_TOOBIG;
     }
-    wr_u16(writer->data + start_offset + 2, (uint16_t)body_len);
+    {
+        uint8_t *data = nb_cdr_writer_data(writer);
+
+        if (!data) {
+            return NB_ERR_BAD_MESSAGE;
+        }
+        wr_u16(data + start_offset + 2, (uint16_t)body_len);
+    }
     return NB_OK;
 }
 

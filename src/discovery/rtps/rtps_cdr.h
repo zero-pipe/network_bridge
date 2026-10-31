@@ -2,31 +2,32 @@
 #define NB_RTPS_CDR_H
 
 /*
- * Little-endian CDR reader/writer used by the RTPS discovery codec.
+ * Little-endian CDR reader/writer used by the RTPS codec, implemented on top
+ * of Micro-CDR (ucdrBuffer).
  *
  * Alignment is relative to the start of the buffer passed to init. This lets
  * each ParameterList value be decoded as its own CDR stream, which is how
  * RTPS parameter values are aligned.
  *
- * The API is bounds checked: the first failure sticks and later calls become
- * no-ops. Callers check nb_cdr_*_ok() once at the end.
+ * Alignment padding is written as zeroes, so encoded frames are deterministic
+ * and never leak uninitialised bytes. The API is bounds checked: the first
+ * failure sticks and later calls become no-ops. Callers check nb_cdr_*_ok()
+ * once at the end.
  */
 
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
+#include <ucdr/microcdr.h>
+
 typedef struct nb_cdr_writer {
-    uint8_t *data;
-    size_t cap;
-    size_t len;
+    ucdrBuffer buffer;
     int failed;
 } nb_cdr_writer_t;
 
 typedef struct nb_cdr_reader {
-    const uint8_t *data;
-    size_t len;
-    size_t pos;
+    ucdrBuffer buffer;
     int failed;
 } nb_cdr_reader_t;
 
@@ -37,6 +38,10 @@ bool nb_cdr_writer_ok(const nb_cdr_writer_t *writer);
 bool nb_cdr_reader_ok(const nb_cdr_reader_t *reader);
 size_t nb_cdr_writer_len(const nb_cdr_writer_t *writer);
 size_t nb_cdr_reader_remaining(const nb_cdr_reader_t *reader);
+
+/* Mutable view of the bytes written so far. Only use it to patch a field in
+ * place (for example a submessage length) while the writer is still valid. */
+uint8_t *nb_cdr_writer_data(nb_cdr_writer_t *writer);
 
 /* Pad with zeroes to the next multiple of alignment (must be a power of 2). */
 void nb_cdr_writer_align(nb_cdr_writer_t *writer, size_t alignment);

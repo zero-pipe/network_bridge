@@ -34,3 +34,6 @@ __pycache__/
 # Local vendored dependency metadata
 3rdparty/ntk/.git/
 
+# Local environment notes and secrets (never commit)
+/.local/
+

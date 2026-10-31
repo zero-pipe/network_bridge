@@ -123,7 +123,7 @@ install(TARGETS nb
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
 # elog 只是 log.c 的实现细节：静态库最终仍需链接，但不向使用者传播头文件路径。
-target_link_libraries(nb PUBLIC ntk nb_base PRIVATE elog)
+target_link_libraries(nb PUBLIC ntk nb_base microcdr PRIVATE elog)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # shm_open()/sem_timedwait() live in librt on older glibc.
