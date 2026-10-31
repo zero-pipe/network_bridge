@@ -1,11 +1,12 @@
-# 10：Payload Codec
+# 10: Payload Codec
 
-注册一个应用层 `nb_codec_t`，把 `order_t` 编码成 `"id|name"` 文本，再解码回来。
-框架只负责透传字节和 `encoding` 标签，不解释业务格式。
+Register an application-level `nb_codec_t` that encodes `order_t` into the text
+form `"id|name"` and decodes it again. The framework only forwards bytes and the
+`encoding` tag and never interprets the business format.
 
 ```powershell
 .\example_10_payload_codec.exe
 ```
 
-程序会打印编码后的 payload 和解码出的订单字段。生产代码可把文本格式替换为
-JSON、protobuf 或自定义 IDL。
+The program prints the encoded payload and the decoded order fields. Production
+code can replace the text format with JSON, protobuf or a custom IDL.

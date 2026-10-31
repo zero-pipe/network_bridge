@@ -1,68 +1,85 @@
-# 15：同主机 SHM RPC
+# 15: Same-Host SHM RPC
 
-服务端和客户端在同一台 Linux 主机上，通过 POSIX 共享内存完成 RPC，不经过
-UDP/TCP 协议栈，也不需要服务发现。这个示例展示 STATIC 直连；同一套 provider
-也支持 MESH（见文末）。
+The server and client run on the same Linux host and complete RPC over POSIX
+shared memory, without the UDP/TCP stack and without service discovery. This
+example shows a STATIC direct connection; the same provider also supports MESH
+(see below).
 
 ```bash
 ./example_15_shm_server
-# 另一个终端
+# in another terminal
 ./example_15_shm_client
 ```
 
-端点约定：
+Endpoint conventions:
 
-- 服务端：`shm://zrpc-example:1`
-- 客户端：`shm://zrpc-example:2`（第 3 个客户端用 `:3`，依次到 `:9`）
-- 客户端 proxy 目标：`shm://zrpc-example:1`
+- server: `shm://nb-example:1`
+- client: `shm://nb-example:2` (a third client uses `:3`, up to `:9`)
+- client proxy target: `shm://nb-example:1`
 
-实现要点（iceoryx 风格零拷贝）：
+Implementation highlights (iceoryx-style zero copy):
 
-- 一个 channel 一个共享内存段，段内按 size class 分档的 chunk 池，队列无锁；
-- 发送方直接在段内编码 envelope，接收方以 `frame_owner`（external `nb_buf`）
-  持有 chunk，大包跨线程零拷贝，不复制消息体；
-- 服务端（端口 1）持有段生命周期，最多 8 个客户端共用同一段。
+- one shared-memory segment per channel, with size-classed chunk pools and
+  lock-free queues;
+- the sender encodes the envelope directly in the segment; the receiver holds
+  the chunk through a `frame_owner` (an external `nb_buf`), so large messages
+  cross threads without copying the body;
+- the server (port 1) owns the segment lifetime, and up to 8 clients share it.
 
-## MESH 模式
+## MESH mode
 
-SHM 不再要求固定 server/client 角色。同一 channel 内每个节点用自己的 node id
-加入段，mesh 通过 UDP HELLO 广播完整 binding URI（`shm://<channel>:<node-id>`），
-服务端和客户端都可以是任意节点：
+SHM no longer requires fixed server/client roles. Every node in a channel joins
+the segment with its own node id, and mesh broadcasts the full binding URI
+(`shm://<channel>:<node-id>`) over UDP HELLO, so either side can be any node:
 
 ```c
-/* 节点 A: shm://orders:1，节点 B: shm://orders:2，两者模式均为 MESH */
+/* node A: shm://orders:1, node B: shm://orders:2, both in MESH mode */
 binding.endpoint = "shm://orders:2";
-cfg.mode = NB_MODE_MESH;
+cfg.mode = NB_NODE_MODE_MESH;
 ```
 
-只要两个节点的 discovery 端口互通（同广播域或互加 `discovery.peers`），客户端
-即可按服务名发现 `shm://orders:2` 并直接调用，不需要 `nb_proxy_set_target_uri`。
+As long as the discovery ports of both nodes can reach each other (same
+broadcast domain, or mutual `discovery.peers`), a client discovers
+`shm://orders:2` by service name and calls it directly without
+`nb_proxy_set_target_uri`.
 
-- 同一 channel 的 node id 必须唯一，范围 `1..9`。
-- 段由首个创建者初始化，最后一个关闭者 unlink；不再要求 node 1 常驻。
-- 事件仍按 `服务名.方法名` 扇出给所有订阅节点，发布者自身不回显。
+- Node ids within one channel must be unique in the range `1..9`.
+- The segment is initialized by the first creator and unlinked by the last
+  closer; node 1 no longer has to stay alive.
+- Events still fan out by `service.method` to every subscribed node, and the
+  publisher does not receive its own events.
 
-发布/订阅（同 DDS 用法）：
+Publish/subscribe (same usage as DDS):
 
-- 订阅者是“方法名即主题”的普通 service：`nb_service_add_method(sub, "chat", ...)`；
-  注册时会把 `服务名.方法名` 写入段内订阅表。
-- 发布者用 `nb_proxy_call_event(pub, "服务名", "chat", &payload, NULL)` 发送事件，
-  endpoint 指向同一 channel（如 `shm://zrpc-example:1`）。
-- 事件按 route 零拷贝扇出给所有订阅节点（发布者自身不回显）；chunk 带引用计数，
-  最后一个消费者用完才归还池。
-- 订阅者按自身角色复用入站队列：服务端走请求队列，客户端走自己的响应队列，
-  事件与响应共用一个队列、由框架按消息类型分发。
+- A subscriber is a regular service whose method name is the topic:
+  `nb_service_add_method(sub, "chat", ...)`. Registration writes
+  `service.method` into the segment's subscription table.
+- A publisher sends with
+  `nb_proxy_call_event(pub, "service", "chat", &payload, NULL)` and points its
+  endpoint at the same channel, for example `shm://nb-example:1`.
+- Events fan out to every subscriber node by route with zero copy; the publisher
+  does not receive its own events. Chunks carry a reference count and return to
+  the pool only after the last consumer releases them.
+- Subscribers reuse their inbound queue according to role: a server uses its
+  request queue and a client uses its own response queue. Events and responses
+  share a queue and the framework dispatches them by message type.
 
-限制与调优：
+Limitations and tuning:
 
-- 仅 Linux（Windows/其他平台返回 `NB_ERR_NOT_SUPPORTED`）。
-- 单条 encoded envelope 上限 1 MiB（最大 size class）。
-- 大包并发上限受该档块数约束；缺块时发送返回 `NB_ERR_AGAIN`（可重试）。
-  用 `NB_SHM_BYTES` 调大段（默认 32 MiB，下限 2 MiB）；同一 channel 的
-  各进程必须使用相同值。
-- 每节点最多订阅 16 个主题（route），同一 channel 最多 9 个节点。
-- 个别订阅者队列满时该条事件对该订阅者丢弃（其余订阅者不受影响）。
-- 客户端先启动也可以，但服务端重建段时会清掉上一个世代的残留消息与订阅；
-  订阅/发布场景建议先启动服务端，让客户端注册到干净的段上。
+- Linux only (Windows and other platforms return `NB_ERR_NOT_SUPPORTED`).
+- A single encoded envelope is limited to 1 MiB (the largest size class).
+- The concurrency limit for large messages is bounded by the chunk count of that
+  size class; when no chunk is available, sending returns `NB_ERR_AGAIN`
+  (retryable). Set `NB_SHM_BYTES` to grow the segment (default 32 MiB, minimum
+  2 MiB); every process on the same channel must use the same value.
+- Each node subscribes to at most 16 topics (routes) and a channel holds at most
+  9 nodes.
+- When one subscriber's queue is full, that event is dropped for that subscriber
+  only; other subscribers are unaffected.
+- Starting the client first is allowed, but rebuilding the segment on the server
+  side discards messages and subscriptions from the previous generation.
+  For publish/subscribe scenarios, start the server first so clients register
+  against a clean segment.
 
-实现位于 `src/transport/shm/`，公共注册接口见 `include/shm.h`。
+The implementation lives in `src/transport/shm/`; the public registration API is
+in `include/nb/shm.h`.

@@ -1,50 +1,55 @@
-# 错误码
+# Error Codes
 
-公共错误码定义在 [`include/error.h`](../../include/error.h)。`NB_ERROR_TABLE` 是唯一真源，
-同时生成枚举值、稳定名称、描述和重试标记。旧版本已经使用的 `0..-9` 数值保持不变。
+Public error codes are defined in [`include/nb/error.h`](../../include/nb/error.h).
+`NB_ERROR_TABLE` is the single source of truth: it generates the enum values,
+stable names, descriptions and retry flags. The `0..-9` values already used by
+earlier releases are unchanged.
 
-## 布局
+## Layout
 
-| 数值 | 类别 |
+| Value | Category |
 | --- | --- |
-| `0` | 成功 |
-| `-1..-9` | 原始框架错误码，保持兼容 |
-| `-10..-19` | 扩展框架错误码 |
-| `<= -1000` | 应用自定义错误码 |
+| `0` | success |
+| `-1..-9` | original framework codes, kept compatible |
+| `-10..-19` | extended framework codes |
+| `<= -1000` | application-defined codes |
 
-## 框架错误码
+## Framework codes
 
-| 名称 | 数值 | 含义 | 可重试 |
+| Name | Value | Meaning | Retryable |
 | --- | ---: | --- | :---: |
-| `NB_OK` | 0 | 成功 | 否 |
-| `NB_ERR_INVALID` | -1 | 参数非法 | 否 |
-| `NB_ERR_NOMEM` | -2 | 内存不足 | 否 |
-| `NB_ERR_NOTFOUND` | -3 | 服务、方法、路由或请求不存在 | 否 |
-| `NB_ERR_TIMEOUT` | -4 | 操作超时 | 否 |
-| `NB_ERR_IO` | -5 | I/O 错误 | 否 |
-| `NB_ERR_STATE` | -6 | 对象状态非法 | 否 |
-| `NB_ERR_AGAIN` | -7 | 暂时不可用，可重试 | 是 |
-| `NB_ERR_TOOBIG` | -8 | 消息或字段超过上限 | 否 |
-| `NB_ERR_CLOSED` | -9 | 对象或连接已关闭 | 否 |
-| `NB_ERR_ALREADY` | -10 | 已启动或条目已存在 | 否 |
-| `NB_ERR_NOT_SUPPORTED` | -11 | 当前构建或传输不支持 | 否 |
-| `NB_ERR_CANCELED` | -12 | 操作被取消 | 否 |
-| `NB_ERR_OVERLOAD` | -13 | 服务端过载，稍后重试 | 是 |
-| `NB_ERR_BAD_MESSAGE` | -14 | 报文或 payload 格式错误 | 否 |
-| `NB_ERR_PERMISSION` | -15 | 权限不足 | 否 |
-| `NB_ERR_ADDR_IN_USE` | -16 | 地址已被占用 | 否 |
-| `NB_ERR_CONN_REFUSED` | -17 | 连接被拒绝 | 否 |
-| `NB_ERR_CONN_RESET` | -18 | 连接被对端重置 | 否 |
-| `NB_ERR_BUSY` | -19 | 资源忙，可重试 | 是 |
-| `NB_ERR_USER_BASE` | -1000 | 应用错误码起始值 | 否 |
+| `NB_OK` | 0 | success | no |
+| `NB_ERR_INVALID` | -1 | invalid argument | no |
+| `NB_ERR_NOMEM` | -2 | out of memory | no |
+| `NB_ERR_NOTFOUND` | -3 | unknown service, method, route or request | no |
+| `NB_ERR_TIMEOUT` | -4 | operation timed out | no |
+| `NB_ERR_IO` | -5 | I/O error | no |
+| `NB_ERR_STATE` | -6 | invalid object state | no |
+| `NB_ERR_AGAIN` | -7 | temporarily unavailable, retry later | yes |
+| `NB_ERR_TOOBIG` | -8 | message or field exceeds its limit | no |
+| `NB_ERR_CLOSED` | -9 | object or connection closed | no |
+| `NB_ERR_ALREADY` | -10 | already started or entry exists | no |
+| `NB_ERR_NOT_SUPPORTED` | -11 | unsupported by this build or transport | no |
+| `NB_ERR_CANCELED` | -12 | operation canceled | no |
+| `NB_ERR_OVERLOAD` | -13 | server overloaded, retry later | yes |
+| `NB_ERR_BAD_MESSAGE` | -14 | malformed message or payload | no |
+| `NB_ERR_PERMISSION` | -15 | insufficient permission | no |
+| `NB_ERR_ADDR_IN_USE` | -16 | address already in use | no |
+| `NB_ERR_CONN_REFUSED` | -17 | connection refused | no |
+| `NB_ERR_CONN_RESET` | -18 | connection reset by peer | no |
+| `NB_ERR_BUSY` | -19 | resource busy, retry later | yes |
+| `NB_ERR_USER_BASE` | -1000 | first application-defined value | no |
 
-`NB_ERR_TIMEOUT` 本身不标记为可重试，因为重试可能重复执行非幂等业务。调用方应结合
-业务幂等性和超时原因决定是否重试。
+`NB_ERR_TIMEOUT` is deliberately not marked retryable: a retry may re-execute a
+non-idempotent operation. Callers should combine business idempotency with the
+reason for the timeout before retrying.
 
-## 应用错误码
+## Application codes
 
-应用状态码通过 `nb_response_t.status` 和 `nb_reply(call, status, ...)` 传递。建议应用
-使用 `NB_ERR_USER_BASE` 以下的负数，或自行约定非负数区间，避免与框架错误码冲突：
+Application status codes travel through `nb_response_t.status` and
+`nb_reply(call, status, ...)`. Applications should use negative values below
+`NB_ERR_USER_BASE`, or reserve their own non-negative range, so they cannot
+collide with framework codes:
 
 ```c
 enum {
@@ -53,9 +58,10 @@ enum {
 };
 ```
 
-客户端回调同时会收到框架状态 `status` 和响应中的应用状态 `resp->status`。两者不要混用。
+A client callback receives both the framework `status` and the application
+status in `resp->status`. Do not conflate them.
 
-## 查询辅助函数
+## Query helpers
 
 ```c
 #include <nb/error.h>
@@ -67,10 +73,13 @@ if (rc != NB_OK) {
 }
 ```
 
-`nb_error_name()` 返回稳定符号名，例如 `NB_ERR_TIMEOUT`；`nb_strerror()` 返回人读描述；
-`nb_error_is_retryable()` 返回非零表示可以重试。未知数值不会返回 `NULL`。
+`nb_error_name()` returns the stable symbolic name, for example
+`NB_ERR_TIMEOUT`; `nb_strerror()` returns a human-readable description;
+`nb_error_is_retryable()` returns non-zero when the caller may retry. Unknown
+values never return `NULL`.
 
-## 新增错误码
+## Adding a code
 
-修改 `NB_ERROR_TABLE` 即可自动生成枚举和查询表。新增错误码必须使用未占用的数值，
-不得改动已有数值，以免破坏调用方判断、日志统计或 wire 上的状态字段。
+Add an entry to `NB_ERROR_TABLE`; the enum and lookup tables are generated.
+New codes must use unused values and existing numeric values must never change,
+because callers, log statistics and the wire status field depend on them.

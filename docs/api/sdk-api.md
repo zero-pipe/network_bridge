@@ -1,75 +1,85 @@
-# network bridge framework SDK API
+# Network Bridge SDK API
 
-network bridge framework 是异步 RPC/消息运行时。公共 API 只暴露节点、服务、代理和字节视图，
-payload 的序列化格式由应用通过 codec 决定。
+Network Bridge is an asynchronous RPC and messaging runtime. The public API
+exposes only nodes, services, proxies and byte views; payload serialization is
+an application decision made through a codec.
 
-## 入口头文件
+## Entry headers
 
-需要完整 API 时：
+For the complete API:
 
 ```c
-#include <nb.h>
+#include <nb/nb.h>
 ```
 
-需要最小依赖集合时，按角色选择：
+For a minimal include set, pick by role:
 
-| 头文件 | 用途 |
+| Header | Purpose |
 | --- | --- |
-| `<nb/runtime.h>` | 节点、调度、发现、路由、指标 |
-| `<nb/server.h>` | service、handler、回复、消息视图 |
-| `<nb/client.h>` | proxy、stub、异步/同步/事件/流式调用 |
-| `<nb/transport.h>` | endpoint 与自定义 transport provider |
-| `<nb/extensions.h>` | codec、message view、service table |
-| `<nb/config.h>` | JSON 配置加载与按配置创建节点 |
+| `<nb/runtime.h>` | node, scheduling, discovery, routing, metrics |
+| `<nb/server.h>` | service, handler, reply, message view |
+| `<nb/client.h>` | proxy, stub, async/sync/event/streaming calls |
+| `<nb/transport.h>` | endpoint and custom transport providers |
+| `<nb/extensions.h>` | codec, message view, service table |
+| `<nb/config.h>` | JSON configuration loading and node creation |
 
-`<nb/error.h>`、`<nb/types.h>`、`<nb/metrics.h>`、`<nb/log.h>` 由上述入口按需包含。
-公共头文件统一位于 `<nb/...>` 命名空间；旧的 `<runtime.h>` 等平铺写法保留为转发头，
-源码仍可编译，但新代码应使用 `<nb/...>`。
+`<nb/error.h>`, `<nb/types.h>`, `<nb/metrics.h>` and `<nb/log.h>` are included
+on demand by those entry points. Public headers live under `<nb/...>`. The flat
+forms such as `<runtime.h>` remain as forwarding headers so existing sources
+keep compiling, but new code should use `<nb/...>`.
 
-## 对象模型
+## Object model
 
 ```text
 node
-  ├─ service   注册方法，接收请求并回复
-  ├─ stub      service.method + payload，维护 request_id 与重传
-  └─ proxy     在 stub 上注入服务发现/路由，提供 call_async/call_sync/call_event
+  ├─ service   registers methods, receives requests and replies
+  ├─ stub      service.method + payload, owns request_id and retries
+  └─ proxy     adds discovery/routing on top of a stub:
+               call_async / call_sync / call_event
 ```
 
-一个 node 可以同时承载客户端和服务端。proxy 借用 node 的 poller 与路由，不创建独立线程。
+One node can host both client and server roles. A proxy borrows the node's
+pollers and routing table and creates no threads of its own.
 
-推荐创建与销毁顺序：
+Recommended create/destroy order:
 
 ```text
 nb_node_create
   -> nb_service_create / nb_proxy_create
-  -> nb_node_run 或业务事件循环
+  -> nb_node_run or an application event loop
   -> nb_service_destroy / nb_proxy_destroy
   -> nb_node_destroy
 ```
 
-## 线程模型
+## Threading model
 
-- 默认 callback 和 `NB_SERVICE_EXEC_INLINE` handler 在 NTK poller 线程运行，禁止阻塞。
-- `NB_SERVICE_EXEC_WORKER` 在节点的 `runtime.handler_threads` 线程池运行。
-- `NB_SERVICE_EXEC_EXECUTOR` 在调用者提供的执行器运行。
-- `nb_proxy_call_async` / `nb_proxy_call_event` 可从任意线程调用。
-- `nb_proxy_call_sync` 会阻塞，禁止在 poller 回调中调用。
-- worker/executor handler 的 `nb_reply` 会自动回投原 poller 发送。
+- Callbacks and `NB_SERVICE_EXEC_MODE_INLINE` handlers run on the NTK poller
+  thread by default and must not block.
+- `NB_SERVICE_EXEC_MODE_WORKER` runs on the node's `runtime.handler_threads`
+  pool.
+- `NB_SERVICE_EXEC_MODE_EXECUTOR` runs on a caller-provided executor.
+- `nb_proxy_call_async` / `nb_proxy_call_event` may be called from any thread.
+- `nb_proxy_call_sync` blocks and must not be called inside a poller callback.
+- `nb_reply` from a worker/executor handler is posted back to the original
+  poller for sending.
 
-## 生命周期与所有权
+## Lifetime and ownership
 
 ### Payload
 
-`nb_payload_t` 只是 `{data, len, encoding}` 视图。框架不解释内容。
+`nb_payload_t` is only a `{data, len, encoding}` view. The framework never
+interprets its contents.
 
-发送侧 `nb_proxy_call_async`、`nb_stub_call_async`、`nb_proxy_call_event` 会在返回前复制
-payload。调用方始终拥有自己的缓冲区，可以在调用返回后立即释放。
+On send, `nb_proxy_call_async`, `nb_stub_call_async` and
+`nb_proxy_call_event` copy the payload before returning. The caller always owns
+its buffer and may free it immediately.
 
-接收侧请求/响应视图只在本次回调内有效。需要跨回调保存时必须复制。
+On receive, request and response views are valid only inside the callback. Copy
+them if they must outlive it.
 
-### Owned Payload API
+### Owned payload API
 
-需要避免整包复制时，可以使用 `nb_owned_payload_t` 配合 `*_owned` 变体：
+To avoid a full copy, use `nb_owned_payload_t` with the `*_owned` variants:
 
 ```c
 nb_buf_t *buf = nb_buf_alloc(12);
@@ -79,39 +89,49 @@ nb_owned_payload_init(&request, buf, 0, 5, 0);
 
 nb_call_options_t options = NB_CALL_OPTIONS_INIT;
 options.timeout_ms = 1000;
-rc = nb_proxy_call_async_owned(proxy, "Svc", "method", &request, &options, on_response, NULL);
-/* 返回后 request.buf 已置 NULL；即使失败，所有权也已由框架接管或释放。 */
+rc = nb_proxy_call_async_owned(proxy, "Svc", "method", &request, &options,
+                               on_response, NULL);
+/* request.buf is NULL afterwards; the framework owns or released it even on failure. */
 ```
 
-- `nb_proxy_call_async_owned` / `nb_proxy_call_event_owned`：客户端请求，metadata 经 options 传入。
-- `nb_stub_call_owned` / `nb_stub_call_event_owned_with_metadata`：底层 stub。
-- `nb_reply_owned`：服务端回复。
+- `nb_proxy_call_async_owned` / `nb_proxy_call_event_owned`: client requests;
+  metadata travels through options.
+- `nb_stub_call_owned` / `nb_stub_call_event_owned_with_metadata`: lower-level
+  stub calls.
+- `nb_reply_owned`: server replies.
 
-stub 的 12 参数调用已收敛为 `nb_stub_call_owned_ex` + `nb_stub_call_options_t`
-（service/method/payload/timeout/metadata/回调/用户指针/request_id），旧 `nb_stub_call_owned`
-保留为薄包装，新代码应使用 options 版本。
+The 12-argument stub call has been collapsed into `nb_stub_call_owned_ex` plus
+`nb_stub_call_options_t` (service/method/payload/timeout/metadata/callback/user
+pointer/request_id). The old `nb_stub_call_owned` remains as a thin wrapper;
+new code should use the options form.
 
-Owned API 在入口接管 `payload->buf`；旧 `nb_payload_t` API 的借用+复制语义保持不变。
-proxy 层 metadata 统一走 `nb_call_options_t`；stub 层保留独立的 `_with_metadata` 变体。
-缓冲区由 `nb_base` 的 `nb_buf_*` 管理，唯一所有权路径默认不做原子引用计数。
+Owned APIs take over `payload->buf` at entry. The borrowed-plus-copy semantics
+of the older `nb_payload_t` APIs are unchanged. Metadata on the proxy layer
+always uses `nb_call_options_t`; the stub layer keeps separate
+`_with_metadata` variants. Buffers are managed by `nb_base`'s `nb_buf_*`; the
+single-owner path does no atomic reference counting by default.
 
-### 同步调用
+### Synchronous calls
 
 ```c
 nb_response_t response = {0};
 nb_call_options_t options = NB_CALL_OPTIONS_INIT;
 options.timeout_ms = 3000;
-int rc = nb_proxy_call_sync(proxy, "OrderService", "get", &request, &options, &response);
-/* 使用 response.payload */
+int rc = nb_proxy_call_sync(proxy, "OrderService", "get", &request, &options,
+                            &response);
+/* use response.payload */
 nb_response_release(&response);
 ```
 
-`nb_response_release` 只释放同步调用写出的响应 metadata 与 payload（`owns_payload == true`
-时），并将结构清零；回调作用域内的响应 `owns_payload` 为 false，释放它们不会碰应用缓冲区。
+`nb_response_release` frees the metadata and payload of a response written by a
+synchronous call (when `owns_payload == true`) and zeroes the structure.
+Callback-scoped responses have `owns_payload == false`; releasing them never
+touches application buffers.
 
-### 消息视图
+### Message view
 
-`nb_message_view_t` 用于同步风格 handler 和业务侧组装 payload：
+`nb_message_view_t` is used by synchronous-style handlers and by applications
+assembling payloads:
 
 ```c
 nb_message_view_t view;
@@ -120,7 +140,8 @@ nb_message_view_set_string(&view, "ok");
 nb_message_view_release(&view);
 ```
 
-`set_borrowed` 不接管外部内存；`set_data` / `set_string` / `set_payload` 复制并由视图拥有。
+`set_borrowed` does not take ownership of external memory; `set_data`,
+`set_string` and `set_payload` copy and are owned by the view.
 
 ## Node
 
@@ -129,7 +150,8 @@ int nb_node_create(const nb_node_config_t *cfg, nb_node_t **out);
 void nb_node_destroy(nb_node_t *node);
 ```
 
-节点创建时完成传输、poller、发现和路由装配。查询接口：
+Node creation assembles transports, pollers, discovery and routing. Query
+interfaces:
 
 - `nb_node_name`
 - `nb_node_transport`
@@ -138,40 +160,46 @@ void nb_node_destroy(nb_node_t *node);
 - `nb_node_binding_count` / `nb_node_binding_endpoint`
 - `nb_node_metrics` / `nb_node_peer_stats`
 
-运行与路由：
+Running and routing:
 
 - `nb_node_add_discovery_peer`
 - `nb_node_add_static_route` / `nb_node_add_static_route_uri`
 - `nb_node_wait_for_service`
 - `nb_node_post` / `nb_node_post_delay`
-- `nb_node_run_once`（运行一轮，不安装信号处理器，适合嵌入宿主程序）
-- `nb_node_run_until_signal`（安装 SIGINT/SIGTERM 后运行到信号到达；`nb_node_run` 是兼容别名）
+- `nb_node_run_once` (runs one round, installs no signal handlers; suitable for
+  embedding in a host application)
+- `nb_node_run_until_signal` (installs SIGINT/SIGTERM and runs until one
+  arrives; `nb_node_run` is a compatibility alias)
 
-配置字段见 [配置参考](config.md)。
+Configuration fields are documented in the [configuration
+reference](config.md).
 
 ## Service
 
-异步 handler：
+Asynchronous handler:
 
 ```c
 typedef void (*nb_handler_fn)(nb_call_t *call, const nb_request_t *req, void *user);
 ```
 
-同步风格 handler：
+Synchronous-style handler:
 
 ```c
 typedef int (*nb_sync_handler_fn)(const nb_request_t *req, nb_message_view_t *resp, void *user);
 ```
 
-同步 handler 的返回值会作为应用状态码写回响应。异步 handler 必须调用一次 `nb_reply`、
-`nb_reply_with_metadata` 或 `nb_reply_stream`。
+The return value of a synchronous handler becomes the application status in the
+response. An asynchronous handler must call exactly one of `nb_reply`,
+`nb_reply_with_metadata` or `nb_reply_stream`.
 
-所有 `nb_reply*` 都返回 `int`：`NB_OK` 表示已接受发送，重复回复返回
-`NB_ERR_ALREADY`，status message 超过 `NB_STATUS_MSG_MAX` 或 metadata 超过
-`NB_METADATA_WIRE_MAX` 时返回 `NB_ERR_TOOBIG`（不再静默截断）。需要保留内嵌 NUL 的
-status message 时用 `nb_reply_status(call, &nb_status_t{code, message, message_len}, ...)`。
+Every `nb_reply*` returns `int`: `NB_OK` means the reply was accepted for
+sending, a duplicate reply returns `NB_ERR_ALREADY`, and a status message above
+`NB_STATUS_MSG_MAX` or metadata above `NB_METADATA_WIRE_MAX` returns
+`NB_ERR_TOOBIG` instead of being silently truncated. To preserve embedded NUL
+bytes in a status message, use
+`nb_reply_status(call, &nb_status_t{code, message, message_len}, ...)`.
 
-注册：
+Registration:
 
 ```c
 nb_service_t *svc = NULL;
@@ -180,25 +208,28 @@ nb_service_add_method(svc, "get", on_get, user);
 nb_service_add_sync_method(svc, "put", on_put_sync, user);
 ```
 
-`*_with_options` 版本通过 `nb_service_method_options_t` 选择 INLINE、WORKER 或 EXECUTOR。
-WORKER 需要 `runtime.handler_threads > 0`；未配置时退化为 INLINE 并告警。
+The `*_with_options` variants select INLINE, WORKER or EXECUTOR through
+`nb_service_method_options_t`. WORKER requires `runtime.handler_threads > 0`;
+without it the method degrades to INLINE with a warning.
 
-流式：
+Streaming:
 
 - `nb_service_add_stream_method` / `_with_options`
 - `nb_reply_stream`
-- 请求 chunk 的最后一个必须带 `NB_STREAM_LAST`
+- the final request chunk must carry `NB_STREAM_FLAG_LAST`
 
-拦截与取消：
+Interception and cancellation:
 
-- `nb_service_set_interceptor` 在 handler 前执行，非 `NB_OK` 直接短路回复。
-- `nb_call_deadline_ms` 读取客户端传播的绝对 deadline。
-- `nb_call_request_id` 读取请求的 correlation id，便于日志与追踪。
-- `nb_call_canceled` 支持 handler 协作式退出。
+- `nb_service_set_interceptor` runs before the handler; a non-`NB_OK` return
+  short-circuits the reply.
+- `nb_call_deadline_ms` reads the absolute deadline propagated by the client.
+- `nb_call_request_id` reads the request correlation id for logging and
+  tracing.
+- `nb_call_canceled` supports cooperative handler exit.
 
-## Proxy 与 Stub
+## Proxy and Stub
 
-普通调用：
+A regular call:
 
 ```c
 nb_proxy_t *proxy = NULL;
@@ -208,37 +239,42 @@ nb_payload_t request = { "hello", 5, 0 };
 nb_call_options_t options = NB_CALL_OPTIONS_INIT;
 options.timeout_ms = 1000;
 
-nb_proxy_call_async(proxy, "EchoService", "echo", &request, &options, on_response, user);
+nb_proxy_call_async(proxy, "EchoService", "echo", &request, &options,
+                    on_response, user);
 ```
 
-所有调用形态共用一个 `nb_call_options_t`：
+Every call form shares `nb_call_options_t`:
 
 ```c
 typedef struct nb_call_options {
-    uint64_t timeout_ms;              /* 0 = 默认值；event 忽略；流打开作为流超时 */
-    const nb_metadata_t *metadata;    /* 请求 metadata；NULL = 无，调用返回前复制 */
-    nb_request_id_t *out_request_id;  /* 可选，回填相关 id 供 nb_proxy_cancel 使用 */
+    uint64_t timeout_ms;              /* 0 = default; ignored by events; the stream deadline when opening */
+    const nb_metadata_t *metadata;    /* request metadata; NULL = none, copied before return */
+    nb_request_id_t *out_request_id;  /* optional; receives the id for nb_proxy_cancel */
 } nb_call_options_t;
 ```
 
-`options` 传 `NULL` 等价于全默认值；可用 `NB_CALL_OPTIONS_INIT` 初始化后逐字段覆盖。
+Passing `NULL` for `options` means all defaults. You may also initialize with
+`NB_CALL_OPTIONS_INIT` and override individual fields.
 
-三种形态：
+Three call forms:
 
-- `nb_proxy_call_async`：等待响应，回调一次。
-- `nb_proxy_call_sync`：阻塞等待并写出 `nb_response_t`。
-- `nb_proxy_call_event`：单向事件，不等待响应。
+- `nb_proxy_call_async`: waits for a response, invokes the callback once.
+- `nb_proxy_call_sync`: blocks and writes an `nb_response_t`.
+- `nb_proxy_call_event`: one-way event, no response.
 
-metadata 通过 `nb_call_options_t.metadata` 传入，使用固定容量容器，二进制 value 可安全传输。
+Metadata is passed through `nb_call_options_t.metadata` in a fixed-capacity
+container; binary values travel safely.
 
-流式调用：
+Streaming calls:
 
-- `nb_proxy_call_server_stream`：普通请求，响应分片。
-- `nb_proxy_open_client_stream` / `nb_proxy_open_bidi_stream`：打开客户端请求流。
-- `nb_proxy_stream_send` / `nb_proxy_stream_cancel` / `nb_proxy_stream_destroy`。
-- 流打开只用 options 的 `timeout_ms`；chunk 自带的 metadata 走 `nb_chunk_t.metadata`。
+- `nb_proxy_call_server_stream`: regular request with a chunked response.
+- `nb_proxy_open_client_stream` / `nb_proxy_open_bidi_stream`: open a client
+  request stream.
+- `nb_proxy_stream_send` / `nb_proxy_stream_cancel` / `nb_proxy_stream_destroy`.
+- Opening a stream uses only `timeout_ms` from options; per-chunk metadata
+  travels in `nb_chunk_t.metadata`.
 
-取消：
+Cancellation:
 
 ```c
 nb_request_id_t request_id = 0;
@@ -248,16 +284,21 @@ nb_proxy_call_async(proxy, "Svc", "method", &request, &options, on_response, use
 nb_proxy_cancel(proxy, request_id);
 ```
 
-取消是 best-effort：框架发送 `KIND_CANCEL` 并让本地调用以 `NB_ERR_NOTFOUND` 结束；
-已经运行的 handler 不会被抢占。
+Cancellation is best-effort: the framework sends `KIND_CANCEL` and completes
+the local call with `NB_ERR_NOTFOUND`; a handler that is already running is
+never preempted.
 
-`nb_stub_t` 是 proxy 下方的调用原语。`nb_proxy_create` 会自动创建一个注入路由 send 钩子的
-stub。只有需要自定义发送逻辑时才直接使用 `nb_stub_create` 与 `nb_stub_call_*`。
+`nb_stub_t` is the call primitive beneath the proxy. `nb_proxy_create`
+automatically creates a stub with a routing send hook installed. Use
+`nb_stub_create` and `nb_stub_call_*` directly only when you need custom send
+logic.
 
-### 零拷贝发布（loan/borrow）
+### Zero-copy publishing (loan/borrow)
 
-普通 `nb_proxy_call_event` 会把 payload 拷进传输的发送缓冲；对 shm 这类 payload 直接住在
-共享段里的后端，可以借一块 chunk 直写、再发布，省掉那次拷贝：
+A regular `nb_proxy_call_event` copies the payload into the transport send
+buffer. For backends such as shm, where the payload lives directly in the
+shared segment, you can borrow a chunk, write into it and publish it, avoiding
+that copy:
 
 ```c
 nb_loan_t *loan = NULL;
@@ -265,20 +306,24 @@ uint8_t *data = NULL;
 uint32_t cap = 0;
 
 if (nb_publisher_loan(pub, "TopicService", "chat", len, &loan, &data, &cap) == NB_OK) {
-    memcpy(data, my_bytes, len);                 /* 直接写段内内存 */
-    nb_publisher_publish_loan(loan, len, 0, NULL); /* 补 envelope 前缀并扇出 */
+    memcpy(data, my_bytes, len);                   /* write directly into the segment */
+    nb_publisher_publish_loan(loan, len, 0, NULL); /* add the envelope prefix and fan out */
 } else {
-    /* NB_ERR_NOT_SUPPORTED：目标传输不支持；NB_ERR_AGAIN：暂无可借 chunk，稍后重试 */
+    /* NB_ERR_NOT_SUPPORTED: transport does not support loans;
+       NB_ERR_AGAIN: no chunk available, retry later */
 }
 ```
 
-- loan 在借出时就把目标传输固定下来（经 proxy 的固定端点或服务发现解析），因此
-  `publish_loan` 不再查路由；只支持 EVENT 发布。
-- `publish_loan` 的 `encoding` 为 0 时沿用 publisher 的默认 `payload_encoding`，
-  与普通 event 路径的规则一致。
-- `nb_publisher_publish_loan` 无论成败都接管 loan；未发布想放弃时调用
-  `nb_publisher_loan_release`。loan 是线程私有的，不要跨线程传递。
-- `cap` 可能大于请求的 `capacity`（按段内 size class 向上取整），实际写入不要超过 `len`。
+- A loan fixes its target transport when it is issued (through a proxy's fixed
+  endpoint or discovery), so `publish_loan` does no routing lookup. Only EVENT
+  publishing is supported.
+- An `encoding` of 0 in `publish_loan` uses the publisher's default
+  `payload_encoding`, matching the regular event path.
+- `nb_publisher_publish_loan` takes over the loan on both success and failure.
+  To abandon an unpublished loan, call `nb_publisher_loan_release`. A loan is
+  thread-private; never pass it across threads.
+- `cap` may exceed the requested `capacity` (rounded up to a segment size
+  class). Never write more than `len` bytes.
 
 ## Codec
 
@@ -293,18 +338,19 @@ typedef struct nb_codec {
 } nb_codec_t;
 ```
 
-注册：
+Registration:
 
 ```c
 nb_node_register_codec(node, &my_codec);
 const nb_codec_t *codec = nb_node_find_codec(node, response.payload.encoding);
 ```
 
-encode 产生的字节在发送调用返回后即可 release，因为框架已经复制 payload。
+Bytes produced by encode may be released as soon as the send call returns,
+because the framework has already copied the payload.
 
-## Service Table
+## Service table
 
-把服务和方法 ID 放在两端共享的头文件里：
+Share service and method ids through a header used by both sides:
 
 ```c
 NB_SERVICE_DEFINE(order_table, 7u, "OrderService",
@@ -312,40 +358,51 @@ NB_SERVICE_DEFINE(order_table, 7u, "OrderService",
     NB_SERVICE_METHOD(2u, "put"));
 ```
 
-然后把 `&order_table` 填入 `nb_node_config_t.service_table`，或在创建节点前调用
-`nb_service_table_install`。服务表是声明契约，路由仍使用 `service.method` 字符串。
+Then put `&order_table` into `nb_node_config_t.service_table`, or call
+`nb_service_table_install` before creating the node. The service table is a
+declarative contract; routing still uses the `service.method` string.
 
-## Transport Provider
+## Transport provider
 
-内置 UDP/TCP 是明文、无认证传输。需要 TLS/DTLS 或自定义协议时实现
-`nb_transport_provider_ops_t`，并在创建节点前注册：
+The built-in UDP/TCP transports are plaintext and unauthenticated. To add
+TLS/DTLS or a custom protocol, implement `nb_transport_provider_ops_t` and
+register it before creating a node:
 
 ```c
 nb_transport_provider_register(&my_provider);
 ```
 
-provider 的 descriptor 和 ops 必须具有静态生命周期。
+The provider descriptor and ops must have static lifetime.
 
-ops 与 options 结构体首部带版本/大小字段，用于跨版本安全注册：
+The ops and options structs start with version/size fields for safe
+cross-version registration:
 
-- `nb_transport_provider_ops_t.abi_version` 填 `NB_TRANSPORT_PROVIDER_ABI_VERSION`
-  （0 视为旧版 provider，仍被接受）
-- `nb_transport_provider_ops_t.struct_size` 填 `sizeof(nb_transport_provider_ops_t)`
-- `nb_transport_provider_options_t.struct_size` 填 `sizeof(nb_transport_provider_options_t)`
+- `nb_transport_provider_ops_t.abi_version` must be
+  `NB_TRANSPORT_PROVIDER_ABI_VERSION` (0 is treated as a legacy provider and is
+  still accepted)
+- `nb_transport_provider_ops_t.struct_size` must be
+  `sizeof(nb_transport_provider_ops_t)`
+- `nb_transport_provider_options_t.struct_size` must be
+  `sizeof(nb_transport_provider_options_t)`
 
-注册失败返回 `NB_ERR_INVALID`；注销用 `nb_transport_provider_unregister(scheme)`。
+Registration returns `NB_ERR_INVALID` on failure. Unregister with
+`nb_transport_provider_unregister(scheme)`.
 
-指针生命周期约定：`options.endpoint` 在 instance 存续期间保持有效；`message` 及其
-`payload/metadata` 指针只在当前回调内有效；`frame_owner` 由 core 持有、provider
-用完即释放；`reply_token` 只能原样回传给 `reply`；`peer`/`target` 是调用栈上的
-临时对象。
+Pointer lifetime rules: `options.endpoint` stays valid for the instance
+lifetime; `message` and its `payload`/`metadata` pointers are valid only inside
+the current callback; `frame_owner` is owned by core and released by the
+provider when done; `reply_token` may only be passed back verbatim to `reply`;
+`peer`/`target` are temporary objects on the call stack.
 
-provider SPI 只使用三类公共对象：
+The provider SPI uses only three public objects:
 
-- `nb_endpoint_t`：`send` 的目标、`reply` 的对端；`scheme/host/port/path` 由
-  provider 自己解释，`uri` 是规范化形式。
-- `nb_message_t`：与 core 内部相同的消息结构，不再有第二份 provider 消息副本。
-- `nb_qos_t`：创建 instance 时通过 `nb_transport_provider_options_t.qos` 传入。
+- `nb_endpoint_t`: the target of `send` and the peer of `reply`;
+  `scheme/host/port/path` are interpreted by the provider itself, while `uri`
+  is the normalized form.
+- `nb_message_t`: the same message struct used inside core; there is no second
+  provider message copy.
+- `nb_qos_t`: passed when creating an instance through
+  `nb_transport_provider_options_t.qos`.
 
 ```c
 static int my_send(nb_transport_instance_t *inst,
@@ -357,13 +414,15 @@ static int my_reply(nb_transport_instance_t *inst,
                     const nb_message_t *msg);
 ```
 
-入站回调为 `on_receive(receiver, reply_token, message)`，来源端点在
-`message->peer`；provider 不再单独传 `host/port` 参数。
+The inbound callback is `on_receive(receiver, reply_token, message)`; the source
+endpoint is `message->peer`, so providers no longer pass separate `host/port`
+arguments.
 
 ## Cyclone DDS
 
-内置 `dds` provider 把 v2 frame 作为不透明 octet sample 承载在 Cyclone DDS 上。
-注册后在 binding 中使用 `dds://<domain>`（端口可省略，旧写法 `dds://<domain>:1` 兼容）：
+The built-in `dds` provider carries v2 frames as opaque octet samples over
+Cyclone DDS. After registration, use `dds://<domain>` in a binding (the port may
+be omitted; the legacy `dds://<domain>:1` spelling is accepted):
 
 ```c
 #include <nb/dds.h>
@@ -373,12 +432,12 @@ nb_cyclone_dds_register();
 nb_binding_config_t binding = { "dds", "dds://0" };
 nb_node_config_t cfg;
 nb_node_config_default(&cfg);
-cfg.mode = NB_MODE_STATIC;
+cfg.mode = NB_NODE_MODE_STATIC;
 cfg.transport.bindings = &binding;
 cfg.transport.binding_count = 1;
 ```
 
-可以为 binding 配置 DDS QoS；未配置字段保持 Cyclone DDS 默认值：
+Binding QoS may be configured; unset fields keep Cyclone DDS defaults:
 
 ```c
 strcpy(binding.qos.partition, "orders");
@@ -387,22 +446,25 @@ binding.qos.history = NB_QOS_HISTORY_KEEP_LAST;
 binding.qos.depth = 8;
 ```
 
-topic 由方法名派生：
+Topics are derived from the method name:
 
-- 请求：`<method>_req`
-- 响应：`<method>_res`
-- 事件/pub-sub：`<method>_evt`
+- request: `<method>_req`
+- response: `<method>_res`
+- event/pub-sub: `<method>_evt`
 
-发布使用 `nb_publisher_publish`（等价于 `nb_proxy_call_event`），订阅使用
-`nb_subscriber_subscribe`（等价于 `nb_service_add_method`）。服务端方法注册时会
-自动创建请求/事件 reader 和响应 writer；客户端首次请求时懒创建请求 writer 和
-响应 reader。
+Publish with `nb_publisher_publish` (equivalent to `nb_proxy_call_event`) and
+subscribe with `nb_subscriber_subscribe` (equivalent to
+`nb_service_add_method`). Registering a server method creates request/event
+readers and a response writer; the first client request lazily creates a
+request writer and a response reader.
 
-DDS binding 的 `intra_process` 支持 `off` / `auto` / `only`。`auto` 对事件先做
-进程内直接投递，再照常发布 DDS；`only` 完全跳过 DDS event writer/reader 和
-`dds_write`，只投递给同 provider 的本地订阅者，payload 在投递期间零拷贝。
+A DDS binding's `intra_process` supports `off` / `auto` / `only`. `auto`
+delivers events in-process first and then publishes to DDS as usual; `only`
+skips DDS event writers/readers and `dds_write` entirely and only delivers to
+local subscribers of the same provider, with zero-copy payloads during
+delivery.
 
-## 指标与日志
+## Metrics and logging
 
 ```c
 nb_metrics_t metrics;
@@ -411,12 +473,14 @@ nb_node_metrics(node, &metrics);
 const nb_metric_desc_t *desc = nb_metric_find("requests_sent_total");
 ```
 
-每个登记项带 `scope`（`NB_METRIC_SCOPE_NODE` / `_UDP` / `_TCP` / `_UDP_RTCP`）：
-`nb_metrics_t` 仍是单一结构体，但非当前传输作用域的字段恒为 0，导出端可据此过滤。
+Every registered metric has a `scope` (`NB_METRIC_SCOPE_NODE` / `_UDP` /
+`_TCP` / `_UDP_RTCP`). `nb_metrics_t` stays a single struct, but fields outside
+the current transport scope are always 0 so exporters can filter on them.
 
-指标可通过 `node.metrics.disable` 关闭；关闭后热路径只保留一次全局标志判断。
+Metrics can be disabled with `node.metrics.disable`; with metrics disabled the
+hot path keeps only one global flag check.
 
-日志：
+Logging:
 
 ```c
 #define NB_LOG_TAG "app"
@@ -425,19 +489,20 @@ const nb_metric_desc_t *desc = nb_metric_find("requests_sent_total");
 nb_log_info("started node=%s", nb_node_name(node));
 ```
 
-`nb_log_configure(false, level)` 可运行期关闭全部日志输出。
+`nb_log_configure(false, level)` disables all log output at runtime.
 
-## 错误处理
+## Error handling
 
-每个 `create`、`start`、`call` 都应检查返回值。错误码的稳定名称、描述、可重试标记见
-[错误码](error-codes.md)。
+Check the return value of every `create`, `start` and `call`. Stable names,
+descriptions and retry flags are listed in [error codes](error-codes.md).
 
-## 版本与兼容性
+## Versioning and compatibility
 
-头文件 API 在版本间保持源码兼容，但不保证二进制兼容：结构体布局可能随版本演化。
-升级时请用匹配版本的库重新编译调用方。`NB_VERSION_STRING`（`types.h`）给出头文件
-API 版本。
+The header API stays source-compatible across releases but is not guaranteed to
+be binary-compatible: struct layouts may evolve. Rebuild consumers against the
+matching library version when upgrading. `NB_VERSION_STRING` (`types.h`)
+reports the header API version.
 
-## 示例
+## Examples
 
-完整可运行代码见 [示例索引](../examples.md)。
+Complete runnable code is in the [example index](../examples.md).

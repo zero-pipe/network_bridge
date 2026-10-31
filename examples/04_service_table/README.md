@@ -1,10 +1,11 @@
-# 04：Service Table
+# 04: Service Table
 
-用 `NB_SERVICE_DEFINE` 声明服务和方法 ID，安装后按 `service.method` 查询
-数字 ID。真实项目中这张表应放在客户端和服务端共享的头文件里。
+Declare service and method ids with `NB_SERVICE_DEFINE`, install the table, and
+look up numeric ids by `service.method`. In a real project this table belongs
+in a header shared by the client and the server.
 
 ```powershell
 .\example_04_service_table.exe
 ```
 
-预期输出 `OrderService.get` 和 `OrderService.put` 的 ID。
+Expected output lists the ids of `OrderService.get` and `OrderService.put`.

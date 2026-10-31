@@ -1,13 +1,18 @@
-# network bridge framework 文档
+# Network Bridge Documentation
 
-- [SDK API](api/sdk-api.md)：对象模型、生命周期、线程与所有权约定。
-- [架构与抽象](architecture.md)：endpoint / message / QoS / mesh / provider 分层。
-- [配置参考](api/config.md)：JSON 字段、默认值与校验规则。
-- [错误码](api/error-codes.md)：稳定数值、名称、描述与重试语义。
-- [示例索引](examples.md)：按场景查找可运行示例。
-- [测试与门禁](testing.md)：unit / e2e / perf / stability / fuzz 的统一入口与判定。
-- [低延迟与尖峰治理](performance.md)：延迟测量口径、尖峰归因实验、绑核与内联分发的实测收益。
+- [SDK API](api/sdk-api.md): object model, lifetime, threading and ownership.
+- [Architecture](architecture.md): endpoint / message / QoS / mesh / provider
+  layering.
+- [Configuration](api/config.md): JSON fields, defaults and validation.
+- [Error codes](api/error-codes.md): stable values, names, descriptions and
+  retry semantics.
+- [Examples](examples.md): runnable programs indexed by scenario.
+- [Testing](testing.md): the unified unit / e2e / perf / stability / fuzz gates.
+- [Low latency and spikes](performance.md): latency methodology, spike
+  attribution experiments, CPU pinning and inline dispatch results.
 
-配置文件的编辑器校验使用 [`config.schema.json`](config.schema.json)。
+Editor validation for configuration files uses
+[`config.schema.json`](config.schema.json).
 
-设计背景和模块化取舍见仓库根目录的 `README.md` 与 `.zrpc-local/` 下的内部设计记录。
+Design rationale and layering trade-offs are summarised in the repository
+[README](../README.md).

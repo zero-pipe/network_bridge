@@ -8,7 +8,7 @@
     "name": {
       "type": "string",
       "maxLength": 63,
-      "description": "Node name. Default: rpc."
+      "description": "Node name. Default: nb."
     },
     "mode": {
       "type": "string",

@@ -1,12 +1,14 @@
-# 11：流式上传
+# 11: Streaming Upload
 
-客户端通过 `nb_proxy_stream_send` 分片上传，服务端在收到带 `NB_STREAM_LAST`
-的 chunk 后一次性回复汇总结果。两个 node 在同一进程内用 TCP 直连，服务端端口
-由系统自动分配。
+The client uploads chunks with `nb_proxy_stream_send`; the server sends one
+combined response after receiving the chunk marked `NB_STREAM_FLAG_LAST`. Both
+nodes run in the same process and connect directly over TCP, with a
+system-assigned server port.
 
 ```powershell
 .\example_11_streaming.exe
 ```
 
-该示例不依赖其他进程，适合观察 `NB_STREAM_FIRST` / `NB_STREAM_LAST`、
-chunk offset 和流生命周期。
+The example needs no other process and is a good place to observe
+`NB_STREAM_FLAG_FIRST` / `NB_STREAM_FLAG_LAST`, chunk offsets and stream
+lifetime.

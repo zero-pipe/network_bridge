@@ -1,36 +1,45 @@
 # Network Bridge
 
-面向多源异构网络环境的通信框架，基于 [network-tool-kit](3rdparty/ntk) 构建。
-框架向上提供统一的 `node / service / proxy / payload` 抽象，向下通过可插拔 transport
-provider 接入 UDP、TCP、共享内存、Cyclone DDS 等异构链路，并在其上提供 RPC、消息
-传递、路由、服务发现和流式传输等通信能力。传输、序列化和寻址方式都是可替换实现细节。
+[![CI](https://github.com/zero-pipe/network_bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/zero-pipe/network_bridge/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-## 特性
+Network Bridge is a C99 communication framework for heterogeneous networks. It
+exposes one `node / service / proxy / payload` model on top of pluggable
+transport providers, and adds RPC, messaging, routing, service discovery and
+streaming on top. Transports, serialization and addressing are replaceable
+implementation details.
 
-- **多源异构接入**：通过统一 transport provider 接入 UDP、TCP、共享内存和 Cyclone DDS 等链路。
-- **三种调用形态**：`nb_proxy_call_async`、`nb_proxy_call_sync`、`nb_proxy_call_event`。
-- **默认不新增线程**：回调在 NTK poller 线程运行；阻塞 handler 可选 WORKER 或自定义
-  EXECUTOR。
-- **可组合传输**：UDP 内置分片、NACK/RTX 与 RTCP 反馈；TCP 使用长度前缀分帧。
-- **统一 endpoint**：路由、发现、registry 和 provider 共用规范化 URI，SHM channel / DDS domain 不再丢失。
-- **统一路由**：静态路由与 mesh 服务发现进入同一路由表。
-- **payload 对框架透明**：框架只透传字节和 `encoding`，序列化通过 `nb_codec_t` 扩展。
-- **流式 RPC**：支持客户端分片上传、服务端分片下载和双向流。
-- **Cyclone DDS**：内置 `dds` provider，支持请求/响应、事件 pub/sub，并对齐 DDS QoS。
-- **SHM mesh**：共享内存段按节点分队列，mesh 下任意节点可收发 RPC 与事件。
-- **可观测性**：指标、延迟分位、日志运行期开关。
-- **错误码体系**：稳定数值、名称、描述、可重试标记和应用错误保留区。
+Built-in transports: UDP, TCP, POSIX shared memory (SHM) and Cyclone DDS.
 
-## 快速开始
+## Features
+
+- **Heterogeneous transports.** One provider interface for UDP, TCP, SHM and
+  Cyclone DDS; custom transports plug in without touching core code.
+- **Three call forms.** `nb_proxy_call_async`, `nb_proxy_call_sync` and
+  `nb_proxy_call_event`, plus client, server and bidirectional streaming.
+- **No threads by default.** Callbacks run on the ntk poller thread. Blocking
+  handlers opt into a `WORKER` pool or a caller-provided `EXECUTOR`.
+- **Composable transports.** UDP includes fragmentation, NACK/RTX and RTCP
+  feedback; TCP uses length-prefixed framing; SHM offers zero-copy loan/borrow.
+- **One endpoint model.** Routing, discovery, registry and providers share a
+  normalized URI, so SHM channels and DDS domains are preserved end to end.
+- **Payloads stay opaque.** The framework forwards bytes and an `encoding` tag;
+  serialization is a `nb_codec_t` extension.
+- **Unified routing.** Static routes and mesh discovery feed the same table.
+- **Observability.** Metrics, latency quantiles and a runtime log switch.
+- **Stable error codes.** Numeric values, names, descriptions, a retryable flag
+  and a reserved range for application errors.
+
+## Quick start
 
 ```c
-#include <nb.h>
+#include <nb/nb.h>
 
 static void on_response(int status, const nb_response_t *resp, void *user)
 {
     (void)user;
     if (status == NB_OK) {
-        /* resp->payload 仅在本次回调内有效 */
+        /* resp->payload is valid only inside this callback */
     }
 }
 
@@ -44,7 +53,7 @@ int main(void)
 
     nb_node_config_default(&cfg);
     cfg.name = "demo";
-    cfg.mode = NB_MODE_STATIC;
+    cfg.mode = NB_NODE_MODE_STATIC;
     if (nb_node_create(&cfg, &node) != NB_OK) {
         return 1;
     }
@@ -69,51 +78,98 @@ int main(void)
 }
 ```
 
-完整可运行代码见 [examples/](examples/)，索引见 [docs/examples.md](docs/examples.md)。
+Complete, runnable programs live in [`examples/`](examples/); see the
+[example index](docs/examples.md).
 
-## 文档
+## Documentation
 
-| 文档 | 内容 |
+| Document | Contents |
 | --- | --- |
-| [SDK API](docs/api/sdk-api.md) | 对象模型、生命周期、线程与所有权 |
-| [架构与抽象](docs/architecture.md) | endpoint、message、QoS、mesh 与 provider 分层 |
-| [配置参考](docs/api/config.md) | JSON 字段、默认值与校验 |
-| [错误码](docs/api/error-codes.md) | 稳定数值、名称、描述与重试语义 |
-| [示例索引](docs/examples.md) | 按场景查找示例 |
-| [测试与门禁](docs/testing.md) | unit / e2e / perf / stability / fuzz 的统一入口与判定 |
-| [性能对比记录](docs/BENCH-STATUS.md) | TCP/UDP/DDS 远程对比与压测记录 |
+| [SDK API](docs/api/sdk-api.md) | Object model, lifetime, threading and ownership |
+| [Architecture](docs/architecture.md) | Endpoint, message, QoS, mesh and provider layers |
+| [Configuration](docs/api/config.md) | JSON fields, defaults and validation |
+| [Error codes](docs/api/error-codes.md) | Stable values, names, descriptions and retry semantics |
+| [Examples](docs/examples.md) | Index by scenario |
+| [Testing](docs/testing.md) | unit / e2e / perf / stability / fuzz gates |
+| [Performance](docs/performance.md) | Latency methodology and spike analysis |
 
-入口头文件：
+### Headers
 
-- 完整 API：`#include <nb.h>`
-- 按角色最小引入：
-
-| 头文件 | 适用场景 |
+| Header | Use when |
 | --- | --- |
-| `<nb/runtime.h>` | 节点、调度、发现、路由、指标 |
-| `<nb/server.h>` | service、handler、reply、message view |
-| `<nb/client.h>` | proxy、stub、异步/同步/事件/流式调用 |
-| `<nb/transport.h>` | endpoint 与自定义 transport provider |
-| `<nb/extensions.h>` | codec、message view、service table |
-| `<nb/config.h>` | JSON 配置加载 |
+| `<nb/nb.h>` | You want the complete API (also available as `<nb.h>`) |
+| `<nb/runtime.h>` | Node, scheduling, discovery, routing, metrics |
+| `<nb/server.h>` | Services, handlers, replies, message views |
+| `<nb/client.h>` | Proxies, stubs, async/sync/event/streaming calls |
+| `<nb/transport.h>` | Endpoints and custom transport providers |
+| `<nb/extensions.h>` | Codecs, message views, service tables |
+| `<nb/config.h>` | JSON configuration |
 
-公共头文件统一位于 `<nb/...>` 命名空间；旧的平铺 `<runtime.h>` 等路径保留为转发头。
+Public headers live under `<nb/...>`. The flat `<runtime.h>`-style paths in
+`include/` are forwarding headers kept for source compatibility; new code
+should use the namespaced form.
 
-## 目录
+## Layout
 
 ```text
-include/     公共头文件
-src/         内部实现（core / transport / message / router / registry / discovery / config / util）
-examples/    按主题组织的可运行示例
-docs/        API、配置、错误码和示例文档
-tests/       unit / e2e 测试
-tools/       统一门禁、压测与基准工具
-3rdparty/    ntk、elog、cJSON、Cyclone DDS 等依赖
+include/nb/   public API (umbrella: <nb/nb.h>)
+src/base/     dependency-free primitives (nb_base library)
+src/core/     node, dispatch, service, proxy, stream, pending
+src/message/  wire framing and envelope
+src/transport/ common framing plus udp / tcp / shm / dds drivers
+src/router/   static routes and mesh resolution
+src/registry/ local service registry
+src/discovery/ service discovery
+src/config/   JSON configuration model and defaults
+src/utils/    logging, errors, metrics, endpoint, JSON codec
+examples/     runnable programs grouped by scenario
+docs/         API, configuration, error and testing documentation
+tests/        unit and end-to-end tests
+tools/        quality gate, load generator and benchmark server
+3rdparty/     ntk, elog, cJSON, uthash, Cyclone DDS
 ```
 
-## 测试门禁
+## Build
 
-统一入口是 `tools/gate.py`，分类和 CTest label 对齐：
+Linux:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+ctest --test-dir build -L unit --output-on-failure
+```
+
+Windows:
+
+```powershell
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Debug
+ctest --test-dir build -C Debug -L unit --output-on-failure
+```
+
+Options:
+
+```text
+NB_BUILD_TESTS       build tests (default ON)
+NB_BUILD_TOOLS       build the load generator and benchmark server (default ON)
+NB_BUILD_EXAMPLES    build examples (default ON)
+NB_BUILD_GTESTS      build GoogleTest module tests (default OFF)
+NB_BUILD_BENCHMARKS  build Google Benchmark microbenchmarks (default OFF)
+NB_BUILD_FUZZERS     build libFuzzer targets (default OFF, requires Clang)
+NB_ENABLE_DDS        enable the Cyclone DDS provider (default ON when the SDK is found)
+NB_SANITIZE          address | undefined | thread | address,undefined
+```
+
+The unprefixed names (`BUILD_TESTS`, `ZERO_RPC_SANITIZE`, ...) are still
+accepted but emit a deprecation warning.
+
+The library target is `nb` (alias `nb::nb`). The historical target name `rpc`
+remains as an alias for downstream projects that have not migrated yet.
+
+## Testing and quality gates
+
+`tools/gate.py` is the single entry point; its categories match the CTest
+labels:
 
 ```bash
 python3 tools/gate.py unit
@@ -123,51 +179,37 @@ python3 tools/gate.py stability --transports tcp --stability-duration 60
 python3 tools/gate.py all
 ```
 
-详细判定标准、产物目录和新增测试约定见 [docs/testing.md](docs/testing.md)。
+See [docs/testing.md](docs/testing.md) for pass criteria, artifact layout and
+the rules for adding tests.
 
-命名约定：库自有函数/类型/变量使用 `nb_`，宏/枚举常量使用 `NB_`。不透明句柄为
-`struct nb_node` 等。
+## Conventions
 
-## 构建
+- Library-owned functions, types and variables use `nb_`; macros and enum
+  constants use `NB_`. Opaque handles are `struct nb_node` and `nb_node_t`.
+- Enum constants follow `NB_<TYPE>_<VALUE>` (for example
+  `NB_NODE_MODE_STATIC`).
+- Service and method names are routing keys, limited by `NB_SERVICE_NAME_MAX`
+  and `NB_METHOD_NAME_MAX`.
+- Messages default to 1 MiB; UDP fragments default to 1440 bytes (IPv4 1500
+  MTU minus 60 bytes of headers).
+- Request and response views are valid only inside their callback; copy them
+  if they must outlive it.
+- Outgoing payloads are copied before the call returns; the caller may release
+  its buffer immediately.
+- `nb_proxy_call_sync` blocks and must not be used inside a poller callback.
+  Responses it returns must be released with `nb_response_release`.
+- Framework and application status codes travel in different fields.
 
-Linux：
+The full conventions are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
-cd build && ctest --output-on-failure
-```
+## Performance
 
-Windows：
+Throughput, latency and spike scenarios are driven by `tools/gate.py perf` and
+`tools/gate.py stability`, backed by `tools/bench_server` and `tools/loadgen`.
+Methodology and recorded results are in [docs/performance.md](docs/performance.md).
 
-```powershell
-cmake -S . -B build -G "Visual Studio 16 2019" -A x64
-cmake --build build --config Debug
-cd build
-ctest -C Debug --output-on-failure
-```
+## License
 
-可选开关：
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
-```text
-BUILD_TESTS      构建测试（默认 ON）
-BUILD_TOOLS      构建压测工具（默认 ON）
-BUILD_EXAMPLES   构建示例（默认 ON）
-BUILD_FUZZERS    构建 libFuzzer 目标（默认 OFF，需要 Clang）
-ZERO_RPC_SANITIZE  address|undefined|thread|address,undefined
-```
-
-## 约定
-
-- 服务/方法名用于路由，长度受 `NB_SERVICE_NAME_MAX` / `NB_METHOD_NAME_MAX` 限制。
-- 单条消息默认上限 1 MiB，UDP 每分片默认 1440 字节（IPv4 1500 MTU 扣除 60 字节协议头）。
-- 请求/响应视图只在本次回调内有效；需要跨回调保存时请自行复制。
-- 发送侧 payload 在调用返回前复制，调用方可在返回后立即释放。
-- `nb_proxy_call_sync` 会阻塞，禁止在 poller 回调中使用。
-- 同步调用写出的响应必须用 `nb_response_release` 释放。
-- 框架错误码与应用状态码使用不同字段；应用错误码建议从 `NB_ERR_USER_BASE` 以下开始。
-
-## 压测
-
-性能与稳定性场景统一由 `tools/gate.py perf` / `tools/gate.py stability` 驱动，
-底层压测引擎为 `tools/bench_server` + `tools/loadgen`。
+Security reports: see [SECURITY.md](SECURITY.md).

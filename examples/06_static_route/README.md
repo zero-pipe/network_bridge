@@ -1,11 +1,14 @@
-# 06：静态路由
+# 06: Static Route
 
-服务端监听固定地址，客户端用 `nb_node_add_static_route` 登记
-`OrderService -> 127.0.0.1:42420`，完全跳过服务发现。
+The server listens on a fixed address and the client registers
+`OrderService -> 127.0.0.1:42420` with `nb_node_add_static_route`, skipping
+service discovery entirely.
 
 ```powershell
 .\example_06_static_route_server.exe
 .\example_06_static_route_client.exe
 ```
 
-适合单机、测试环境或已有配置中心的部署。修改端口时需要同时改客户端和服务端。
+This suits single-host and test deployments, or environments that already have
+a configuration service. When changing the port, update both the client and the
+server.

@@ -1,11 +1,13 @@
-# 12：Worker 线程池
+# 12: Worker Pool
 
-服务端配置 `runtime.handler_threads = 2`，把会阻塞的 handler 注册为
-`NB_SERVICE_EXEC_WORKER`。handler 在 worker 线程 sleep，poller 仍然可以处理
-网络事件，回复自动回投原 poller。
+The server sets `runtime.handler_threads = 2` and registers a blocking handler
+with `NB_SERVICE_EXEC_MODE_WORKER`. The handler sleeps on a worker thread while
+the poller keeps processing network events, and the reply is posted back to the
+original poller.
 
 ```powershell
 .\example_12_worker.exe
 ```
 
-对比：如果同一个 handler 使用默认 INLINE 模式，sleep 会卡住整条 poller。
+Compare with the default INLINE mode: the same handler would stall the whole
+poller while sleeping.

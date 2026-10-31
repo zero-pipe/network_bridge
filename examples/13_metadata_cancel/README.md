@@ -1,14 +1,17 @@
-# 13：Metadata、Deadline 与取消
+# 13: Metadata, Deadline and Cancellation
 
-演示三件事：
+The example demonstrates three things:
 
-1. 客户端通过 `_with_metadata` 接口发送请求 metadata，服务端读取并用 `nb_reply_with_metadata` 返回响应 metadata。
-2. handler 通过 `nb_call_deadline_ms` 读取客户端 timeout 换算出的绝对 deadline。
-3. 客户端用 `nb_proxy_cancel` 取消一个正在执行的慢调用，本地回调得到 `NB_ERR_NOTFOUND`。
+1. The client sends request metadata through a `_with_metadata` API and the
+   server returns response metadata with `nb_reply_with_metadata`.
+2. The handler reads the absolute deadline derived from the client timeout with
+   `nb_call_deadline_ms`.
+3. The client cancels an in-flight slow call with `nb_proxy_cancel`; the local
+   callback receives `NB_ERR_NOTFOUND`.
 
 ```powershell
 .\example_13_metadata_cancel.exe
 ```
 
-取消是 best-effort：已经运行的 handler 不会被抢占，只能通过
-`nb_call_canceled` 协作退出。
+Cancellation is best-effort: a handler that is already running is not
+preempted and must exit cooperatively through `nb_call_canceled`.
