@@ -5,10 +5,11 @@ framework. It implements the RTPS discovery protocols (SPDP and SEDP) without
 taking a dependency on a DDS implementation. The data plane remains the
 framework's own UDP/TCP/SHM transports.
 
-Status: the wire codec, the SPDP announcement payload, and the SPDP participant
-runtime are implemented and covered by unit and loopback tests. SPDP interop
-with Cyclone DDS 0.10.5 is verified on Windows and Linux. SEDP endpoint
-payload codec is implemented; reliable endpoint exchange is the next step.
+Status: the wire codec, SPDP announcement payload, SPDP participant runtime,
+and reliable SEDP endpoint exchange are implemented and covered by unit and
+loopback tests. SPDP interop with Cyclone DDS 0.10.5 is verified on Windows and
+Linux. Cyclone also sees an nb SEDP publication endpoint on Linux. Mapping
+remote endpoints into the framework registry remains M4 work.
 
 ## 1. Scope
 
@@ -107,6 +108,15 @@ retransmits samples requested by `ACKNACK`. Endpoint removal uses `DATA` with
 the dispose flag. The initial implementation keeps the history in memory and
 caps it; there is no `GAP` support until endpoint churn requires it.
 
+Endpoint locators use one `PID_UNICAST_LOCATOR` or `PID_MULTICAST_LOCATOR`
+parameter per locator, each carrying exactly 24 bytes. They are not encoded as
+a length-prefixed sequence. `PID_RELIABILITY` is 12 bytes: kind,
+`max_blocking_time.seconds`, and `max_blocking_time.fraction`.
+
+`ACKNACK` bitmaps are MSB-first: bit 0 is `0x80000000`. Sending an ACKNACK with
+the FINAL flag avoids the peer treating it as a request for an immediate
+HEARTBEAT.
+
 ### 3.4 Timers
 
 | Timer | Default | Notes |
@@ -162,7 +172,8 @@ Implemented in `src/discovery/rtps/`:
 | `rtps_message.h/.c` | RTPS header, submessage framing, `DATA`, `HEARTBEAT`, `ACKNACK`, `INFO_TS`, `INFO_DST` |
 | `rtps_spdp.h/.c` | SPDP announcement payload builder and parser |
 | `rtps_sedp.h/.c` | SEDP publication/subscription endpoint payload builder and parser |
-| `rtps_participant.h/.c` | SPDP runtime: sockets, thread, timers, remote participant table |
+| `rtps_reliable.h/.c` | Bounded reliable writer history and ACKNACK sample retransmit |
+| `rtps_participant.h/.c` | SPDP/SEDP runtime: sockets, thread, timers, participant and endpoint tables |
 
 Encoding rules:
 
@@ -180,9 +191,13 @@ Encoding rules:
 - A locator is `kind` (u32), `port` (u32), and a 16-byte address. For IPv4,
   the address is stored in bytes 12-15 of the address field; bytes 0-11 are
   zero.
+- SEDP endpoint locator PIDs are single 24-byte locators repeated for each
+  address, not a sequence. `PID_RELIABILITY` is 12 bytes.
 - `DATA` uses `octetsToInlineQos = 16`; the payload starts after the inline QoS
   parameter list (or immediately after the fixed fields when the inline QoS
   flag is clear).
+- `ACKNACK` uses RTPS sequence-number sets with MSB-first bitmaps. The FINAL
+  flag is set on generated ACKNACKs to suppress the peer's heartbeat response.
 - DATA flags follow RTPS 2.4: `D` (`0x04`) means a serialized payload is
   present and `K` (`0x08`) means it contains a key. Dispose is encoded as
   key-only (`K` set, `D` clear).
@@ -230,11 +245,14 @@ sockets and initializes state, so callers can learn ephemeral ports before
 1. Drain each non-blocking socket until `NTK_ERR_AGAIN`.
 2. Parse the RTPS header, drop self announcements by GUID prefix, and walk
    submessages.
-3. Accept only `DATA` from the SPDP writer and parse its `ParameterList`.
-   The participant GUID prefix in the payload must match the message header.
-4. Key remotes by GUID prefix. The callback fires on first sight (`ADDED`), on
+3. Accept `DATA` from the SPDP writer and parse its `ParameterList`. The
+   participant GUID prefix in the payload must match the message header.
+4. Accept SEDP `DATA`, `HEARTBEAT`, and `ACKNACK` from the built-in
+   publication/subscription endpoints; decode endpoints and mark samples
+   received.
+5. Key remotes by GUID prefix. The callback fires on first sight (`ADDED`), on
    a changed record (`UPDATED`), and when the lease expires (`REMOVED`).
-5. Callbacks run outside the table lock. The table holds 1024 entries by
+6. Callbacks run outside the table lock. The table holds 1024 entries by
    default; when full, the entry with the oldest `last_seen` is replaced.
 
 No packet-path allocation occurs after initialization.
@@ -251,8 +269,8 @@ superpeer/relay, or a discovery server) is still open; see section 7.
 
 ### 6.5 Current limits
 
-- Only the SPDP built-in endpoints are advertised. SEDP is not implemented yet,
-  so endpoints are not exchanged.
+- SPDP and SEDP endpoints are exchanged, but remote endpoints are not yet
+  mapped into framework service records (M4).
 - No RTPS data plane, fragmentation, security, TCP, or IPv6.
 - On multi-host deployments `advertise_host` must be set explicitly. With a
   wildcard bind and no advertise host, the runtime falls back to `127.0.0.1`.
@@ -263,8 +281,8 @@ State:
 | Table | Key | Status |
 | --- | --- | --- |
 | participants | GUID prefix | implemented, bounded |
-| endpoints | endpoint GUID | M3 |
-| writers | local writer id | M3 |
+| endpoints | endpoint GUID | implemented, bounded |
+| writers | local writer id | implemented, bounded |
 
 The registry receives records through the existing
 `nb_registry_backend_ops_t` seam (`start` / `stop` / `tick` / `announce`), so
@@ -296,13 +314,15 @@ unbounded growth.
 
 Discovery-level:
 
-- With M2, Cyclone DDS 0.10.5 sees the framework participant and its SPDP
-  endpoint, and the framework sees Cyclone participants. Endpoints are not
-  visible until SEDP lands in M3. Verification used Cyclone on Windows and
-  Linux; the Linux capture on `ens1` showed both sides using `PL_CDR_LE` and
-  IPv4 locators in the last four address bytes.
-- After M3, a DDS tool sees framework endpoints, and a framework node sees DDS
-  participants and endpoints, including topic and type names.
+- Cyclone DDS 0.10.5 sees the framework participant and its SPDP endpoint, and
+  the framework sees Cyclone participants. On Linux, Cyclone's
+  `DCPSPublication` reader also sees the nb `nb/sedp` publication endpoint.
+  Verification used Cyclone on Windows and Linux; the Linux capture showed
+  both sides using `PL_CDR_LE` and IPv4 locators in the last four address
+  bytes.
+- A framework node decodes Cyclone SEDP endpoints through the same SEDP path
+  covered by the loopback test. An explicit Cyclone-to-nb endpoint assertion
+  remains in M6.
 
 Data-level:
 
@@ -329,23 +349,27 @@ Current:
 
 - `unit.rtps_wire`: CDR round trips, alignment, `ParameterList` round trips,
   `DATA`/`HEARTBEAT`/`ACKNACK` framing, truncation handling.
-- `unit.rtps_sedp`: endpoint payload round trips, defaults, locator sequences,
-  partition, user data, and missing-field rejection.
+- `unit.rtps_sedp`: endpoint payload round trips, defaults, repeated
+  24-byte locator parameters, 12-byte reliability, partition, user data, and
+  missing-field rejection.
+- `unit.rtps_reliable`: history trimming, sequence-number state, ACKNACK bitmap
+  retransmit, and dispose samples.
 - `e2e.rtps_participant`: two participants discover each other over unicast
-  peers, names and counts are checked, and an abrupt stop expires the lease.
-  The test also covers repeated create/destroy.
+  peers, exchange SEDP publications/subscriptions, dispose endpoints, and
+  expire leases. The test also covers repeated create/destroy.
 - The multicast path has an opt-in loopback test:
   `NB_TEST_RTPS_MULTICAST=1 ctest -C Debug -R rtps`.
-- Cyclone SPDP interop is opt-in:
+- Cyclone SPDP/SEDP interop is opt-in:
   `NB_TEST_RTPS_CYCLONE=1 NB_TEST_RTPS_ADVERTISE_HOST=<local-ip>
   ctest -C Debug -R rtps_cyclone`. Without the environment variable the test
-  skips successfully.
+  skips successfully. The test checks participant visibility and nb publication
+  visibility through Cyclone's built-in publication reader.
 
 Planned:
 
-- Cross-implementation: Cyclone DDS SPDP is verified; Fast DDS and SEDP
-  endpoint visibility remain to be tested with packet capture and a discovery
-  dump.
+- Cross-implementation: Cyclone DDS SPDP and nb-to-Cyclone SEDP publication
+  visibility are verified; Fast DDS and explicit Cyclone-to-nb SEDP endpoint
+  assertions remain.
 - Scale: 100/500/1000 simulated participants, measuring packets per second,
   memory, and discovery latency.
 - Fuzzing: `ParameterList`, submessage headers, and `DATA` inline QoS.
@@ -356,10 +380,10 @@ Planned:
 | --- | --- |
 | M1 (done) | RTPS wire codec and unit tests |
 | M2 (done) | SPDP participant runtime: sockets, announce timer, lease expiry, participant table |
-| M3 | SEDP: reliable built-in writers, heartbeat/acknack, endpoint mapping |
+| M3 (done) | SEDP: reliable built-in writers, heartbeat/acknack, endpoint callbacks |
 | M4 | Public discovery API and provider seam; mesh broadcast becomes one provider |
 | M5 | Scale to about 1000 participants: unicast peer scoping, table caps, load tests |
-| M6 (partial) | Cyclone DDS SPDP interoperability verified; SEDP interop follows M3 |
+| M6 (partial) | Cyclone DDS SPDP and nb SEDP publication visibility verified; CI job pending |
 | M7 | Standalone `libnb_discovery` target, examples, packaging |
 
 M2 and M3 are the first point at which two framework processes can discover

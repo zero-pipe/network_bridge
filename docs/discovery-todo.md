@@ -19,10 +19,11 @@ changes state so a later session can resume without reading the whole history.
 - M0 design: done (`docs/discovery.md`)
 - M1 wire codec: done
 - M2 SPDP runtime: done
-- M3 SEDP: in progress (endpoint payload codec done)
+- M3 SEDP: done (runtime, reliable exchange, endpoint callbacks and tests)
 - M4 integration: pending
 - M5 scale: pending
-- M6 Cyclone interop: partial (SPDP verified; SEDP waits for M3)
+- M6 Cyclone interop: partial (SPDP and SEDP publication visibility verified;
+  CI job pending)
 - M7 packaging: pending
 
 ## M1: wire codec (done)
@@ -55,14 +56,15 @@ changes state so a later session can resume without reading the whole history.
 
 - [x] Endpoint payload codec: endpoint GUID, topic, type, reliability,
       durability, history, partition, locators, user data
-- [ ] Reliable writer history (bounded, keep last N)
-- [ ] HEARTBEAT timer and ACKNACK retransmit
-- [ ] Built-in publications writer/reader (`0x000003c2` / `0x000003c7`)
-- [ ] Built-in subscriptions writer/reader (`0x000004c2` / `0x000004c7`)
-- [ ] Endpoint table and add/update/remove callbacks
-- [ ] Dispose on endpoint removal
-- [ ] Map endpoints to framework service records
-- [ ] Unit and loopback tests
+- [x] Reliable writer history (bounded, keep last N)
+- [x] ACKNACK sample retransmit
+- [x] HEARTBEAT timer and runtime retransmit wiring
+- [x] Built-in publications writer/reader (`0x000003c2` / `0x000003c7`)
+- [x] Built-in subscriptions writer/reader (`0x000004c2` / `0x000004c7`)
+- [x] Endpoint table and add/update/remove callbacks
+- [x] Dispose on endpoint removal
+- [ ] Map endpoints to framework service records (M4)
+- [x] Unit and loopback tests
 
 ## M4: framework integration
 
@@ -86,14 +88,18 @@ changes state so a later session can resume without reading the whole history.
 - [ ] Docker or CI job with the bundled Cyclone DDS version
 - [x] Verify Cyclone sees our participant and SPDP endpoint
 - [x] Verify we see Cyclone participants (SPDP)
-- [ ] Verify we see Cyclone SEDP endpoints (after M3)
+- [ ] Verify we see Cyclone SEDP endpoints (explicit bidirectional assertion)
+- [x] Verify Cyclone sees our SEDP publication endpoint
 - [x] Vendor id note for `0x01,0x10` quirks
 - [x] Interop test in `tests/` or `tools/`
 
 Manual verification: Cyclone DDS 0.10.5 on Windows and Linux. The Linux
 capture used `ens1` (`192.168.54.14`) and `udp port 7400`; Cyclone and nb both
 used `PL_CDR_LE`, and the locator address was in the last four bytes of the
-16-byte address field.
+16-byte address field. The Cyclone SEDP test creates an nb publication and
+checks that Cyclone's `DCPSPublication` reader sees `nb/sedp` and `nb::Sedp`.
+The final Linux capture showed 55 RTPS packets across three passing runs,
+instead of the earlier ACKNACK/HEARTBEAT storm.
 
 ## M7: packaging
 
@@ -124,8 +130,8 @@ used `PL_CDR_LE`, and the locator address was in the last four bytes of the
   `build-linux`; the installed CTest does not support `--test-dir`.
 - Do not commit `build-review/`, `artifacts/`, `Testing/` or other build output.
 - Commit identity: `OldChen <825988516@qq.com>` (repository-local config).
-- Next task: implement M3 SEDP: endpoint payload codec, reliable history,
-  HEARTBEAT/ACKNACK, endpoint table, and loopback tests.
+- Next task: M4 framework integration: map RTPS endpoints to registry service
+  records and add the discovery provider selection seam.
 
 ## Change log
 
@@ -137,3 +143,11 @@ used `PL_CDR_LE`, and the locator address was in the last four bytes of the
   IPv4 locator layout, and the default unicast locator fallback.
 - 2026-10-31: SEDP endpoint payload codec and unit tests added; reliable
   writer and runtime integration are next.
+- 2026-10-31: Bounded reliable writer history and ACKNACK retransmit added;
+  HEARTBEAT timer and runtime wiring remain.
+- 2026-10-31: SEDP runtime completed: endpoint table, publication/subscription
+  built-in writers and readers, HEARTBEAT/ACKNACK retransmit, dispose and
+  callbacks. Cyclone DDS 0.10.5 sees the nb publication. Fixed 12-byte
+  `PID_RELIABILITY`, repeated single 24-byte locator PIDs, MSB-first ACKNACK
+  bitmaps, the ACKNACK FINAL flag, and ACK/retransmit addressing to the
+  metatraffic locator.
