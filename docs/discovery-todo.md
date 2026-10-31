@@ -33,7 +33,7 @@ changes state so a later session can resume without reading the whole history.
 - [x] Little-endian CDR writer/reader with bounds checks
 - [x] ParameterList writer, iterator, typed getters
 - [x] RTPS header and submessage framing
-- [x] DATA, HEARTBEAT, ACKNACK, INFO_TS, INFO_DST
+- [x] DATA, HEARTBEAT, ACKNACK, GAP, INFO_TS, INFO_DST
 - [x] SPDP announcement payload build/parse
 - [x] Unit tests for round trips and truncated input
 
