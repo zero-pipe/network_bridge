@@ -72,6 +72,10 @@ nb_add_test(test_iobuf unit.iobuf
 nb_add_test(test_rtps_wire unit.rtps_wire
     LABELS "unit;rtps"
     INCLUDES ${NB_SRC_DIR}/discovery/rtps)
+nb_add_test(test_rtps_participant e2e.rtps_participant
+    LABELS "e2e;rtps"
+    INCLUDES ${NB_SRC_DIR}/discovery/rtps
+    TIMEOUT 60)
 
 nb_add_test(test_buffer unit.buffer LABELS "unit;buffer" LIBRARIES nb_base)
 nb_add_test(test_buf_concurrency unit.buf_concurrency
