@@ -45,10 +45,11 @@ it. Work is ordered so each step removes a real interop limit.
 
 | Order | Track | Why |
 | --- | --- | --- |
-| P0 | Cyclone custom-type interop | Prove the generic-type path against a second implementation, not only nb-to-nb |
+| P0 | M5: scale and scoping | Measure and bound the real deployment limits: remote participants, endpoints, memory |
 | P1 | M11 remainder | Lifespan, deadline, ownership, resource limits |
-| P2 | M5: scale and scoping | Unicast peer scoping, discovery server, 1000-participant measurements |
-| P3 | M6/M7: CI and second implementation | Fast DDS interop and an automated Linux job |
+| P2 | M7 packaging | Install rules and a consumable package |
+| P3 | M6: CI and second implementation | Fast DDS interop and an automated Linux job |
+| P4 | Cyclone custom-type interop | Backlog: there is no flexible-IDL use case yet, so `dds::Message` remains the only type on the wire |
 
 ## M1: wire codec (done)
 
@@ -245,9 +246,10 @@ a fixed participant index instead.
 - [ ] Codec coverage: nested structs, fixed arrays, sequences, strings, enums,
       optional members (Micro-CDR generated code). Nothing in the runtime needs
       to change for these; the work is an example codec plus tests
-- [ ] Verify Cyclone matches a custom type by type name and exchanges samples
-      in both directions. Needs a Cyclone-side type larger than `dds::Message`,
-      which also unblocks the `DATA_FRAG` interop item in M9
+- [ ] (backlog) Verify Cyclone matches a custom type by type name and exchanges
+      samples in both directions. Deferred: there is no flexible-IDL use case,
+      so `dds::Message` stays the only application type. The receive path is
+      type-agnostic, so only this interop proof is missing
 
 ## M11: QoS semantics (P3)
 
