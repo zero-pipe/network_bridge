@@ -71,6 +71,7 @@ typedef struct nb_rtps_duration {
 #define NB_RTPS_LOCATOR_KIND_UDPV6 2
 
 /* Built-in entity ids used by SPDP and SEDP. */
+extern const nb_rtps_entity_id_t nb_rtps_eid_participant;
 extern const nb_rtps_entity_id_t nb_rtps_eid_spdp_writer;
 extern const nb_rtps_entity_id_t nb_rtps_eid_spdp_reader;
 extern const nb_rtps_entity_id_t nb_rtps_eid_sedp_publications_writer;

@@ -65,6 +65,7 @@ set(NB_SOURCES
     discovery/rtps/rtps_param.c
     discovery/rtps/rtps_message.c
     discovery/rtps/rtps_spdp.c
+    discovery/rtps/rtps_participant.c
     config/config.c
     transport/common/framing.c
     transport/common/transport.c

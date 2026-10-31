@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+const nb_rtps_entity_id_t nb_rtps_eid_participant = { { 0x00, 0x00, 0x01, 0xc1 } };
 const nb_rtps_entity_id_t nb_rtps_eid_spdp_writer = { { 0x00, 0x01, 0x00, 0xc2 } };
 const nb_rtps_entity_id_t nb_rtps_eid_spdp_reader = { { 0x00, 0x01, 0x00, 0xc7 } };
 const nb_rtps_entity_id_t nb_rtps_eid_sedp_publications_writer = { { 0x00, 0x00, 0x03, 0xc2 } };
