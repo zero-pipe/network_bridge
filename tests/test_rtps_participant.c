@@ -700,6 +700,40 @@ static void on_frag_data(void *user,
     ntk_mutex_unlock(state->lock);
 }
 
+/* Publish `sample` until the subscriber reports exactly `expected_len` bytes
+ * whose hash matches (or the attempt times out). */
+static int send_raw_sample(nb_rtps_participant_t *publisher,
+                           const nb_rtps_guid_t *writer_guid,
+                           const uint8_t *sample,
+                           size_t sample_len,
+                           const uint8_t *expected,
+                           size_t expected_len,
+                           frag_state_t *state)
+{
+    uint32_t expected_hash = payload_hash(expected, expected_len);
+    int waited;
+    int ok = 0;
+
+    for (waited = 0; waited < 5000; waited += 50) {
+        ntk_mutex_lock(state->lock);
+        state->received = 0;
+        ntk_mutex_unlock(state->lock);
+        if (nb_rtps_participant_publish(publisher, writer_guid, sample, sample_len) == NB_OK) {
+            ntk_sleep_ms(50);
+            ntk_mutex_lock(state->lock);
+            ok = state->received && state->len == expected_len &&
+                 state->hash == expected_hash;
+            ntk_mutex_unlock(state->lock);
+            if (ok) {
+                break;
+            }
+        } else {
+            ntk_sleep_ms(50);
+        }
+    }
+    return ok;
+}
+
 static int send_frag_sample(nb_rtps_participant_t *publisher,
                             const nb_rtps_endpoint_info_t *publication,
                             const uint8_t *payload,
@@ -709,9 +743,7 @@ static int send_frag_sample(nb_rtps_participant_t *publisher,
     nb_rtps_dds_message_t message;
     uint8_t *serialized;
     size_t serialized_len = 0;
-    uint32_t expected_hash = payload_hash(payload, payload_len);
-    int waited;
-    int ok = 0;
+    int ok;
     int rc;
 
     serialized = (uint8_t *)malloc(payload_len + 8u);
@@ -727,26 +759,13 @@ static int send_frag_sample(nb_rtps_participant_t *publisher,
         return 0;
     }
 
-    for (waited = 0; waited < 5000; waited += 50) {
-        ntk_mutex_lock(state->lock);
-        state->received = 0;
-        ntk_mutex_unlock(state->lock);
-        if (nb_rtps_participant_publish(publisher,
-                                        &publication->endpoint_guid,
-                                        serialized,
-                                        serialized_len) == NB_OK) {
-            ntk_sleep_ms(50);
-            ntk_mutex_lock(state->lock);
-            ok = state->received && state->len == payload_len &&
-                 state->hash == expected_hash;
-            ntk_mutex_unlock(state->lock);
-            if (ok) {
-                break;
-            }
-        } else {
-            ntk_sleep_ms(50);
-        }
-    }
+    ok = send_raw_sample(publisher,
+                         &publication->endpoint_guid,
+                         serialized,
+                         serialized_len,
+                         payload,
+                         payload_len,
+                         state);
     free(serialized);
     return ok;
 }
@@ -851,6 +870,135 @@ static void test_fragmented_data(void)
         }
         CHECK(send_frag_sample(publisher, &publication, payload, len, &frag_state));
         free(payload);
+    }
+
+cleanup:
+    if (publisher) {
+        nb_rtps_participant_stop(publisher);
+    }
+    if (subscriber) {
+        nb_rtps_participant_stop(subscriber);
+    }
+    if (publisher) {
+        nb_rtps_participant_destroy(publisher);
+    }
+    if (subscriber) {
+        nb_rtps_participant_destroy(subscriber);
+    }
+    if (publisher_state.lock) {
+        ntk_mutex_destroy(publisher_state.lock);
+    }
+    if (subscriber_state.lock) {
+        ntk_mutex_destroy(subscriber_state.lock);
+    }
+    if (frag_state.lock) {
+        ntk_mutex_destroy(frag_state.lock);
+    }
+}
+
+/*
+ * Generic application types: a subscription whose type name is not
+ * "dds::Message" receives the raw CDR body of the sample, so an application can
+ * plug in any codec (Micro-CDR generated code included) without a registry.
+ */
+static void test_generic_type_delivery(void)
+{
+    static const size_t body_sizes[] = {64u, 3000u};
+    nb_rtps_participant_config_t config;
+    nb_rtps_participant_t *publisher;
+    nb_rtps_participant_t *subscriber;
+    nb_rtps_endpoint_info_t publication;
+    nb_rtps_endpoint_info_t subscription;
+    test_state_t publisher_state;
+    test_state_t subscriber_state;
+    frag_state_t frag_state;
+    uint16_t publisher_port;
+    uint16_t subscriber_port;
+    size_t s;
+
+    memset(&publisher_state, 0, sizeof(publisher_state));
+    memset(&subscriber_state, 0, sizeof(subscriber_state));
+    memset(&frag_state, 0, sizeof(frag_state));
+
+    fill_config(&config, "generic-publisher");
+    publisher = nb_rtps_participant_create(&config);
+    CHECK(publisher != NULL);
+    if (!publisher) {
+        return;
+    }
+    publisher_port = nb_rtps_participant_spdp_port(publisher);
+    fill_config(&config, "generic-subscriber");
+    subscriber = nb_rtps_participant_create(&config);
+    CHECK(subscriber != NULL);
+    if (!subscriber) {
+        nb_rtps_participant_destroy(publisher);
+        return;
+    }
+    subscriber_port = nb_rtps_participant_spdp_port(subscriber);
+    CHECK(nb_rtps_participant_add_peer(publisher, "127.0.0.1", subscriber_port) == NB_OK);
+    CHECK(nb_rtps_participant_add_peer(subscriber, "127.0.0.1", publisher_port) == NB_OK);
+
+    publisher_state.lock = ntk_mutex_create(NTK_MUTEX_NORMAL);
+    subscriber_state.lock = ntk_mutex_create(NTK_MUTEX_NORMAL);
+    frag_state.lock = ntk_mutex_create(NTK_MUTEX_NORMAL);
+    CHECK(publisher_state.lock && subscriber_state.lock && frag_state.lock);
+    if (!publisher_state.lock || !subscriber_state.lock || !frag_state.lock) {
+        goto cleanup;
+    }
+    nb_rtps_participant_set_callback(publisher, on_participant, &publisher_state);
+    nb_rtps_participant_set_callback(subscriber, on_participant, &subscriber_state);
+    nb_rtps_participant_set_endpoint_callback(publisher, on_endpoint, &publisher_state);
+    nb_rtps_participant_set_endpoint_callback(subscriber, on_endpoint, &subscriber_state);
+    nb_rtps_participant_set_data_callback(subscriber, on_frag_data, &frag_state);
+    CHECK(nb_rtps_participant_start(publisher) == NB_OK);
+    CHECK(nb_rtps_participant_start(subscriber) == NB_OK);
+    CHECK(wait_count(&publisher_state, 0, 1, 5000));
+    CHECK(wait_count(&subscriber_state, 0, 1, 5000));
+
+    memset(&publication, 0, sizeof(publication));
+    (void)snprintf(publication.topic_name, sizeof(publication.topic_name), "test/Blob");
+    (void)snprintf(publication.type_name, sizeof(publication.type_name), "test::Blob");
+    publication.reliability = NB_RTPS_RELIABILITY_RELIABLE;
+    publication.history_kind = NB_RTPS_HISTORY_KEEP_LAST;
+    publication.history_depth = 4;
+    CHECK(nb_rtps_participant_add_endpoint(
+              publisher, NB_RTPS_ENDPOINT_PUBLICATION, &publication) == NB_OK);
+
+    memset(&subscription, 0, sizeof(subscription));
+    (void)snprintf(subscription.topic_name, sizeof(subscription.topic_name), "test/Blob");
+    (void)snprintf(subscription.type_name, sizeof(subscription.type_name), "test::Blob");
+    subscription.reliability = NB_RTPS_RELIABILITY_RELIABLE;
+    subscription.history_kind = NB_RTPS_HISTORY_KEEP_LAST;
+    subscription.history_depth = 4;
+    CHECK(nb_rtps_participant_add_endpoint(
+              subscriber, NB_RTPS_ENDPOINT_SUBSCRIPTION, &subscription) == NB_OK);
+    CHECK(wait_endpoint_count(&subscriber_state, 0, 1, 5000));
+    CHECK(wait_endpoint_count(&publisher_state, 0, 1, 5000));
+
+    for (s = 0; s < sizeof(body_sizes) / sizeof(body_sizes[0]); s++) {
+        size_t body_len = body_sizes[s];
+        uint8_t *sample = (uint8_t *)malloc(body_len + NB_RTPS_CDR_HEADER_SIZE);
+        size_t i;
+
+        CHECK(sample != NULL);
+        if (!sample) {
+            continue;
+        }
+        sample[0] = 0x00;
+        sample[1] = 0x01; /* CDR_LE */
+        sample[2] = 0x00;
+        sample[3] = 0x00;
+        for (i = 0; i < body_len; i++) {
+            sample[NB_RTPS_CDR_HEADER_SIZE + i] = (uint8_t)((i * 17u + 5u) & 0xffu);
+        }
+        CHECK(send_raw_sample(publisher,
+                              &publication.endpoint_guid,
+                              sample,
+                              body_len + NB_RTPS_CDR_HEADER_SIZE,
+                              sample + NB_RTPS_CDR_HEADER_SIZE,
+                              body_len,
+                              &frag_state));
+        free(sample);
     }
 
 cleanup:
@@ -1383,6 +1531,7 @@ int main(void)
     test_sedp_endpoints();
     test_data_roundtrip();
     test_fragmented_data();
+    test_generic_type_delivery();
     test_reliable_late_joiner();
     test_reliable_gap();
     test_reliable_reader_capacity();

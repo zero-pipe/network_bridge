@@ -30,9 +30,10 @@ changes state so a later session can resume without reading the whole history.
   multicast and unicast-only modes; only the automated CI job is pending)
 - M7 packaging: pending
 - M8 serialization on Micro-CDR: done (vendored subset, no submodule)
-- M9 `DATA_FRAG`: partial (application samples up to 64 KiB both ways;
-  SEDP-over-fragments and Cyclone large-sample interop pending)
-- M10 generic type support: pending
+- M9 `DATA_FRAG`: partial (application samples up to 64 KiB both ways; SEDP
+  stays inline by construction; Cyclone large-sample interop pending)
+- M10 generic type support: done (raw CDR body delivery keyed by `type_name`;
+  no registry and no new public API)
 - M11 QoS semantics: pending
 
 ## Priority order
@@ -43,7 +44,7 @@ it. Work is ordered so each step removes a real interop limit.
 | Order | Track | Why |
 | --- | --- | --- |
 | P0 | M10: generic type support | The point of "own DDS": arbitrary structs instead of the fixed `dds::Message` |
-| P1 | M9 remainder | SEDP over fragments and Cyclone large-sample interop; needs a type larger than `dds::Message` |
+| P1 | Cyclone custom-type interop | Verify a type larger than `dds::Message` in both directions; also covers the remaining `DATA_FRAG` interop item |
 | P3 | M11: QoS semantics | Late-joiner durability, keep-all history, partition matching |
 | P4 | M5: scale and scoping | Unicast peer scoping, discovery server, 1000-participant measurements |
 | P5 | M6/M7: CI and second implementation | Fast DDS interop and an automated Linux job |
@@ -226,17 +227,22 @@ a fixed participant index instead.
 
 ## M10: generic type support (P2)
 
-- [ ] Type registry: type name -> element size plus serialise/deserialise
-      callbacks, bounded and keyed like the endpoint tables
-- [ ] Decide the registration seam that fits the frozen public API: an
-      internal registry plus example-level codec first, additive API only if
-      unavoidable
+- [x] No registry and no new public API. `nb_rtps_participant_publish()` already
+      takes opaque bytes, and the receive path now picks the interpretation from
+      the matched local subscription's `type_name`: "dds::Message" is parsed as
+      before, every other type is delivered as its raw CDR body (the sample
+      minus the four-byte encapsulation header). The application owns the codec,
+      which is exactly what Micro-CDR generated code provides
+- [x] `NB_RTPS_CDR_HEADER_SIZE` moved to `rtps_data.h` so both paths share one
+      definition
+- [x] End-to-end test with a custom `test::Blob` type: a 64-byte body inline and
+      a 3000-byte body through `DATA_FRAG`, both verified by payload hash
 - [ ] Codec coverage: nested structs, fixed arrays, sequences, strings, enums,
-      optional members (Micro-CDR generated code)
+      optional members (Micro-CDR generated code). Nothing in the runtime needs
+      to change for these; the work is an example codec plus tests
 - [ ] Verify Cyclone matches a custom type by type name and exchanges samples
-      in both directions
-- [ ] Unit tests: round trip, truncated input, oversized sequence length,
-      misaligned member offsets
+      in both directions. Needs a Cyclone-side type larger than `dds::Message`,
+      which also unblocks the `DATA_FRAG` interop item in M9
 
 ## M11: QoS semantics (P3)
 
@@ -384,3 +390,9 @@ a fixed participant index instead.
 - 2026-11-01: Linux re-verified after M9 on `192.168.54.14`: fresh build,
   18 unit/RTPS tests, `e2e.rtps_participant` (including the new fragmented-data
   case) three times, and Cyclone interop in multicast and unicast-only modes.
+- 2026-11-01: M10 generic types without a registry. The receive path picks the
+  interpretation from the matched subscription's `type_name`: `dds::Message` is
+  decoded as before, anything else reaches the callback as its raw CDR body
+  (sample minus the encapsulation header). `publish()` already accepted opaque
+  bytes, so no public API changed. Tests: `test::Blob` with a 64-byte inline
+  body and a 3000-byte body over `DATA_FRAG`.

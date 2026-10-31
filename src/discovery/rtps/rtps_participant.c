@@ -1678,22 +1678,21 @@ static void handle_user_data(nb_rtps_participant_t *participant,
                              const nb_rtps_guid_prefix_t *source_prefix)
 {
     nb_rtps_dds_message_t message;
+    uint8_t dds_reader[NB_RTPS_MAX_DATA_TARGETS];
     nb_rtps_guid_t writer_guid;
     nb_rtps_guid_t readers[NB_RTPS_MAX_DATA_TARGETS];
     nb_rtps_data_callback_t callback;
     void *user;
     nb_rtps_remote_endpoint_t *remote;
     size_t reader_count = 0;
+    int dds_parsed = 0;
+    int dds_ok = 0;
     size_t i;
 
     if (!participant || !data || !source_prefix || data->dispose || data->key) {
         return;
     }
     if (data->writer_sn.high != 0) {
-        return;
-    }
-    if (nb_rtps_dds_message_deserialize(
-            data->payload, data->payload_len, &message) != NB_OK) {
         return;
     }
     writer_guid.prefix = *source_prefix;
@@ -1736,7 +1735,14 @@ static void handle_user_data(nb_rtps_participant_t *participant,
                     continue;
                 }
             }
-            readers[reader_count++] = local->info.endpoint_guid;
+            readers[reader_count] = local->info.endpoint_guid;
+            dds_reader[reader_count] =
+                strncmp(local->info.type_name,
+                        NB_RTPS_DDS_MESSAGE_TYPE,
+                        sizeof(local->info.type_name)) == 0
+                    ? 1u
+                    : 0u;
+            reader_count++;
         }
     }
     ntk_mutex_unlock(participant->lock);
@@ -1745,7 +1751,30 @@ static void handle_user_data(nb_rtps_participant_t *participant,
         return;
     }
     for (i = 0; i < reader_count; i++) {
-        callback(user, &readers[i], &writer_guid, &message);
+        nb_rtps_dds_message_t view;
+
+        if (dds_reader[i]) {
+            if (!dds_parsed) {
+                dds_parsed = 1;
+                dds_ok = nb_rtps_dds_message_deserialize(
+                             data->payload, data->payload_len, &message) == NB_OK;
+            }
+            if (!dds_ok) {
+                continue;
+            }
+            view = message;
+        } else {
+            /* Any other type travels as an XCDR1 encapsulated sample. Hand the
+             * application the CDR body; it owns the codec for its own type. */
+            if (data->payload_len <= NB_RTPS_CDR_HEADER_SIZE ||
+                data->payload[0] != 0x00 ||
+                (data->payload[1] != 0x01 && data->payload[1] != 0x03)) {
+                continue;
+            }
+            view.payload = data->payload + NB_RTPS_CDR_HEADER_SIZE;
+            view.payload_len = data->payload_len - NB_RTPS_CDR_HEADER_SIZE;
+        }
+        callback(user, &readers[i], &writer_guid, &view);
     }
 }
 

@@ -106,6 +106,14 @@ typedef void (*nb_rtps_endpoint_callback_t)(void *user,
  * Called once for each local subscription that matches an incoming application
  * DATA sample. The message payload is a zero-copy view into the receive buffer
  * and is only valid for the duration of the callback.
+ *
+ * For a subscription whose type name is "dds::Message" the view holds the
+ * deserialized dds::Message.payload bytes, exactly as before. For any other
+ * type name the view holds the CDR body of the sample, that is the received
+ * payload without its four-byte encapsulation header; the application owns the
+ * codec for that type. Publish such samples with
+ * nb_rtps_participant_publish() and a four-byte encapsulation header followed
+ * by the CDR body.
  */
 typedef void (*nb_rtps_data_callback_t)(void *user,
                                         const nb_rtps_guid_t *reader_guid,

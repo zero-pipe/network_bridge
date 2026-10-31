@@ -28,6 +28,9 @@
 #define NB_RTPS_DDS_MESSAGE_TOPIC "dds/Message"
 #define NB_RTPS_DDS_MESSAGE_TYPE "dds::Message"
 
+/* Size of the CDR encapsulation header that prefixes every RTPS sample. */
+#define NB_RTPS_CDR_HEADER_SIZE 4u
+
 /*
  * A non-owning view of dds::Message.payload. When produced by
  * nb_rtps_dds_message_deserialize(), payload points into the caller's input

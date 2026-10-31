@@ -3,8 +3,6 @@
 #include "rtps_cdr.h"
 
 #define NB_RTPS_CDR_LE 0x0001u
-#define NB_RTPS_CDR_HEADER_SIZE 4u
-
 int nb_rtps_dds_message_serialize(const nb_rtps_dds_message_t *message,
                                   void *buf,
                                   size_t cap,
