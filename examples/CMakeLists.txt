@@ -2,7 +2,7 @@
 
 function(nb_add_example target)
     add_executable(${target} ${ARGN})
-    target_link_libraries(${target} PRIVATE rpc)
+    target_link_libraries(${target} PRIVATE nb)
     if(MSVC)
         target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS)
     endif()

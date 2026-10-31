@@ -1,16 +1,18 @@
 set(NB_BASE_SOURCES
-    utils/alloc.c
-    utils/buf.c
-    utils/poolset.c
-    utils/slotpool.c
+    base/alloc.c
+    base/buf.c
+    base/poolset.c
+    base/slotpool.c
+    base/crc32.c
 )
 
 add_library(nb_base STATIC ${NB_BASE_SOURCES})
+add_library(nb::base ALIAS nb_base)
 
 target_include_directories(nb_base
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
 set_target_properties(nb_base PROPERTIES
@@ -20,12 +22,12 @@ set_target_properties(nb_base PROPERTIES
 )
 
 install(TARGETS nb_base
-    ARCHIVE DESTINATION lib
-    LIBRARY DESTINATION lib
-    RUNTIME DESTINATION bin
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
-set(NB_RPC_SOURCES
+set(NB_SOURCES
     core/node.c
     core/node_access.c
     core/transport_factory.c
@@ -46,7 +48,6 @@ set(NB_RPC_SOURCES
     core/payload.c
     utils/log.c
     utils/error.c
-    utils/crc32.c
     utils/metrics.c
     utils/poller_alloc.c
     utils/util.c
@@ -74,18 +75,22 @@ set(NB_RPC_SOURCES
 )
 
 if(NB_ENABLE_DDS)
-    list(APPEND NB_RPC_SOURCES
+    list(APPEND NB_SOURCES
         transport/dds/cyclone_dds.c
         transport/dds/cy_dds_message.c)
 endif()
 
-add_library(rpc STATIC ${NB_RPC_SOURCES})
+add_library(nb STATIC ${NB_SOURCES})
+add_library(nb::nb ALIAS nb)
+# Backward-compatible target name for downstreams that still link `rpc`.
+add_library(rpc ALIAS nb)
 
-target_include_directories(rpc
+target_include_directories(nb
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/base
         ${CMAKE_CURRENT_SOURCE_DIR}/core
         ${CMAKE_CURRENT_SOURCE_DIR}/utils
         ${CMAKE_CURRENT_SOURCE_DIR}/utils/json
@@ -100,31 +105,31 @@ target_include_directories(rpc
         ${CMAKE_SOURCE_DIR}/3rdparty/cjson
 )
 
-install(TARGETS rpc
-    ARCHIVE DESTINATION lib
-    LIBRARY DESTINATION lib
-    RUNTIME DESTINATION bin
+install(TARGETS nb
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
-install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/ DESTINATION include)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
 # elog 只是 log.c 的实现细节：静态库最终仍需链接，但不向使用者传播头文件路径。
-target_link_libraries(rpc PUBLIC ntk nb_base PRIVATE elog)
+target_link_libraries(nb PUBLIC ntk nb_base PRIVATE elog)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # shm_open()/sem_timedwait() live in librt on older glibc.
-    target_link_libraries(rpc PUBLIC rt)
+    target_link_libraries(nb PUBLIC rt)
 endif()
 
 if(NB_ENABLE_DDS)
-    target_link_libraries(rpc PUBLIC nb_cyclonedds)
+    target_link_libraries(nb PUBLIC nb_cyclonedds)
 endif()
 
-set_target_properties(rpc PROPERTIES
+set_target_properties(nb PROPERTIES
     C_STANDARD 99
     C_STANDARD_REQUIRED ON
-    OUTPUT_NAME rpc
+    OUTPUT_NAME nb
 )
 
 if(MSVC)
-    target_compile_definitions(rpc PRIVATE _CRT_SECURE_NO_WARNINGS _WINSOCK_DEPRECATED_NO_WARNINGS)
+    target_compile_definitions(nb PRIVATE _CRT_SECURE_NO_WARNINGS _WINSOCK_DEPRECATED_NO_WARNINGS)
 endif()

@@ -10,7 +10,7 @@ else()
     set(GOOGLE_PLATFORM "")
 endif()
 
-if(BUILD_GTESTS)
+if(NB_BUILD_GTESTS)
     if(NOT GOOGLE_PLATFORM)
         message(FATAL_ERROR "No bundled GoogleTest archive for this platform")
     endif()
@@ -30,7 +30,7 @@ if(BUILD_GTESTS)
         ${CMAKE_CURRENT_SOURCE_DIR}/../../src/message
         ${CMAKE_CURRENT_SOURCE_DIR}/../../src/transport/common
         ${CMAKE_CURRENT_SOURCE_DIR}/../../src/core)
-    target_link_libraries(test_gtest_modules PRIVATE rpc ${GTEST_MAIN_LIB}
+    target_link_libraries(test_gtest_modules PRIVATE nb ${GTEST_MAIN_LIB}
         ${GTEST_LIB})
     if(MSVC)
         target_compile_options(test_gtest_modules PRIVATE
@@ -45,7 +45,7 @@ if(BUILD_GTESTS)
     set_tests_properties(unit.gtest_modules PROPERTIES LABELS "unit;gtest" TIMEOUT 120)
 endif()
 
-if(BUILD_BENCHMARKS)
+if(NB_BUILD_BENCHMARKS)
     if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
         message(STATUS "Google Benchmark is supported only on Linux amd64; skipping benchmark target")
     else()
@@ -58,7 +58,7 @@ if(BUILD_BENCHMARKS)
             ${GOOGLE_BENCH_ROOT}/include
             ${CMAKE_CURRENT_SOURCE_DIR}/../../src/message
             ${CMAKE_CURRENT_SOURCE_DIR}/../../src/transport/common)
-        target_link_libraries(bench_modules PRIVATE rpc ${BENCH_LIB})
+        target_link_libraries(bench_modules PRIVATE nb ${BENCH_LIB})
         if(UNIX)
             find_package(Threads REQUIRED)
             target_link_libraries(bench_modules PRIVATE Threads::Threads)
