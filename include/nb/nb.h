@@ -28,6 +28,7 @@
 #include <nb/publish.h>
 #include <nb/subscribe.h>
 #include <nb/dds.h>
+#include <nb/rtps.h>
 #include <nb/buf.h>
 #include <nb/alloc.h>
 #include <nb/poolset.h>
