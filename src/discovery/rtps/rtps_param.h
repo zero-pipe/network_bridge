@@ -25,6 +25,8 @@
 #define NB_RTPS_PID_PARTICIPANT_LEASE_DURATION 0x0002u
 #define NB_RTPS_PID_TOPIC_NAME 0x0005u
 #define NB_RTPS_PID_TYPE_NAME 0x0007u
+#define NB_RTPS_PID_UNICAST_LOCATOR 0x002fu
+#define NB_RTPS_PID_MULTICAST_LOCATOR 0x0030u
 #define NB_RTPS_PID_PROTOCOL_VERSION 0x0015u
 #define NB_RTPS_PID_VENDORID 0x0016u
 #define NB_RTPS_PID_RELIABILITY 0x001au
@@ -101,6 +103,18 @@ int nb_rtps_param_put_guid(nb_rtps_param_writer_t *writer, uint16_t pid,
 int nb_rtps_param_put_locator(nb_rtps_param_writer_t *writer,
                               uint16_t pid,
                               const nb_rtps_locator_t *locator);
+int nb_rtps_param_put_locator_sequence(nb_rtps_param_writer_t *writer,
+                                       uint16_t pid,
+                                       const nb_rtps_locator_t *locators,
+                                       size_t count);
+int nb_rtps_param_put_string_sequence(nb_rtps_param_writer_t *writer,
+                                      uint16_t pid,
+                                      const char *const *values,
+                                      size_t count);
+int nb_rtps_param_put_history(nb_rtps_param_writer_t *writer,
+                              uint16_t pid,
+                              uint32_t kind,
+                              uint32_t depth);
 int nb_rtps_param_put_duration(nb_rtps_param_writer_t *writer,
                                uint16_t pid,
                                const nb_rtps_duration_t *duration);
@@ -126,6 +140,19 @@ int nb_rtps_param_get_u32(const uint8_t *value, size_t len, uint32_t *out);
 int nb_rtps_param_get_string(const uint8_t *value, size_t len, char *out, size_t cap);
 int nb_rtps_param_get_guid(const uint8_t *value, size_t len, nb_rtps_guid_t *out);
 int nb_rtps_param_get_locator(const uint8_t *value, size_t len, nb_rtps_locator_t *out);
+int nb_rtps_param_get_locator_sequence(const uint8_t *value,
+                                       size_t len,
+                                       nb_rtps_locator_t *out,
+                                       size_t cap,
+                                       size_t *count);
+int nb_rtps_param_get_first_string(const uint8_t *value,
+                                   size_t len,
+                                   char *out,
+                                   size_t cap);
+int nb_rtps_param_get_history(const uint8_t *value,
+                              size_t len,
+                              uint32_t *kind,
+                              uint32_t *depth);
 int nb_rtps_param_get_duration(const uint8_t *value, size_t len, nb_rtps_duration_t *out);
 int nb_rtps_param_get_octet_sequence(const uint8_t *value,
                                      size_t len,

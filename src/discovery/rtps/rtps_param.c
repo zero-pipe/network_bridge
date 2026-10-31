@@ -237,6 +237,19 @@ int nb_rtps_param_put_guid(nb_rtps_param_writer_t *writer,
     return param_write(writer, pid, buf, sizeof(buf));
 }
 
+static void locator_to_bytes(const nb_rtps_locator_t *locator, uint8_t out[24])
+{
+    out[0] = (uint8_t)((uint32_t)locator->kind & 0xffu);
+    out[1] = (uint8_t)(((uint32_t)locator->kind >> 8) & 0xffu);
+    out[2] = (uint8_t)(((uint32_t)locator->kind >> 16) & 0xffu);
+    out[3] = (uint8_t)(((uint32_t)locator->kind >> 24) & 0xffu);
+    out[4] = (uint8_t)(locator->port & 0xffu);
+    out[5] = (uint8_t)((locator->port >> 8) & 0xffu);
+    out[6] = (uint8_t)((locator->port >> 16) & 0xffu);
+    out[7] = (uint8_t)((locator->port >> 24) & 0xffu);
+    memcpy(out + 8, locator->address, NB_RTPS_LOCATOR_ADDRESS_SIZE);
+}
+
 int nb_rtps_param_put_locator(nb_rtps_param_writer_t *writer,
                               uint16_t pid,
                               const nb_rtps_locator_t *locator)
@@ -246,15 +259,97 @@ int nb_rtps_param_put_locator(nb_rtps_param_writer_t *writer,
     if (!locator) {
         return NB_ERR_INVALID;
     }
-    buf[0] = (uint8_t)((uint32_t)locator->kind & 0xffu);
-    buf[1] = (uint8_t)(((uint32_t)locator->kind >> 8) & 0xffu);
-    buf[2] = (uint8_t)(((uint32_t)locator->kind >> 16) & 0xffu);
-    buf[3] = (uint8_t)(((uint32_t)locator->kind >> 24) & 0xffu);
-    buf[4] = (uint8_t)(locator->port & 0xffu);
-    buf[5] = (uint8_t)((locator->port >> 8) & 0xffu);
-    buf[6] = (uint8_t)((locator->port >> 16) & 0xffu);
-    buf[7] = (uint8_t)((locator->port >> 24) & 0xffu);
-    memcpy(buf + 8, locator->address, NB_RTPS_LOCATOR_ADDRESS_SIZE);
+    locator_to_bytes(locator, buf);
+    return param_write(writer, pid, buf, sizeof(buf));
+}
+
+int nb_rtps_param_put_locator_sequence(nb_rtps_param_writer_t *writer,
+                                       uint16_t pid,
+                                       const nb_rtps_locator_t *locators,
+                                       size_t count)
+{
+    nb_cdr_writer_t cdr;
+    size_t pid_pos;
+    size_t value_start;
+    size_t i;
+    int rc;
+
+    if (count > 0 && !locators) {
+        return NB_ERR_INVALID;
+    }
+    if (count > 0xffffffffu) {
+        return NB_ERR_TOOBIG;
+    }
+    rc = param_begin(writer, pid, &value_start);
+    if (rc != NB_OK) {
+        return rc;
+    }
+    pid_pos = value_start - 4;
+    nb_cdr_writer_init(&cdr, writer->data + value_start, writer->cap - value_start);
+    nb_cdr_put_u32(&cdr, (uint32_t)count);
+    for (i = 0; i < count; i++) {
+        uint8_t bytes[24];
+        locator_to_bytes(&locators[i], bytes);
+        nb_cdr_put_bytes(&cdr, bytes, sizeof(bytes));
+    }
+    if (!nb_cdr_writer_ok(&cdr)) {
+        writer->failed = 1;
+        return NB_ERR_TOOBIG;
+    }
+    writer->len = value_start + nb_cdr_writer_len(&cdr);
+    return param_end(writer, pid_pos, value_start);
+}
+
+int nb_rtps_param_put_string_sequence(nb_rtps_param_writer_t *writer,
+                                      uint16_t pid,
+                                      const char *const *values,
+                                      size_t count)
+{
+    nb_cdr_writer_t cdr;
+    size_t pid_pos;
+    size_t value_start;
+    size_t i;
+    int rc;
+
+    if (count > 0 && !values) {
+        return NB_ERR_INVALID;
+    }
+    if (count > 0xffffffffu) {
+        return NB_ERR_TOOBIG;
+    }
+    rc = param_begin(writer, pid, &value_start);
+    if (rc != NB_OK) {
+        return rc;
+    }
+    pid_pos = value_start - 4;
+    nb_cdr_writer_init(&cdr, writer->data + value_start, writer->cap - value_start);
+    nb_cdr_put_u32(&cdr, (uint32_t)count);
+    for (i = 0; i < count; i++) {
+        nb_cdr_put_string(&cdr, values[i] ? values[i] : "");
+    }
+    if (!nb_cdr_writer_ok(&cdr)) {
+        writer->failed = 1;
+        return NB_ERR_TOOBIG;
+    }
+    writer->len = value_start + nb_cdr_writer_len(&cdr);
+    return param_end(writer, pid_pos, value_start);
+}
+
+int nb_rtps_param_put_history(nb_rtps_param_writer_t *writer,
+                              uint16_t pid,
+                              uint32_t kind,
+                              uint32_t depth)
+{
+    uint8_t buf[8];
+
+    buf[0] = (uint8_t)(kind & 0xffu);
+    buf[1] = (uint8_t)((kind >> 8) & 0xffu);
+    buf[2] = (uint8_t)((kind >> 16) & 0xffu);
+    buf[3] = (uint8_t)((kind >> 24) & 0xffu);
+    buf[4] = (uint8_t)(depth & 0xffu);
+    buf[5] = (uint8_t)((depth >> 8) & 0xffu);
+    buf[6] = (uint8_t)((depth >> 16) & 0xffu);
+    buf[7] = (uint8_t)((depth >> 24) & 0xffu);
     return param_write(writer, pid, buf, sizeof(buf));
 }
 
@@ -443,6 +538,83 @@ int nb_rtps_param_get_locator(const uint8_t *value, size_t len, nb_rtps_locator_
     out->port = port;
     memcpy(out->address, value + 8, NB_RTPS_LOCATOR_ADDRESS_SIZE);
     return NB_OK;
+}
+
+int nb_rtps_param_get_locator_sequence(const uint8_t *value,
+                                       size_t len,
+                                       nb_rtps_locator_t *out,
+                                       size_t cap,
+                                       size_t *count)
+{
+    uint32_t n;
+    size_t i;
+
+    if (!value || len < 4) {
+        return NB_ERR_INVALID;
+    }
+    n = (uint32_t)value[0] | ((uint32_t)value[1] << 8) |
+        ((uint32_t)value[2] << 16) | ((uint32_t)value[3] << 24);
+    if ((size_t)n > (len - 4) / 24) {
+        return NB_ERR_BAD_MESSAGE;
+    }
+    if ((size_t)n > cap || (n > 0 && !out)) {
+        return NB_ERR_TOOBIG;
+    }
+    for (i = 0; i < (size_t)n; i++) {
+        int rc = nb_rtps_param_get_locator(value + 4 + i * 24, 24, &out[i]);
+        if (rc != NB_OK) {
+            return rc;
+        }
+    }
+    if (count) {
+        *count = (size_t)n;
+    }
+    return NB_OK;
+}
+
+int nb_rtps_param_get_first_string(const uint8_t *value,
+                                   size_t len,
+                                   char *out,
+                                   size_t cap)
+{
+    nb_cdr_reader_t reader;
+    uint32_t count;
+
+    if (!value || len < 4) {
+        return NB_ERR_INVALID;
+    }
+    nb_cdr_reader_init(&reader, value, len);
+    count = nb_cdr_get_u32(&reader);
+    if (!nb_cdr_reader_ok(&reader)) {
+        return NB_ERR_BAD_MESSAGE;
+    }
+    if (count == 0) {
+        if (out && cap > 0) {
+            out[0] = '\0';
+        }
+        return NB_OK;
+    }
+    if (!nb_cdr_get_string(&reader, out, cap) || !nb_cdr_reader_ok(&reader)) {
+        return NB_ERR_TOOBIG;
+    }
+    return NB_OK;
+}
+
+int nb_rtps_param_get_history(const uint8_t *value,
+                              size_t len,
+                              uint32_t *kind,
+                              uint32_t *depth)
+{
+    int rc;
+
+    if (!value || len < 8) {
+        return NB_ERR_INVALID;
+    }
+    rc = nb_rtps_param_get_u32(value, len, kind);
+    if (rc != NB_OK) {
+        return rc;
+    }
+    return nb_rtps_param_get_u32(value + 4, len - 4, depth);
 }
 
 int nb_rtps_param_get_duration(const uint8_t *value, size_t len, nb_rtps_duration_t *out)
