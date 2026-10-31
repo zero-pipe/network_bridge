@@ -60,15 +60,15 @@ set(NB_SOURCES
     router/router.c
     registry/registry.c
     discovery/discovery.c
-    discovery/rtps/rtps_types.c
-    discovery/rtps/rtps_cdr.c
-    discovery/rtps/rtps_param.c
-    discovery/rtps/rtps_message.c
-    discovery/rtps/rtps_spdp.c
-    discovery/rtps/rtps_sedp.c
-    discovery/rtps/rtps_data.c
-    discovery/rtps/rtps_reliable.c
-    discovery/rtps/rtps_participant.c
+    rtps/rtps_types.c
+    rtps/rtps_cdr.c
+    rtps/rtps_param.c
+    rtps/rtps_message.c
+    rtps/rtps_spdp.c
+    rtps/rtps_sedp.c
+    rtps/rtps_data.c
+    rtps/rtps_reliable.c
+    rtps/rtps_participant.c
     config/config.c
     transport/common/framing.c
     transport/common/transport.c
@@ -78,6 +78,7 @@ set(NB_SOURCES
     transport/common/tx_ring.c
     transport/udp/udp.c
     transport/tcp/tcp.c
+    transport/rtps/rtps_transport.c
     transport/shm/shm.c
     transport/shm/shm_segment.c
     ${CMAKE_SOURCE_DIR}/3rdparty/cjson/cJSON.c
@@ -109,7 +110,7 @@ target_include_directories(nb
         ${CMAKE_CURRENT_SOURCE_DIR}/router
         ${CMAKE_CURRENT_SOURCE_DIR}/registry
         ${CMAKE_CURRENT_SOURCE_DIR}/discovery
-        ${CMAKE_CURRENT_SOURCE_DIR}/discovery/rtps
+        ${CMAKE_CURRENT_SOURCE_DIR}/rtps
         ${CMAKE_CURRENT_SOURCE_DIR}/config
         ${CMAKE_SOURCE_DIR}/3rdparty/uthash
         ${CMAKE_SOURCE_DIR}/3rdparty/cjson
@@ -122,7 +123,7 @@ install(TARGETS nb
 )
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
-# elog 只是 log.c 的实现细节：静态库最终仍需链接，但不向使用者传播头文件路径。
+# elog 只是 log.c 的实现细节：静态库最终仍需链接，但不向使用者传播头文件路径�?
 target_link_libraries(nb PUBLIC ntk nb_base microcdr PRIVATE elog)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

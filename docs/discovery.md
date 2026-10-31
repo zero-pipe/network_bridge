@@ -177,7 +177,7 @@ record; DDS peers see a UDP locator only when the service has one.
 
 ## 5. Wire layer
 
-Implemented in `src/discovery/rtps/`:
+Implemented in `src/rtps/`:
 
 | File | Contents |
 | --- | --- |
@@ -225,9 +225,35 @@ Encoding rules:
 The codec is fuzz-friendly: every read is bounds checked and malformed input
 returns `NB_ERR_BAD_MESSAGE` without partial state.
 
+### 5.1 Transport provider
+
+`src/transport/rtps/rtps_transport.c` exposes the implementation as a framework
+transport provider with the scheme `rtps`, so an application can use the
+in-tree RTPS data plane instead of a third-party DDS stack:
+
+```c
+nb_rtps_transport_register();   /* before creating nodes */
+/* then a binding with name "rtps" and endpoint "rtps://<domain>" */
+```
+
+The provider carries the framework's encoded v2 frame as an opaque RTPS sample
+and derives topics from the route the same way as the Cyclone provider
+(`<Service>_<method>_req|_res|_evt`). Scheduling and payload semantics stay in
+core; the provider only moves frames.
+
+| Binding URI | Discovery |
+| --- | --- |
+| `rtps://<domain>` | multicast SPDP, ephemeral ports |
+| `rtps://<domain>:<port>` | unicast only, fixed discovery port |
+| `rtps://<domain>:<port>/<host>:<port>,...` | explicit unicast peers |
+
+An explicit port or peer list disables multicast, because both pin discovery to
+named endpoints. Reliability, durability, history and partition come from the
+binding QoS.
+
 ## 6. Runtime design
 
-Implemented in `src/discovery/rtps/rtps_participant.h/.c`. `create()` binds
+Implemented in `src/rtps/rtps_participant.h/.c`. `create()` binds
 sockets and initializes state, so callers can learn ephemeral ports before
 `start()`; `start()` launches one discovery thread; `stop()` joins it;
 `destroy()` releases all resources.

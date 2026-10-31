@@ -442,3 +442,13 @@ Implemented QoS matrix:
   re-verified after the M11 batch on `192.168.54.14`: fresh build, unit/RTPS
   tests, `e2e.rtps_participant` three times, and Cyclone interop in multicast
   and unicast-only modes.
+- 2026-11-01: the RTPS implementation moved from `src/discovery/rtps/` to
+  `src/rtps/`, because it is the protocol implementation, not discovery glue.
+  A new driver in `src/transport/rtps/` registers the `rtps` scheme as a
+  framework transport provider, so the framework can run its own RTPS data
+  plane without Cyclone. It carries the v2 frame as an opaque XCDR1-encapsulated
+  sample, derives topics from the route like the Cyclone provider, and maps
+  reliability/durability/history/partition from the binding QoS. Binding URIs
+  select multicast or explicit unicast peers. Test: `e2e.rtps_transport`
+  exchanges a request/response pair and an event between two provider
+  instances.

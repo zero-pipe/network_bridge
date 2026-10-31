@@ -71,19 +71,24 @@ nb_add_test(test_iobuf unit.iobuf
     INCLUDES ${NB_SRC_DIR}/core ${NB_SRC_DIR}/utils)
 nb_add_test(test_rtps_wire unit.rtps_wire
     LABELS "unit;rtps"
-    INCLUDES ${NB_SRC_DIR}/discovery/rtps)
+    INCLUDES ${NB_SRC_DIR}/rtps)
 nb_add_test(test_rtps_cdr unit.rtps_cdr
     LABELS "unit;rtps"
-    INCLUDES ${NB_SRC_DIR}/discovery/rtps)
+    INCLUDES ${NB_SRC_DIR}/rtps)
 nb_add_test(test_rtps_sedp unit.rtps_sedp
     LABELS "unit;rtps"
-    INCLUDES ${NB_SRC_DIR}/discovery/rtps)
+    INCLUDES ${NB_SRC_DIR}/rtps)
 nb_add_test(test_rtps_reliable unit.rtps_reliable
     LABELS "unit;rtps"
-    INCLUDES ${NB_SRC_DIR}/discovery/rtps)
+    INCLUDES ${NB_SRC_DIR}/rtps)
 nb_add_test(test_rtps_participant e2e.rtps_participant
     LABELS "e2e;rtps"
-    INCLUDES ${NB_SRC_DIR}/discovery/rtps
+    INCLUDES ${NB_SRC_DIR}/rtps
+    TIMEOUT 60)
+
+nb_add_test(test_rtps_transport e2e.rtps_transport
+    LABELS "e2e;rtps"
+    INCLUDES ${NB_SRC_DIR}/rtps
     TIMEOUT 60)
 
 nb_add_test(test_buffer unit.buffer LABELS "unit;buffer" LIBRARIES nb_base)
@@ -121,6 +126,6 @@ if(NB_ENABLE_DDS)
         TIMEOUT 30)
     nb_add_test(test_rtps_cyclone e2e.rtps_cyclone
         LABELS "e2e;dds;rtps"
-        INCLUDES ${NB_SRC_DIR}/discovery/rtps ${NB_SRC_DIR}/transport/dds
+        INCLUDES ${NB_SRC_DIR}/rtps ${NB_SRC_DIR}/transport/dds
         TIMEOUT 60)
 endif()

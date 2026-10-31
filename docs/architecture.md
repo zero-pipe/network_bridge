@@ -17,7 +17,7 @@ core
 transport SPI
   endpoint + message + QoS              transport-neutral contract
 providers
-  udp / tcp / shm / dds / custom        link implementations
+  udp / tcp / shm / dds / rtps / custom link implementations
 ```
 
 Dependencies point downward only. A transport provider never sees
@@ -30,9 +30,9 @@ scheme-specific private address format.
 
 | Field | Meaning |
 | --- | --- |
-| `scheme` | provider selector, e.g. `udp` / `tcp` / `shm` / `dds` |
-| `host` | provider authority: IP, DDS domain or SHM channel |
-| `port` | provider service id: UDP/TCP port, SHM node id, DDS placeholder |
+| `scheme` | provider selector, e.g. `udp` / `tcp` / `shm` / `dds` / `rtps` |
+| `host` | provider authority: IP, DDS/RTPS domain or SHM channel |
+| `port` | provider service id: UDP/TCP port, SHM node id, RTPS SPDP port, DDS placeholder |
 | `path` | optional provider sub-path |
 | `transport` | built-in transport kind; custom providers use `NB_TRANSPORT_KIND_CUSTOM` |
 | `uri` | normalized URI used by routing, discovery, logs and cross-process transport |
