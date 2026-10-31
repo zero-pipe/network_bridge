@@ -11,7 +11,7 @@
 
 static nb_transport_t *nb_create_transport(nb_transport_kind_t kind)
 {
-    return kind == NB_TRANSPORT_TCP ? nb_tcp_transport_create() : nb_udp_transport_create();
+    return kind == NB_TRANSPORT_KIND_TCP ? nb_tcp_transport_create() : nb_udp_transport_create();
 }
 
 /* Adapt a custom provider's receive callback back into the node dispatch path. */
@@ -172,7 +172,7 @@ int nb_node_transport_add(nb_node_t *node,
     }
     kind = nb_transport_kind_from_scheme(scheme);
     provider = nb_transport_provider_find(scheme);
-    if (kind != NB_TRANSPORT_TCP && kind != NB_TRANSPORT_UDP && !provider) {
+    if (kind != NB_TRANSPORT_KIND_TCP && kind != NB_TRANSPORT_KIND_UDP && !provider) {
         return NB_ERR_NOTFOUND; /* 未注册的 scheme */
     }
     transport =
@@ -200,7 +200,7 @@ int nb_node_transport_add(nb_node_t *node,
         nb_transport_provider_options_t options;
         nb_transport_instance_t *instance = NULL;
         nb_qos_t effective_qos = node->default_qos;
-        transport->kind = NB_TRANSPORT_CUSTOM;
+        transport->kind = NB_TRANSPORT_KIND_CUSTOM;
         transport->ops = &nb_g_provider_ops;
         transport->provider = provider;
         memset(&options, 0, sizeof(options));

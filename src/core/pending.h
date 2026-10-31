@@ -1,5 +1,5 @@
-#ifndef PENDING_H
-#define PENDING_H
+#ifndef NB_PENDING_H
+#define NB_PENDING_H
 
 /* pending：客户端未完成调用的关联表（request_id -> 回调/超时）。 */
 
@@ -75,4 +75,4 @@ void nb_pending_cleanup(nb_node_t *node);
 /* RTO 重传：按保存的请求参数重发（实现于 proxy.c）。 */
 void nb_pending_retx(nb_node_t *node, nb_pending_t *p);
 
-#endif /* PENDING_H */
+#endif /* NB_PENDING_H */

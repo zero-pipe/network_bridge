@@ -1,5 +1,5 @@
-#ifndef REGISTRY_H
-#define REGISTRY_H
+#ifndef NB_REGISTRY_H
+#define NB_REGISTRY_H
 
 #include <nb/endpoint.h>
 
@@ -48,4 +48,4 @@ int nb_registry_select_prefer(nb_registry_t *registry,
                                int prefer_stream,
                                nb_endpoint_t *out);
 
-#endif /* REGISTRY_H */
+#endif /* NB_REGISTRY_H */

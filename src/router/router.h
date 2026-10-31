@@ -1,5 +1,5 @@
-#ifndef ROUTER_H
-#define ROUTER_H
+#ifndef NB_ROUTER_H
+#define NB_ROUTER_H
 
 /*
  * 路由表：service -> 目标端点。
@@ -77,4 +77,4 @@ int nb_route_lookup_prefer(nb_route_table_t *table,
 }
 #endif
 
-#endif /* ROUTER_H */
+#endif /* NB_ROUTER_H */

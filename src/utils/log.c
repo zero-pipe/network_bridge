@@ -147,5 +147,5 @@ void nb_log_write(nb_log_level_t level, const char *tag, const char *format, ...
     vsnprintf(buf, sizeof(buf), format, ap);
     va_end(ap);
     /* 已格式化的整串交给后端，避免二次解析格式串；level 与 elog 等级取值一致。 */
-    elog_output((uint8_t)level, tag && tag[0] ? tag : "rpc", NULL, NULL, 0, "%s", buf);
+    elog_output((uint8_t)level, tag && tag[0] ? tag : "nb", NULL, NULL, 0, "%s", buf);
 }

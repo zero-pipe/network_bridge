@@ -1,5 +1,5 @@
-#ifndef REGISTRY_BACKEND_H
-#define REGISTRY_BACKEND_H
+#ifndef NB_REGISTRY_BACKEND_H
+#define NB_REGISTRY_BACKEND_H
 
 #include <nb/types.h>
 
@@ -36,4 +36,4 @@ const nb_registry_backend_t *nb_registry_backend_mesh(void);
 }
 #endif
 
-#endif /* REGISTRY_BACKEND_H */
+#endif /* NB_REGISTRY_BACKEND_H */

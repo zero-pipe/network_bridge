@@ -1,5 +1,5 @@
-#ifndef NODE_INTERNAL_H
-#define NODE_INTERNAL_H
+#ifndef NB_NODE_INTERNAL_H
+#define NB_NODE_INTERNAL_H
 
 /*
  * 节点内部结构：节点与 codec 注册项。
@@ -150,4 +150,4 @@ void nb_obj_pool_destroy(nb_obj_pool_t *pool);
 void *nb_obj_pool_alloc(nb_obj_pool_t *pool, size_t size);
 void nb_obj_pool_free(nb_obj_pool_t *pool, void *obj);
 
-#endif /* NODE_INTERNAL_H */
+#endif /* NB_NODE_INTERNAL_H */

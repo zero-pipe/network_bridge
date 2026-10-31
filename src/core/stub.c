@@ -201,7 +201,7 @@ static void nb_stub_call_now(nb_stub_t *stub,
     request.service = service;
     request.method = method;
     request.payload = &pl;
-    request.kind = NB_STUB_REQUEST;
+    request.kind = NB_STUB_KIND_REQUEST;
     request.request_id = id;
     request.timeout_ms = timeout_ms;
     request.metadata = metadata;
@@ -216,7 +216,7 @@ static void nb_stub_call_now(nb_stub_t *stub,
     if (rc == NB_OK) {
         NB_METRIC_INC(node->metrics.requests_sent);
         NB_METRIC_ADD(node->metrics.bytes_sent, len);
-        if (target.transport == NB_TRANSPORT_UDP) {
+        if (target.transport == NB_TRANSPORT_KIND_UDP) {
             if (nb_stub_save_replay(
                     p, owner, buf_owner, data, len, metadata, metadata_len) != NB_OK) {
                 /* 请求已经发出，但 RTO 副本分配失败：降级为不重传，不改变调用结果。 */
@@ -280,7 +280,7 @@ static void nb_stub_event_now(nb_stub_t *stub,
     request.service = service;
     request.method = method;
     request.payload = &pl;
-    request.kind = NB_STUB_EVENT;
+    request.kind = NB_STUB_KIND_EVENT;
     request.request_id = id;
     request.metadata = metadata;
     request.metadata_len = metadata_len;

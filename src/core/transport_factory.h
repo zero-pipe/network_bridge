@@ -1,5 +1,5 @@
-#ifndef TRANSPORT_FACTORY_H
-#define TRANSPORT_FACTORY_H
+#ifndef NB_TRANSPORT_FACTORY_H
+#define NB_TRANSPORT_FACTORY_H
 
 /*
  * 传输装配：为 node 的一个 binding 创建/启动传输（UDP/TCP 或自定义 provider），
@@ -24,4 +24,4 @@ int nb_node_transport_add(nb_node_t *node,
 /* 按 binding 配置创建并启动传输（推荐入口）。 */
 int nb_node_transport_add_binding(nb_node_t *node, const nb_binding_config_t *binding);
 
-#endif /* TRANSPORT_FACTORY_H */
+#endif /* NB_TRANSPORT_FACTORY_H */

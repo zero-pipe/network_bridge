@@ -1,5 +1,5 @@
-#ifndef DISCOVERY_H
-#define DISCOVERY_H
+#ifndef NB_DISCOVERY_H
+#define NB_DISCOVERY_H
 
 /*
  * mesh 服务发现（控制面）：UDP 广播 HELLO/BYE + 对端注册表。
@@ -68,4 +68,4 @@ int nb_discovery_find(nb_node_t *node,
 }
 #endif
 
-#endif /* DISCOVERY_H */
+#endif /* NB_DISCOVERY_H */

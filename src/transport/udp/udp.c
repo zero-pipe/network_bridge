@@ -1144,7 +1144,7 @@ static void nb_session_send_rtcp(nb_udp_transport_t *udp, nb_session_t *s, uint6
     if (n == 0) {
         return;
     }
-    total = n + nb_frame_build_sdes_cname(buf + n, sizeof(buf) - n, s->ssrc_local, "rpc");
+    total = n + nb_frame_build_sdes_cname(buf + n, sizeof(buf) - n, s->ssrc_local, "nb");
     (void)ntk_socket_sendto(s->sock, buf, total, s->peer_ip_s, s->peer_port);
     s->rx_expected_prior = s->rx_max_seq_set ? (s->rx_cycles + s->rx_max_seq + 1u) : 0u;
     s->rx_received_prior = s->rx_received;
@@ -1604,7 +1604,7 @@ nb_transport_t *nb_udp_transport_create(void)
         return NULL;
     }
     udp->base.ops = &nb_g_udp_ops;
-    udp->base.kind = NB_TRANSPORT_UDP;
+    udp->base.kind = NB_TRANSPORT_KIND_UDP;
     nb_copy_str(udp->base.scheme, sizeof(udp->base.scheme), "udp", "udp");
     return &udp->base;
 }

@@ -75,7 +75,7 @@ int nb_route_set(nb_route_table_t *table,
     }
     /* A host/port pair can only be a UDP or TCP endpoint. Provider schemes
      * must be registered by URI so their path/authority is preserved. */
-    if (transport != NB_TRANSPORT_UDP && transport != NB_TRANSPORT_TCP) {
+    if (transport != NB_TRANSPORT_KIND_UDP && transport != NB_TRANSPORT_KIND_TCP) {
         return NB_ERR_NOT_SUPPORTED;
     }
     if (table->lock) {
@@ -91,7 +91,7 @@ int nb_route_set(nb_route_table_t *table,
     r->endpoint_count = 1;
     r->next_endpoint = 0;
     if (nb_endpoint_from_parts(&r->endpoints[0],
-                               transport == NB_TRANSPORT_TCP ? "tcp" : "udp",
+                               transport == NB_TRANSPORT_KIND_TCP ? "tcp" : "udp",
                                ip,
                                port,
                                transport) != NB_OK) {
@@ -228,7 +228,7 @@ int nb_route_select(nb_route_table_t *table,
             size_t i;
             for (i = 0; i < r->endpoint_count; i++) {
                 size_t index = (r->next_endpoint + i) % r->endpoint_count;
-                if (r->endpoints[index].transport == NB_TRANSPORT_TCP) {
+                if (r->endpoints[index].transport == NB_TRANSPORT_KIND_TCP) {
                     endpoint = &r->endpoints[index];
                     r->next_endpoint = index + 1;
                     break;

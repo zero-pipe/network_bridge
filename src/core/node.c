@@ -272,7 +272,7 @@ int nb_node_create(const nb_node_config_t *cfg, nb_node_t **out)
     node->next_request_id = 1;
     nb_route_init(&node->routes);
     nb_registry_init(&node->registry);
-    node->registry_backend = (cfg->mode == NB_MODE_MESH) ? nb_registry_backend_mesh() : NULL;
+    node->registry_backend = (cfg->mode == NB_NODE_MODE_MESH) ? nb_registry_backend_mesh() : NULL;
     node->id_lock = ntk_mutex_create(NTK_MUTEX_NORMAL);
     if (!node->id_lock) {
         nb_node_destroy(node);
@@ -403,13 +403,13 @@ int nb_node_create(const nb_node_config_t *cfg, nb_node_t **out)
             }
         }
     } else {
-        const char *scheme = cfg->transport.kind == NB_TRANSPORT_TCP ? "tcp" : "udp";
+        const char *scheme = cfg->transport.kind == NB_TRANSPORT_KIND_TCP ? "tcp" : "udp";
         if (nb_node_transport_add(node,
                                   scheme,
                                   node->bind_host,
                                   cfg->transport.data_port,
                                   NULL,
-                                  NB_INTRA_OFF,
+                                  NB_INTRA_PROCESS_OFF,
                                   0,
                                   &cfg->transport.qos) != NB_OK) {
             nb_node_destroy(node);
@@ -417,7 +417,7 @@ int nb_node_create(const nb_node_config_t *cfg, nb_node_t **out)
         }
     }
 
-    if (node->mode == NB_MODE_MESH) {
+    if (node->mode == NB_NODE_MODE_MESH) {
         if (!node->registry_backend || !node->registry_backend->ops->start ||
             node->registry_backend->ops->start(node) != NB_OK) {
             nb_node_destroy(node);
@@ -454,7 +454,7 @@ int nb_node_create(const nb_node_config_t *cfg, nb_node_t **out)
     }
     node->started = 1;
 
-    if (node->mode == NB_MODE_MESH) {
+    if (node->mode == NB_NODE_MODE_MESH) {
         if (node->registry_backend && node->registry_backend->ops->announce) {
             node->registry_backend->ops->announce(node, 0);
         }
@@ -469,7 +469,7 @@ void nb_node_destroy(nb_node_t *node)
         return;
     }
     node->shutting_down = 1;
-    if (node->started && node->mode == NB_MODE_MESH) {
+    if (node->started && node->mode == NB_NODE_MODE_MESH) {
         if (node->registry_backend && node->registry_backend->ops->announce) {
             node->registry_backend->ops->announce(node, 1); /* BYE */
         }
@@ -653,7 +653,7 @@ const char *nb_node_name(const nb_node_t *node)
 nb_transport_kind_t nb_node_transport(const nb_node_t *node)
 {
     return (node && node->transport_count > 0 && node->transports[0]) ? node->transports[0]->kind :
-                                                                        NB_TRANSPORT_UDP;
+                                                                        NB_TRANSPORT_KIND_UDP;
 }
 
 uint16_t nb_node_discovery_port(const nb_node_t *node)
@@ -857,7 +857,7 @@ int nb_node_wait_for_service(nb_node_t *node, const char *service, uint64_t time
     if (!node || !service) {
         return NB_ERR_INVALID;
     }
-    if (node->mode == NB_MODE_STATIC) {
+    if (node->mode == NB_NODE_MODE_STATIC) {
         return NB_OK;
     }
     deadline = nb_now_ms() + (timeout_ms ? timeout_ms : NB_DEFAULT_TIMEOUT_MS);

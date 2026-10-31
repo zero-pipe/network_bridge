@@ -22,8 +22,8 @@ static int nb_endpoint_format_raw(const nb_endpoint_t *endpoint, char *out, size
     if (!endpoint || !out || cap == 0 || !endpoint->scheme[0] || !endpoint->host[0]) {
         return NB_ERR_INVALID;
     }
-    with_port = endpoint->has_port || endpoint->transport == NB_TRANSPORT_UDP ||
-                endpoint->transport == NB_TRANSPORT_TCP || strcmp(endpoint->scheme, "udp") == 0 ||
+    with_port = endpoint->has_port || endpoint->transport == NB_TRANSPORT_KIND_UDP ||
+                endpoint->transport == NB_TRANSPORT_KIND_TCP || strcmp(endpoint->scheme, "udp") == 0 ||
                 strcmp(endpoint->scheme, "tcp") == 0;
     if (strchr(endpoint->host, ':')) {
         if (!with_port) {
@@ -59,12 +59,12 @@ nb_transport_kind_t nb_transport_kind_from_scheme(const char *scheme)
         return (nb_transport_kind_t)-1;
     }
     if (strcmp(scheme, "tcp") == 0 || strcmp(scheme, "TCP") == 0) {
-        return NB_TRANSPORT_TCP;
+        return NB_TRANSPORT_KIND_TCP;
     }
     if (strcmp(scheme, "udp") == 0 || strcmp(scheme, "UDP") == 0) {
-        return NB_TRANSPORT_UDP;
+        return NB_TRANSPORT_KIND_UDP;
     }
-    return NB_TRANSPORT_CUSTOM;
+    return NB_TRANSPORT_KIND_CUSTOM;
 }
 
 /* ---- 解析与格式化 ---- */
@@ -94,7 +94,7 @@ int nb_endpoint_parse(const char *uri, nb_endpoint_t *out)
         return NB_ERR_INVALID;
     }
     kind = nb_transport_kind_from_scheme(out->scheme);
-    network = kind == NB_TRANSPORT_UDP || kind == NB_TRANSPORT_TCP;
+    network = kind == NB_TRANSPORT_KIND_UDP || kind == NB_TRANSPORT_KIND_TCP;
     authority = scheme_end + 3;
     if (!*authority || *authority == '/') {
         return NB_ERR_INVALID;
@@ -211,7 +211,7 @@ int nb_endpoint_from_parts(nb_endpoint_t *out,
     }
     out->port = port;
     out->transport = transport;
-    out->has_port = (port != 0) || transport == NB_TRANSPORT_UDP || transport == NB_TRANSPORT_TCP;
+    out->has_port = (port != 0) || transport == NB_TRANSPORT_KIND_UDP || transport == NB_TRANSPORT_KIND_TCP;
     return nb_endpoint_refresh(out);
 }
 
@@ -220,7 +220,7 @@ bool nb_endpoint_is_network(const nb_endpoint_t *endpoint)
     if (!endpoint) {
         return false;
     }
-    return endpoint->transport == NB_TRANSPORT_UDP || endpoint->transport == NB_TRANSPORT_TCP ||
+    return endpoint->transport == NB_TRANSPORT_KIND_UDP || endpoint->transport == NB_TRANSPORT_KIND_TCP ||
            strcmp(endpoint->scheme, "udp") == 0 || strcmp(endpoint->scheme, "tcp") == 0;
 }
 

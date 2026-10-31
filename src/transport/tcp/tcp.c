@@ -844,7 +844,7 @@ nb_transport_t *nb_tcp_transport_create(void)
         return NULL;
     }
     t->base.ops = &nb_g_tcp_ops;
-    t->base.kind = NB_TRANSPORT_TCP;
+    t->base.kind = NB_TRANSPORT_KIND_TCP;
     nb_copy_str(t->base.scheme, sizeof(t->base.scheme), "tcp", "tcp");
     return &t->base;
 }

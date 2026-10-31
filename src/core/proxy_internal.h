@@ -1,5 +1,5 @@
-#ifndef PROXY_INTERNAL_H
-#define PROXY_INTERNAL_H
+#ifndef NB_PROXY_INTERNAL_H
+#define NB_PROXY_INTERNAL_H
 
 /* 客户端内部结构：proxy、stub、流式会话与调用上下文。 */
 
@@ -77,4 +77,4 @@ int nb_stub_call_ex(nb_stub_t *stub,
 /* 取消该 stub 名下所有未完成调用（proxy/stub 销毁前调用，避免回调 UAF）。 */
 int nb_stub_cancel_all(nb_stub_t *stub, int status);
 
-#endif /* PROXY_INTERNAL_H */
+#endif /* NB_PROXY_INTERNAL_H */

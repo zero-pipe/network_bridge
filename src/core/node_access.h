@@ -1,5 +1,5 @@
-#ifndef NODE_ACCESS_H
-#define NODE_ACCESS_H
+#ifndef NB_NODE_ACCESS_H
+#define NB_NODE_ACCESS_H
 
 /*
  * node 访问门面。
@@ -34,4 +34,4 @@ const char *nb_node_binding_scheme(const nb_node_t *node, size_t index);
 uint16_t nb_node_binding_port(const nb_node_t *node, size_t index);
 int nb_node_binding_uri(const nb_node_t *node, size_t index, char *out, size_t cap);
 
-#endif /* NODE_ACCESS_H */
+#endif /* NB_NODE_ACCESS_H */

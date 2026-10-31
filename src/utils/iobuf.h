@@ -1,5 +1,5 @@
-#ifndef IOBUF_H
-#define IOBUF_H
+#ifndef NB_IOBUF_H
+#define NB_IOBUF_H
 
 /*
  * 引用计数多段缓冲（nb_iobuf）。
@@ -92,4 +92,4 @@ const uint8_t *nb_iobuf_view(nb_iobuf_t *b, size_t n, ntk_poller *poller, ntk_bu
 }
 #endif
 
-#endif /* IOBUF_H */
+#endif /* NB_IOBUF_H */

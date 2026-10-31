@@ -60,7 +60,7 @@ static int nb_send_reply(nb_transport_t *transport,
          * 流式分块、EVENT 不参与去重。
          */
         if (rc == NB_OK && flags == 0 && !stream && request->kind == KIND_REQUEST &&
-            request->request_id != 0 && transport->kind == NB_TRANSPORT_UDP && transport->node) {
+            request->request_id != 0 && transport->kind == NB_TRANSPORT_KIND_UDP && transport->node) {
             nb_buf_t *owner = payload_owner ? *payload_owner : NULL;
             if (nb_dedup_complete(&transport->node->dedup,
                                   request,
@@ -191,7 +191,7 @@ static void nb_reply_task_fn(void *user)
 
 /*
  * 把回复拷成任务回投 call->poller。release_call 非 0 时，任务接管 call
- * （unary 回复 / NB_STREAM_LAST）；分块响应的中间 chunk 保留 call。
+ * （unary 回复 / NB_STREAM_FLAG_LAST）；分块响应的中间 chunk 保留 call。
  */
 static int nb_reply_marshal(nb_call_t *call,
                          int status,
@@ -485,13 +485,13 @@ int nb_reply_stream(nb_call_t *call, int status, const nb_chunk_t *chunk)
         payload.encoding = chunk->encoding;
     }
     memset(&stream, 0, sizeof(stream));
-    stream.flags = chunk ? chunk->flags : NB_STREAM_LAST;
+    stream.flags = chunk ? chunk->flags : NB_STREAM_FLAG_LAST;
     stream.stream_id = call->msg_id;
     stream.offset = chunk ? chunk->offset : 0;
     stream.total_size = 0;
 
     if (call->poller && !ntk_poller_is_current_thread(call->poller)) {
-        int last = chunk && (chunk->flags & NB_STREAM_LAST);
+        int last = chunk && (chunk->flags & NB_STREAM_FLAG_LAST);
         if (last) {
             call->replied = 1;
         }
@@ -525,7 +525,7 @@ int nb_reply_stream(nb_call_t *call, int status, const nb_chunk_t *chunk)
                     &stream,
                     NULL,
                     0);
-    if (chunk && (chunk->flags & NB_STREAM_LAST)) {
+    if (chunk && (chunk->flags & NB_STREAM_FLAG_LAST)) {
         call->replied = 1;
         if (!call->stream_owned) {
             nb_call_release(call);

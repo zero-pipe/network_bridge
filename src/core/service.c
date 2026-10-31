@@ -635,7 +635,7 @@ void nb_service_handle_request(nb_node_t *node, nb_transport_t *transport, nb_me
      * UDP unary 去重：命中已完成请求直接重放缓存响应；命中在途请求丢弃重复，
      * 避免非幂等 handler 被重传执行多次。TCP 可靠，不参与。
      */
-    if (transport && transport->kind == NB_TRANSPORT_UDP && msg->kind == KIND_REQUEST &&
+    if (transport && transport->kind == NB_TRANSPORT_KIND_UDP && msg->kind == KIND_REQUEST &&
         msg->request_id != 0) {
         nb_dedup_action_t action = nb_dedup_begin(&node->dedup, transport, msg);
         if (action != NB_DEDUP_PROCESS) {
@@ -1050,7 +1050,7 @@ void nb_service_handle_stream_chunk(nb_node_t *node,
     stream_meta = &msg->stream;
     state = nb_find_recv_stream(node, msg);
 
-    if (stream_meta->flags & NB_STREAM_CANCEL) {
+    if (stream_meta->flags & NB_STREAM_FLAG_CANCEL) {
         if (state) {
             if ((state->run_in_worker || state->executor) &&
                 (state->in_flight || state->pending_head)) {
@@ -1070,7 +1070,7 @@ void nb_service_handle_stream_chunk(nb_node_t *node,
     if (state) {
         method = state->method;
     } else {
-        if (!(stream_meta->flags & NB_STREAM_FIRST)) {
+        if (!(stream_meta->flags & NB_STREAM_FLAG_FIRST)) {
             return; /* 没有 FIRST 也没有已有状态：协议错误 */
         }
         nb_copy_str(tmp, sizeof(tmp), msg->route, "");
@@ -1182,7 +1182,7 @@ void nb_service_handle_stream_chunk(nb_node_t *node,
             state->pending_head = task;
         }
         state->pending_tail = task;
-        if (stream_meta->flags & NB_STREAM_LAST) {
+        if (stream_meta->flags & NB_STREAM_FLAG_LAST) {
             state->closing = 1;
         }
         nb_stream_dispatch_next(state);
@@ -1242,7 +1242,7 @@ void nb_service_handle_stream_chunk(nb_node_t *node,
     state->intercepted = 1;
     method->stream_fn(state->call, &request, &chunk, method->user);
 
-    if (stream_meta->flags & NB_STREAM_LAST) {
+    if (stream_meta->flags & NB_STREAM_FLAG_LAST) {
         nb_stream_close(state);
     }
 }
@@ -1368,23 +1368,23 @@ static int nb_service_parse_exec(const nb_service_method_options_t *options,
                               int *out_worker,
                               const nb_service_executor_t **out_executor)
 {
-    nb_service_exec_mode_t exec = options ? options->exec : NB_SERVICE_EXEC_INLINE;
+    nb_service_exec_mode_t exec = options ? options->exec : NB_SERVICE_EXEC_MODE_INLINE;
     const nb_service_executor_t *executor = options ? options->executor : NULL;
 
     *out_worker = 0;
     *out_executor = NULL;
 
-    if (exec == NB_SERVICE_EXEC_INLINE) {
+    if (exec == NB_SERVICE_EXEC_MODE_INLINE) {
         return executor ? NB_ERR_INVALID : NB_OK;
     }
-    if (exec == NB_SERVICE_EXEC_WORKER && allow_worker) {
+    if (exec == NB_SERVICE_EXEC_MODE_WORKER && allow_worker) {
         if (executor) {
             return NB_ERR_INVALID;
         }
         *out_worker = 1;
         return NB_OK;
     }
-    if (exec == NB_SERVICE_EXEC_EXECUTOR && allow_worker) {
+    if (exec == NB_SERVICE_EXEC_MODE_EXECUTOR && allow_worker) {
         if (!executor || !executor->submit) {
             return NB_ERR_INVALID;
         }
@@ -1517,7 +1517,7 @@ int nb_service_add_sync_method_worker(nb_service_t *svc,
                                    void *user)
 {
     nb_service_method_options_t options = NB_SERVICE_METHOD_OPTIONS_INIT;
-    options.exec = NB_SERVICE_EXEC_WORKER;
+    options.exec = NB_SERVICE_EXEC_MODE_WORKER;
     return nb_service_add_sync_ex(svc, method, fn, user, &options);
 }
 
@@ -1558,19 +1558,19 @@ int nb_service_add_methods(nb_service_t *svc,
             return NB_ERR_INVALID;
         }
         switch (m->kind) {
-        case NB_METHOD_UNARY:
+        case NB_METHOD_KIND_UNARY:
             rc = m->handler.unary ?
                  nb_service_add_method_with_options(
                      svc, m->name, m->handler.unary, m->user, m->options) :
                  NB_ERR_INVALID;
             break;
-        case NB_METHOD_SYNC:
+        case NB_METHOD_KIND_SYNC:
             rc = m->handler.sync ?
                  nb_service_add_sync_method_with_options(
                      svc, m->name, m->handler.sync, m->user, m->options) :
                  NB_ERR_INVALID;
             break;
-        case NB_METHOD_STREAM:
+        case NB_METHOD_KIND_STREAM:
             rc = m->handler.stream ?
                  nb_service_add_stream_method_with_options(
                      svc, m->name, m->handler.stream, m->user, m->options) :

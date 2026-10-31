@@ -1,5 +1,5 @@
-#ifndef RX_WINDOW_H
-#define RX_WINDOW_H
+#ifndef NB_RX_WINDOW_H
+#define NB_RX_WINDOW_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -23,4 +23,4 @@ void nb_rx_window_reset(nb_rx_window_t *window);
 int nb_rx_window_accept(nb_rx_window_t *window, uint16_t seq);
 size_t nb_rx_window_missing(const nb_rx_window_t *window, uint16_t *out, size_t cap);
 
-#endif /* RX_WINDOW_H */
+#endif /* NB_RX_WINDOW_H */

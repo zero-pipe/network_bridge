@@ -263,7 +263,7 @@ void nb_node_transport_config_default(nb_node_transport_config_t *cfg)
         return;
     }
     memset(cfg, 0, sizeof(*cfg));
-    cfg->kind = NB_TRANSPORT_UDP;
+    cfg->kind = NB_TRANSPORT_KIND_UDP;
     cfg->bind_host = NB_DEFAULT_BIND_HOST;
     nb_qos_init(&cfg->qos);
 }
@@ -302,7 +302,7 @@ void nb_node_config_default(nb_node_config_t *cfg)
     }
     memset(cfg, 0, sizeof(*cfg));
     cfg->name = NB_DEFAULT_NODE_NAME;
-    cfg->mode = NB_MODE_MESH;
+    cfg->mode = NB_NODE_MODE_MESH;
     nb_node_runtime_config_default(&cfg->runtime);
     nb_node_transport_config_default(&cfg->transport);
     nb_node_discovery_config_default(&cfg->discovery);
@@ -316,7 +316,7 @@ void nb_binding_config_default(nb_binding_config_t *cfg)
         return;
     }
     memset(cfg, 0, sizeof(*cfg));
-    cfg->intra_process = NB_INTRA_OFF;
+    cfg->intra_process = NB_INTRA_PROCESS_OFF;
     nb_qos_init(&cfg->qos);
 }
 
@@ -338,10 +338,10 @@ void nb_node_config_normalize(nb_node_config_t *cfg)
      * 顶层 mode 与 discovery.disable 是同一件事的两种写法，这里收敛为一个
      * 一致状态，避免出现“mode=mesh 但 discovery.disable=true”这种自相矛盾。
      */
-    if (cfg->mode == NB_MODE_STATIC) {
+    if (cfg->mode == NB_NODE_MODE_STATIC) {
         cfg->discovery.disable = true;
     } else if (cfg->discovery.disable) {
-        cfg->mode = NB_MODE_STATIC;
+        cfg->mode = NB_NODE_MODE_STATIC;
     }
     if (!cfg->runtime.io_threads) {
         unsigned hw = ntk_thread_hardware_concurrency();
@@ -724,11 +724,11 @@ static int nb_cfg_transport_kind(const char *text, nb_transport_kind_t *out)
         return NB_ERR_INVALID;
     }
     if (strcmp(text, "tcp") == 0) {
-        *out = NB_TRANSPORT_TCP;
+        *out = NB_TRANSPORT_KIND_TCP;
         return NB_OK;
     }
     if (strcmp(text, "udp") == 0) {
-        *out = NB_TRANSPORT_UDP;
+        *out = NB_TRANSPORT_KIND_UDP;
         return NB_OK;
     }
     return NB_ERR_INVALID;
@@ -740,11 +740,11 @@ static int nb_cfg_mode(const char *text, nb_node_mode_t *out)
         return NB_ERR_INVALID;
     }
     if (strcmp(text, "static") == 0) {
-        *out = NB_MODE_STATIC;
+        *out = NB_NODE_MODE_STATIC;
         return NB_OK;
     }
     if (strcmp(text, "mesh") == 0) {
-        *out = NB_MODE_MESH;
+        *out = NB_NODE_MODE_MESH;
         return NB_OK;
     }
     return NB_ERR_INVALID;
@@ -959,7 +959,7 @@ static int nb_fill_bindings(nb_config_doc_t *out, const cJSON *bindings, nb_conf
         const char *endpoint;
         const char *name;
         nb_endpoint_t endpoint_parsed;
-        nb_intra_process_t intra = NB_INTRA_OFF;
+        nb_intra_process_t intra = NB_INTRA_PROCESS_OFF;
         char path[96];
         char sub[96];
         int rc = NB_OK;
@@ -1001,11 +1001,11 @@ static int nb_fill_bindings(nb_config_doc_t *out, const cJSON *bindings, nb_conf
         name = parsed.name;
         if (parsed.intra_process) {
             if (strcmp(parsed.intra_process, "off") == 0) {
-                intra = NB_INTRA_OFF;
+                intra = NB_INTRA_PROCESS_OFF;
             } else if (strcmp(parsed.intra_process, "auto") == 0) {
-                intra = NB_INTRA_AUTO;
+                intra = NB_INTRA_PROCESS_AUTO;
             } else if (strcmp(parsed.intra_process, "only") == 0) {
-                intra = NB_INTRA_ONLY;
+                intra = NB_INTRA_PROCESS_ONLY;
             } else {
                 nb_cfg_join(sub, sizeof(sub), path, "intra_process");
                 rc = nb_cfg_fail(err, sub, "must be off/auto/only");
@@ -1178,8 +1178,8 @@ static int nb_apply_config(nb_config_doc_t *out,
                         nb_config_error_t *err)
 {
     nb_node_config_t *node = &out->node;
-    nb_node_mode_t mode = NB_MODE_MESH;
-    nb_transport_kind_t kind = NB_TRANSPORT_UDP;
+    nb_node_mode_t mode = NB_NODE_MODE_MESH;
+    nb_transport_kind_t kind = NB_TRANSPORT_KIND_UDP;
     const char *name = NULL;
     const cJSON *item;
     char reason[96];
@@ -1286,7 +1286,7 @@ static int nb_apply_config(nb_config_doc_t *out,
     if (disc->mode && nb_cfg_discovery_mode(disc->mode, &node->discovery.disable) != NB_OK) {
         return nb_cfg_fail(err, "discovery.mode", "must be mesh/static/off/none");
     }
-    if (mode == NB_MODE_STATIC) {
+    if (mode == NB_NODE_MODE_STATIC) {
         node->discovery.disable = true;
     }
     if (disc->broadcast) {

@@ -1,5 +1,5 @@
-#ifndef REASM_H
-#define REASM_H
+#ifndef NB_REASM_H
+#define NB_REASM_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -76,4 +76,4 @@ void nb_reasm_expire(nb_reasm_t *reasm,
                       void (*on_lost)(const nb_reasm_slot_t *slot, void *user),
                       void *user);
 
-#endif /* REASM_H */
+#endif /* NB_REASM_H */

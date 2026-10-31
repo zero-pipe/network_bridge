@@ -178,7 +178,7 @@ static void nb_stream_cancel_task_fn(void *user)
         char route[NB_GLOBAL_MAX_ROUTE_BYTES];
         memset(&empty, 0, sizeof(empty));
         memset(&meta, 0, sizeof(meta));
-        meta.flags = NB_STREAM_CANCEL;
+        meta.flags = NB_STREAM_FLAG_CANCEL;
         meta.stream_id = stream->stream_id;
         if (nb_route_format(route, sizeof(route), stream->service, stream->method) == NB_OK) {
             memset(&message, 0, sizeof(message));
@@ -317,8 +317,8 @@ int nb_proxy_stream_send(nb_stream_t *stream, const nb_chunk_t *chunk)
     nb_stream_send_task_t *task;
     int first;
     if (!stream || !chunk || (!chunk->data && chunk->len) || stream->closed ||
-        stream->send_closed || (!stream->sent_any && !(chunk->flags & NB_STREAM_FIRST)) ||
-        (stream->sent_any && (chunk->flags & NB_STREAM_FIRST))) {
+        stream->send_closed || (!stream->sent_any && !(chunk->flags & NB_STREAM_FLAG_FIRST)) ||
+        (stream->sent_any && (chunk->flags & NB_STREAM_FLAG_FIRST))) {
         return NB_ERR_STATE;
     }
     if (stream->sent_any && chunk->offset != stream->next_offset) {
@@ -330,7 +330,7 @@ int nb_proxy_stream_send(nb_stream_t *stream, const nb_chunk_t *chunk)
     first = !stream->sent_any;
     stream->sent_any = 1;
     stream->next_offset = chunk->offset + chunk->len;
-    if (chunk->flags & NB_STREAM_LAST) {
+    if (chunk->flags & NB_STREAM_FLAG_LAST) {
         stream->send_closed = 1;
     }
     task = (nb_stream_send_task_t *)calloc(1, sizeof(*task));

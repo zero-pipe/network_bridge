@@ -1,5 +1,5 @@
-#ifndef UTIL_CRC32_H
-#define UTIL_CRC32_H
+#ifndef NB_CRC32_H
+#define NB_CRC32_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -10,4 +10,4 @@
  */
 uint32_t nb_crc32(const void *data, size_t len, uint32_t seed);
 
-#endif /* UTIL_CRC32_H */
+#endif /* NB_CRC32_H */

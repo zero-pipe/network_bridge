@@ -8,8 +8,8 @@
   GENERATED FILE - DO NOT EDIT. Regenerate from cy_dds_message.idl.
 
 *****************************************************************/
-#ifndef FC_DDS_IDL_MESSAGE_H
-#define FC_DDS_IDL_MESSAGE_H
+#ifndef NB_DDS_IDL_MESSAGE_H
+#define NB_DDS_IDL_MESSAGE_H
 
 #include "dds/ddsc/dds_public_impl.h"
 
@@ -51,4 +51,4 @@ dds_sample_free ((d), &dds_Message_desc, (o))
 }
 #endif
 
-#endif /* FC_DDS_IDL_MESSAGE_H */
+#endif /* NB_DDS_IDL_MESSAGE_H */

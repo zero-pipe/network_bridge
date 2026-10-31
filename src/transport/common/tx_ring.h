@@ -1,5 +1,5 @@
-#ifndef TX_RING_H
-#define TX_RING_H
+#ifndef NB_TX_RING_H
+#define NB_TX_RING_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -36,4 +36,4 @@ void nb_tx_ring_mark_sent(nb_tx_ring_t *ring, uint16_t seq, uint64_t ms);
 uint64_t nb_tx_ring_sent_ms(const nb_tx_ring_t *ring, uint16_t seq);
 void nb_tx_ring_cleanup(nb_tx_ring_t *ring);
 
-#endif /* TX_RING_H */
+#endif /* NB_TX_RING_H */

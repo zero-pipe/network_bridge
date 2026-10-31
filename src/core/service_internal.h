@@ -1,5 +1,5 @@
-#ifndef SERVICE_INTERNAL_H
-#define SERVICE_INTERNAL_H
+#ifndef NB_SERVICE_INTERNAL_H
+#define NB_SERVICE_INTERNAL_H
 
 /* 服务端内部结构：方法表、服务对象、调用上下文、流接收状态。 */
 
@@ -116,4 +116,4 @@ void nb_worker_call_free(nb_node_t *node, nb_call_t *call);
 /* nb_reply.c：错误状态回包（路由/分配失败时直接发送，无 call 上下文）。 */
 void nb_service_send_status(nb_transport_t *transport, const nb_message_t *request, int status);
 
-#endif /* SERVICE_INTERNAL_H */
+#endif /* NB_SERVICE_INTERNAL_H */

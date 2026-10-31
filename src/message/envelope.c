@@ -88,7 +88,7 @@ static size_t nb_envelope_build_ext(const nb_envelope_t *envelope,
         if (off == 0) {
             return 0;
         }
-        buf[off] = (uint8_t)(envelope->stream_flags & (NB_STREAM_FIRST | NB_STREAM_LAST | NB_STREAM_CANCEL));
+        buf[off] = (uint8_t)(envelope->stream_flags & (NB_STREAM_FLAG_FIRST | NB_STREAM_FLAG_LAST | NB_STREAM_FLAG_CANCEL));
         nb_put_u64(buf + off + 1, envelope->stream_offset);
         nb_put_u64(buf + off + 9, envelope->stream_total_size);
         off += NB_EXT_STREAM_LEN;
@@ -226,7 +226,7 @@ static int nb_envelope_decode_ext(const nb_frame_t *frame, nb_envelope_t *view)
             }
             view->stream_flags =
                 (uint8_t)(STREAM_FLAG_STREAM |
-                          (e.value[0] & (NB_STREAM_FIRST | NB_STREAM_LAST | NB_STREAM_CANCEL)));
+                          (e.value[0] & (NB_STREAM_FLAG_FIRST | NB_STREAM_FLAG_LAST | NB_STREAM_FLAG_CANCEL)));
             view->stream_id = frame->header.stream_id;
             view->stream_offset = nb_get_u64(e.value + 1);
             view->stream_total_size = nb_get_u64(e.value + 9);
@@ -321,7 +321,7 @@ void nb_envelope_to_message(const nb_envelope_t *envelope,
     out->payload.encoding = envelope->encoding;
     if (envelope->stream_flags & STREAM_FLAG_STREAM) {
         out->has_stream = 1;
-        out->stream.flags = envelope->stream_flags & (NB_STREAM_FIRST | NB_STREAM_LAST | NB_STREAM_CANCEL);
+        out->stream.flags = envelope->stream_flags & (NB_STREAM_FLAG_FIRST | NB_STREAM_FLAG_LAST | NB_STREAM_FLAG_CANCEL);
         out->stream.stream_id = envelope->stream_id;
         out->stream.offset = envelope->stream_offset;
         out->stream.total_size = envelope->stream_total_size;

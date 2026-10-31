@@ -1,5 +1,5 @@
-#ifndef UTIL_BYTES_H
-#define UTIL_BYTES_H
+#ifndef NB_BYTES_H
+#define NB_BYTES_H
 
 /* 大端（network order）字节序读写：跨模块共享的内联辅助。 */
 
@@ -40,4 +40,4 @@ static inline uint64_t nb_get_u64(const uint8_t *p)
     return ((uint64_t)nb_get_u32(p) << 32) | nb_get_u32(p + 4);
 }
 
-#endif /* UTIL_BYTES_H */
+#endif /* NB_BYTES_H */

@@ -1,5 +1,5 @@
-#ifndef FRAMING_H
-#define FRAMING_H
+#ifndef NB_FRAMING_H
+#define NB_FRAMING_H
 
 /* Transport framing only. RPC envelope bytes are opaque here. */
 
@@ -125,4 +125,4 @@ int nb_tcp_parse(const uint8_t *buf, size_t len, const uint8_t **body, size_t *b
 }
 #endif
 
-#endif /* FRAMING_H */
+#endif /* NB_FRAMING_H */

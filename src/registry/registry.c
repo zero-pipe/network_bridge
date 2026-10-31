@@ -197,7 +197,7 @@ static int nb_instance_has_tcp(const nb_registry_instance_t *instance)
 {
     size_t i;
     for (i = 0; i < instance->endpoint_count; i++) {
-        if (instance->endpoints[i].transport == NB_TRANSPORT_TCP) {
+        if (instance->endpoints[i].transport == NB_TRANSPORT_KIND_TCP) {
             return 1;
         }
     }
@@ -265,7 +265,7 @@ int nb_registry_select_prefer(nb_registry_t *registry,
         size_t i;
         for (i = 0; i < selected->endpoint_count; i++) {
             size_t index = (selected->next_endpoint + i) % selected->endpoint_count;
-            if (selected->endpoints[index].transport == NB_TRANSPORT_TCP) {
+            if (selected->endpoints[index].transport == NB_TRANSPORT_KIND_TCP) {
                 *out = selected->endpoints[index];
                 selected->next_endpoint = index + 1;
                 if (lock) {

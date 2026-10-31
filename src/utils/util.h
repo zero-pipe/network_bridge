@@ -1,5 +1,5 @@
-#ifndef UTIL_H
-#define UTIL_H
+#ifndef NB_UTIL_H
+#define NB_UTIL_H
 
 /*
  * 小工具伞头：跨模块共享的内联辅助。
@@ -26,4 +26,4 @@ uint64_t nb_now_ms(void);
 /* 格式化 "service.method"；超长/参数非法返回 NB_ERR_INVALID。 */
 int nb_route_format(char *out, size_t cap, const char *service, const char *method);
 
-#endif /* UTIL_H */
+#endif /* NB_UTIL_H */

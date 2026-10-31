@@ -370,19 +370,19 @@ static nb_dds_endpoint_t *nb_dds_endpoint_ensure(nb_dds_instance_t *inst, const 
         }
         dds_lset_data_available(ep->listener, nb_dds_on_data);
         ep->rd_req = nb_dds_make_reader(inst, ep->topic_req_ent, ep->listener, 0);
-        if (inst->options.intra_process != NB_INTRA_ONLY) {
+        if (inst->options.intra_process != NB_INTRA_PROCESS_ONLY) {
             ep->rd_evt = nb_dds_make_reader(inst,
                                             ep->topic_evt_ent,
                                             ep->listener,
-                                            inst->options.intra_process == NB_INTRA_AUTO);
+                                            inst->options.intra_process == NB_INTRA_PROCESS_AUTO);
         }
         ep->wr_res = nb_dds_make_writer(inst, ep->topic_res_ent);
         if (ep->rd_req < 0 || ep->wr_res < 0 ||
-            (inst->options.intra_process != NB_INTRA_ONLY && ep->rd_evt < 0)) {
+            (inst->options.intra_process != NB_INTRA_PROCESS_ONLY && ep->rd_evt < 0)) {
             ntk_mutex_unlock(inst->lock);
             return NULL;
         }
-        if (inst->options.intra_process != NB_INTRA_OFF) {
+        if (inst->options.intra_process != NB_INTRA_PROCESS_OFF) {
             ep->local_event = 1;
         }
         ep->have_responder = 1;
@@ -405,7 +405,7 @@ static nb_dds_endpoint_t *nb_dds_endpoint_ensure(nb_dds_instance_t *inst, const 
         ep->have_requester = 1;
     }
     if ((roles & 4) && !ep->have_publisher) { /* publisher */
-        if (inst->options.intra_process != NB_INTRA_ONLY) {
+        if (inst->options.intra_process != NB_INTRA_PROCESS_ONLY) {
             ep->wr_evt = nb_dds_make_writer(inst, ep->topic_evt_ent);
             if (ep->wr_evt < 0) {
                 ntk_mutex_unlock(inst->lock);
@@ -641,9 +641,9 @@ static int nb_dds_op_send(nb_transport_instance_t *instance,
         return NB_ERR_INVALID;
     }
     if (message->kind == KIND_EVENT) {
-        if (inst->options.intra_process != NB_INTRA_OFF) {
+        if (inst->options.intra_process != NB_INTRA_PROCESS_OFF) {
             nb_dds_local_deliver(inst, message, message->route);
-            if (inst->options.intra_process == NB_INTRA_ONLY) {
+            if (inst->options.intra_process == NB_INTRA_PROCESS_ONLY) {
                 return NB_OK;
             }
         }

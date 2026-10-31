@@ -364,7 +364,7 @@ static void nb_node_dispatch(nb_node_t *node, nb_transport_t *transport, nb_mess
                 p->chunk_cb(app_status, &chunk, p->stream_user);
             }
             p->expected_offset = chunk.offset + chunk.len;
-            if (chunk.flags & NB_STREAM_LAST) {
+            if (chunk.flags & NB_STREAM_FLAG_LAST) {
                 stream_done_fn done = p->done_cb;
                 void *stream_user = p->stream_user;
                 nb_pending_record_latency(node, p);
@@ -419,7 +419,7 @@ nb_transport_t *nb_node_find_transport(nb_node_t *node, const nb_endpoint_t *tar
         if (!target->scheme[0] && transport->kind != target->transport) {
             continue;
         }
-        if (transport->kind == NB_TRANSPORT_CUSTOM && target->host[0] &&
+        if (transport->kind == NB_TRANSPORT_KIND_CUSTOM && target->host[0] &&
             transport->bind_host[0] && strcmp(transport->bind_host, target->host) != 0) {
             continue;
         }
@@ -461,8 +461,8 @@ int nb_node_send_call(nb_node_t *node, const nb_stub_request_t *request)
         return NB_ERR_INVALID;
     }
     memset(&message, 0, sizeof(message));
-    message.kind = request->kind == NB_STUB_EVENT ? KIND_EVENT :
-                   (request->kind == NB_STUB_CANCEL ? KIND_CANCEL : KIND_REQUEST);
+    message.kind = request->kind == NB_STUB_KIND_EVENT ? KIND_EVENT :
+                   (request->kind == NB_STUB_KIND_CANCEL ? KIND_CANCEL : KIND_REQUEST);
     message.request_id = (uint32_t)request->request_id;
     /* 请求剩余超时透传给服务端（0 = 无 deadline）；CANCEL 不使用该字段。 */
     message.timeout_ms =

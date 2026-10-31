@@ -1,5 +1,5 @@
-#ifndef ENVELOPE_H
-#define ENVELOPE_H
+#ifndef NB_ENVELOPE_H
+#define NB_ENVELOPE_H
 
 #include <nb/types.h>
 
@@ -39,9 +39,9 @@ extern "C" {
 #define KIND_PING NB_MSG_KIND_PING     /* 控制面心跳；收到后原样回显 */
 
 #define STREAM_FLAG_STREAM 0x80
-#define STREAM_FLAG_FIRST NB_STREAM_FIRST
-#define STREAM_FLAG_LAST NB_STREAM_LAST
-#define STREAM_FLAG_CANCEL NB_STREAM_CANCEL
+#define STREAM_FLAG_FIRST NB_STREAM_FLAG_FIRST
+#define STREAM_FLAG_LAST NB_STREAM_FLAG_LAST
+#define STREAM_FLAG_CANCEL NB_STREAM_FLAG_CANCEL
 
 /*
  * Single envelope descriptor for both encoding and decoding (no separate
@@ -96,4 +96,4 @@ void nb_envelope_to_message(const nb_envelope_t *envelope,
 }
 #endif
 
-#endif /* ENVELOPE_H */
+#endif /* NB_ENVELOPE_H */

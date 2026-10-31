@@ -74,7 +74,7 @@ static void nb_cancel_task_fn(void *user)
                 memset(&request, 0, sizeof(request));
                 request.service = p->service;
                 request.method = p->method;
-                request.kind = NB_STUB_CANCEL;
+                request.kind = NB_STUB_KIND_CANCEL;
                 request.request_id = p->request_id;
                 request.target = &target;
                 (void)nb_node_send_call(node, &request);
@@ -139,10 +139,10 @@ int nb_proxy_set_target(nb_proxy_t *proxy, const char *ip, uint16_t port, nb_tra
     if (!proxy || !ip || !port) {
         return NB_ERR_INVALID;
     }
-    if (transport != NB_TRANSPORT_UDP && transport != NB_TRANSPORT_TCP) {
+    if (transport != NB_TRANSPORT_KIND_UDP && transport != NB_TRANSPORT_KIND_TCP) {
         return NB_ERR_NOT_SUPPORTED;
     }
-    scheme = transport == NB_TRANSPORT_TCP ? "tcp" : "udp";
+    scheme = transport == NB_TRANSPORT_KIND_TCP ? "tcp" : "udp";
     if (nb_endpoint_from_parts(&endpoint,
                                scheme,
                                ip,
@@ -472,7 +472,7 @@ void nb_pending_retx(nb_node_t *node, nb_pending_t *p)
     request.service = p->service;
     request.method = p->method;
     request.payload = &pl;
-    request.kind = NB_STUB_REQUEST;
+    request.kind = NB_STUB_KIND_REQUEST;
     request.request_id = p->request_id;
     request.timeout_ms = remaining;
     request.metadata = p->metadata;

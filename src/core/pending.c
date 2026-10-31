@@ -344,7 +344,7 @@ void nb_pending_tick(nb_node_t *node, uint64_t now_ms, ntk_poller *poller)
         if (p->used) {
             int timeout = (now_ms >= p->deadline_ms);
             int retx = (!timeout && p->has_req && p->replay_ready &&
-                        p->transport == NB_TRANSPORT_UDP &&
+                        p->transport == NB_TRANSPORT_KIND_UDP &&
                         p->retries < NB_RPC_MAX_RETX && now_ms >= p->next_retx_ms);
             if (timeout || retx) {
                 nb_lane_remove(node, p);
