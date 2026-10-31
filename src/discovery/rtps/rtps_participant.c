@@ -24,6 +24,10 @@
 #define NB_RTPS_MAX_LEASE_MS 3600000u
 #define NB_RTPS_SWEEP_INTERVAL_MS 200u
 #define NB_RTPS_PACKET_MAX 1400u
+/* Datagrams we accept. Outgoing messages stay within NB_RTPS_PACKET_MAX, but a
+ * peer may pack a whole sample into one DATA_FRAG datagram, so receiving uses
+ * the largest legal UDP payload. */
+#define NB_RTPS_RX_MAX 65536u
 #define NB_RTPS_SPDP_PAYLOAD_MAX 1200u
 
 /* Incoming DATA_FRAG reassembly. Four concurrent samples, at most 256 KiB of
@@ -2244,10 +2248,21 @@ static void handle_data_frag(nb_rtps_participant_t *participant,
         copy_len = fragment->payload_len;
         if (index < assembly->fragment_count &&
             offset + copy_len <= assembly->sample_size) {
+            uint32_t j;
+
             memcpy(assembly->data + offset, fragment->payload, copy_len);
-            if (!assembly->received[index]) {
-                assembly->received[index] = 1;
-                assembly->received_count++;
+            /* A submessage may carry several fragments (Cyclone packs them);
+             * mark every fragment it covers, not just the first one. */
+            for (j = 0; j < fragment->fragments_in_submessage; j++) {
+                uint32_t covered = index + j;
+
+                if (covered >= assembly->fragment_count) {
+                    break;
+                }
+                if (!assembly->received[covered]) {
+                    assembly->received[covered] = 1;
+                    assembly->received_count++;
+                }
             }
             assembly->last_update_ms = now;
             if (assembly->received_count == assembly->fragment_count) {
@@ -2401,7 +2416,7 @@ static void handle_datagram(nb_rtps_participant_t *participant,
 
 static void drain_socket(nb_rtps_participant_t *participant, ntk_socket *socket)
 {
-    uint8_t buf[NB_RTPS_PACKET_MAX];
+    uint8_t buf[NB_RTPS_RX_MAX];
     char host[NB_RTPS_PEER_HOST_MAX];
     uint16_t port;
 

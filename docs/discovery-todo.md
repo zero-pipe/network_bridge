@@ -30,8 +30,8 @@ changes state so a later session can resume without reading the whole history.
   multicast and unicast-only modes; only the automated CI job is pending)
 - M7 packaging: pending
 - M8 serialization on Micro-CDR: done (vendored subset, no submodule)
-- M9 `DATA_FRAG`: partial (application samples up to 64 KiB both ways; SEDP
-  stays inline by construction; Cyclone large-sample interop pending)
+- M9 `DATA_FRAG`: done (application samples up to 64 KiB both ways, including
+  Cyclone interop in both directions; SEDP stays inline by construction)
 - M10 generic type support: done (raw CDR body delivery keyed by `type_name`;
   no registry and no new public API)
 - M11 QoS semantics: pending
@@ -43,11 +43,10 @@ it. Work is ordered so each step removes a real interop limit.
 
 | Order | Track | Why |
 | --- | --- | --- |
-| P0 | M10: generic type support | The point of "own DDS": arbitrary structs instead of the fixed `dds::Message` |
-| P1 | Cyclone custom-type interop | Verify a type larger than `dds::Message` in both directions; also covers the remaining `DATA_FRAG` interop item |
-| P3 | M11: QoS semantics | Late-joiner durability, keep-all history, partition matching |
-| P4 | M5: scale and scoping | Unicast peer scoping, discovery server, 1000-participant measurements |
-| P5 | M6/M7: CI and second implementation | Fast DDS interop and an automated Linux job |
+| P0 | M11: QoS semantics | Late-joiner durability, keep-all history, partition matching |
+| P1 | Cyclone custom-type interop | Prove the generic-type path against a second implementation, not only nb-to-nb |
+| P2 | M5: scale and scoping | Unicast peer scoping, discovery server, 1000-participant measurements |
+| P3 | M6/M7: CI and second implementation | Fast DDS interop and an automated Linux job |
 
 ## M1: wire codec (done)
 
@@ -221,9 +220,13 @@ a fixed participant index instead.
       in one DATA submessage. `test_sedp_payload_bound` keeps that invariant.
       The receive side still reassembles SEDP fragments and routes them by
       writer id, so a peer with larger limits interoperates
-- [ ] Cyclone sending `DATA_FRAG` to nb and nb sending `DATA_FRAG` to a Cyclone
-      reader: the `dds::Message` test type is bounded below 1200 bytes, so a
-      larger IDL type is needed first (M10)
+- [x] Cyclone sending `DATA_FRAG` to nb and nb sending `DATA_FRAG` to a Cyclone
+      reader. `dds::Message` carries a `sequence<octet>`, so it is not bounded
+      after all; the interop test now exchanges an 8 KiB payload in both
+      directions. Two bugs surfaced and were fixed: a submessage may carry
+      several fragments (Cyclone packs them) and every covered fragment must be
+      marked, and the receive buffer was sized to the 1400-byte send budget, so
+      larger peer datagrams were truncated
 
 ## M10: generic type support (P2)
 

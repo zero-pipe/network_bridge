@@ -166,7 +166,20 @@ typedef struct test_inbound_state {
     nb_rtps_guid_t writer_guid;
     uint8_t payload[NB_RTPS_DATA_PAYLOAD_MAX];
     size_t payload_len;
+    uint32_t hash;
 } test_inbound_state_t;
+
+static uint32_t payload_hash(const uint8_t *data, size_t len)
+{
+    uint32_t hash = 2166136261u;
+    size_t i;
+
+    for (i = 0; i < len; i++) {
+        hash ^= data[i];
+        hash *= 16777619u;
+    }
+    return hash;
+}
 
 static void on_inbound_data(void *user,
                             const nb_rtps_guid_t *reader_guid,
@@ -187,6 +200,7 @@ static void on_inbound_data(void *user,
     state->reader_guid = *reader_guid;
     state->writer_guid = *writer_guid;
     state->payload_len = message->payload_len;
+    state->hash = message->payload ? payload_hash(message->payload, message->payload_len) : 0;
     copy_len = message->payload_len;
     if (copy_len > sizeof(state->payload)) {
         copy_len = sizeof(state->payload);
@@ -542,6 +556,92 @@ static void test_cyclone_spdp(void)
                                  &subscription_endpoint.endpoint_guid));
         CHECK(!nb_rtps_entity_id_equal(&inbound_state.writer_guid.entity,
                                        &nb_rtps_eid_unknown));
+    }
+
+    /*
+     * Large samples travel as DATA_FRAG. Cyclone fragments its own writes and
+     * reassembles ours, so this covers both directions of the fragmentation
+     * path against a second implementation.
+     */
+    {
+        const size_t big_len = 8192;
+        uint8_t *big = (uint8_t *)malloc(big_len);
+        uint8_t *serialized = (uint8_t *)malloc(big_len + 8u);
+        size_t serialized_len = 0;
+        size_t i;
+
+        CHECK(big != NULL && serialized != NULL);
+        if (!big || !serialized) {
+            free(big);
+            free(serialized);
+        } else {
+            nb_rtps_dds_message_t big_message;
+            dds_Message outgoing;
+            int saw_big = 0;
+            uint32_t expected_hash;
+
+            for (i = 0; i < big_len; i++) {
+                big[i] = (uint8_t)((i * 37u + 11u) & 0xffu);
+            }
+            expected_hash = payload_hash(big, big_len);
+
+            /* nb writer -> Cyclone reader. */
+            big_message.payload = big;
+            big_message.payload_len = big_len;
+            CHECK(nb_rtps_dds_message_serialize(
+                      &big_message, serialized, big_len + 8u, &serialized_len) == NB_OK);
+            for (waited = 0; waited < 10000 && !saw_big; waited += 50) {
+                if (nb_rtps_participant_publish(nb,
+                                                &message_endpoint.endpoint_guid,
+                                                serialized,
+                                                serialized_len) == NB_OK) {
+                    saw_big = cyclone_takes_message(message_reader, big, big_len);
+                }
+                if (!saw_big) {
+                    ntk_sleep_ms(50);
+                }
+            }
+            CHECK(saw_big);
+            if (!saw_big) {
+                nb_log_error("Cyclone did not reassemble the nb DATA_FRAG sample after %d ms",
+                             waited);
+            }
+
+            /* Cyclone writer -> nb reader. */
+            memset(&outgoing, 0, sizeof(outgoing));
+            outgoing.payload._length = (uint32_t)big_len;
+            outgoing.payload._maximum = (uint32_t)big_len;
+            outgoing.payload._buffer = big;
+            outgoing.payload._release = false;
+            ntk_mutex_lock(inbound_state.lock);
+            inbound_state.received = 0;
+            inbound_state.payload_len = 0;
+            inbound_state.hash = 0;
+            ntk_mutex_unlock(inbound_state.lock);
+            for (waited = 0; waited < 10000; waited += 50) {
+                int done;
+
+                (void)dds_write(message_writer, &outgoing);
+                ntk_sleep_ms(50);
+                ntk_mutex_lock(inbound_state.lock);
+                done = inbound_state.received && inbound_state.payload_len == big_len &&
+                       inbound_state.hash == expected_hash;
+                ntk_mutex_unlock(inbound_state.lock);
+                if (done) {
+                    break;
+                }
+            }
+            CHECK(inbound_state.received);
+            CHECK(inbound_state.payload_len == big_len);
+            CHECK(inbound_state.hash == expected_hash);
+            if (inbound_state.payload_len != big_len) {
+                nb_log_error("nb received %u of %u bytes of the Cyclone DATA_FRAG sample",
+                             (unsigned)inbound_state.payload_len,
+                             (unsigned)big_len);
+            }
+            free(serialized);
+            free(big);
+        }
     }
 
     nb_rtps_participant_stop(nb);
