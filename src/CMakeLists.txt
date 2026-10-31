@@ -60,6 +60,11 @@ set(NB_SOURCES
     router/router.c
     registry/registry.c
     discovery/discovery.c
+    discovery/rtps/rtps_types.c
+    discovery/rtps/rtps_cdr.c
+    discovery/rtps/rtps_param.c
+    discovery/rtps/rtps_message.c
+    discovery/rtps/rtps_spdp.c
     config/config.c
     transport/common/framing.c
     transport/common/transport.c
@@ -100,6 +105,7 @@ target_include_directories(nb
         ${CMAKE_CURRENT_SOURCE_DIR}/router
         ${CMAKE_CURRENT_SOURCE_DIR}/registry
         ${CMAKE_CURRENT_SOURCE_DIR}/discovery
+        ${CMAKE_CURRENT_SOURCE_DIR}/discovery/rtps
         ${CMAKE_CURRENT_SOURCE_DIR}/config
         ${CMAKE_SOURCE_DIR}/3rdparty/uthash
         ${CMAKE_SOURCE_DIR}/3rdparty/cjson
