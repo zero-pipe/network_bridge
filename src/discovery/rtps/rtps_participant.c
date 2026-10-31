@@ -1,5 +1,8 @@
 #include "rtps_participant.h"
 
+#define NB_LOG_TAG "rtps"
+#include <nb/log.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,6 +36,19 @@
 #define NB_RTPS_MIN_DATA_HEARTBEAT_MS 100u
 #define NB_RTPS_DEFAULT_DATA_HISTORY 8u
 #define NB_RTPS_MAX_DATA_HISTORY 1024u
+/* Upper bound for the lazily allocated reader window table. */
+#define NB_RTPS_MAX_DATA_READERS 4096u
+/* Do not answer two HEARTBEATs from the same writer for the same reader inside
+ * this window; peers that emit heartbeats faster than this would otherwise
+ * turn into an ACKNACK storm. */
+#define NB_RTPS_MIN_ACKNACK_INTERVAL_MS 20u
+/* Do not retransmit for the same (writer, reader) pair more often than this.
+ * Duplicate or aggressive ACKNACKs then cost one packet instead of a burst. */
+#define NB_RTPS_MIN_RESEND_INTERVAL_MS 10u
+/* Cap the samples resent for one ACKNACK. The reader asks again for the
+ * remainder on the next round, which keeps a burst from monopolising a thread
+ * or a link. */
+#define NB_RTPS_MAX_RESEND_PER_ACK 64u
 
 typedef nb_rtps_reader_state_t nb_rtps_sedp_reader_state_t;
 
@@ -44,6 +60,9 @@ typedef struct nb_rtps_local_endpoint {
     uint32_t data_sn;
     nb_rtps_reliable_writer_t *history; /* reliable publications only */
     uint32_t heartbeat_count;
+    uint64_t last_resend_ms;
+    nb_rtps_guid_t last_resend_reader;
+    int resend_seen;
 } nb_rtps_local_endpoint_t;
 
 typedef struct nb_rtps_remote_endpoint {
@@ -76,6 +95,7 @@ typedef struct nb_rtps_data_reader_state {
     nb_rtps_reader_state_t state;
     uint32_t last_heartbeat_count;
     int heartbeat_seen;
+    uint64_t last_acknack_ms;
 } nb_rtps_data_reader_state_t;
 
 struct nb_rtps_participant {
@@ -128,6 +148,7 @@ struct nb_rtps_participant {
     nb_rtps_data_reader_state_t *data_readers;
     size_t max_data_readers;
     size_t data_reader_count;
+    int data_reader_overflow_logged;
     volatile int stop;
     int started;
     uint32_t rng;
@@ -1241,6 +1262,9 @@ static int ensure_data_readers(nb_rtps_participant_t *participant)
         return NB_OK;
     }
     participant->max_data_readers = participant->max_remote_endpoints;
+    if (participant->max_data_readers > NB_RTPS_MAX_DATA_READERS) {
+        participant->max_data_readers = NB_RTPS_MAX_DATA_READERS;
+    }
     if (participant->max_data_readers == 0) {
         return NB_ERR_NOMEM;
     }
@@ -1273,9 +1297,21 @@ static nb_rtps_data_reader_state_t *find_data_reader(nb_rtps_participant_t *part
     return NULL;
 }
 
+/*
+ * Return the window for a (writer, reader) pair, creating it when needed.
+ * first_expected is the sequence number a new window starts at.
+ *
+ * The table is sized by max_remote_endpoints. When it is full the pair is
+ * served without a window: samples are still delivered, but duplicates are not
+ * filtered and no ACKNACK is sent for it. Recycling an existing window was
+ * rejected because restarting a working window makes the peer replay its whole
+ * history, which turns into a duplicate storm for the pairs that were working.
+ * Sizing max_remote_endpoints for writers x local readers avoids the state.
+ */
 static nb_rtps_data_reader_state_t *get_data_reader(nb_rtps_participant_t *participant,
                                                     const nb_rtps_guid_t *writer,
-                                                    const nb_rtps_entity_id_t *reader)
+                                                    const nb_rtps_entity_id_t *reader,
+                                                    uint32_t first_expected)
 {
     nb_rtps_data_reader_state_t *state = find_data_reader(participant, writer, reader);
     size_t i;
@@ -1293,14 +1329,20 @@ static nb_rtps_data_reader_state_t *get_data_reader(nb_rtps_participant_t *parti
         }
     }
     if (!state) {
+        if (!participant->data_reader_overflow_logged) {
+            participant->data_reader_overflow_logged = 1;
+            nb_log_warn("rtps: reader window table is full (%zu entries); "
+                        "extra reliable pairs run without deduplication",
+                        participant->max_data_readers);
+        }
         return NULL;
     }
     memset(state, 0, sizeof(*state));
     state->used = 1;
     state->writer = *writer;
     state->reader = *reader;
-    nb_rtps_reader_state_reset(&state->state, 1);
     participant->data_reader_count++;
+    nb_rtps_reader_state_reset(&state->state, first_expected ? first_expected : 1u);
     return state;
 }
 
@@ -1581,7 +1623,8 @@ static void handle_user_data(nb_rtps_participant_t *participant,
             if (reliable) {
                 reader_state = get_data_reader(participant,
                                                &writer_guid,
-                                               &local->info.endpoint_guid.entity);
+                                               &local->info.endpoint_guid.entity,
+                                               data->writer_sn.low);
                 if (reader_state &&
                     !nb_rtps_reader_on_sample(&reader_state->state,
                                               data->writer_sn.low)) {
@@ -1639,7 +1682,10 @@ static void handle_user_gap(nb_rtps_participant_t *participant,
                 continue;
             }
             state = get_data_reader(
-                participant, &writer_guid, &local->info.endpoint_guid.entity);
+                participant,
+                &writer_guid,
+                &local->info.endpoint_guid.entity,
+                gap->gap_start.low);
             if (state) {
                 nb_rtps_reader_on_gap(&state->state, gap);
             }
@@ -1661,6 +1707,7 @@ static void handle_user_heartbeat(nb_rtps_participant_t *participant,
     uint16_t target_port = source_port;
     uint32_t first_sn;
     uint32_t last_sn;
+    uint64_t now;
     size_t i;
 
     if (!participant || !heartbeat || !source_prefix ||
@@ -1698,7 +1745,7 @@ static void handle_user_heartbeat(nb_rtps_participant_t *participant,
                 continue;
             }
             state = get_data_reader(
-                participant, &writer_guid, &local->info.endpoint_guid.entity);
+                participant, &writer_guid, &local->info.endpoint_guid.entity, 1u);
             if (!state) {
                 continue;
             }
@@ -1713,15 +1760,22 @@ static void handle_user_heartbeat(nb_rtps_participant_t *participant,
             }
             state->heartbeat_seen = 1;
             state->last_heartbeat_count = heartbeat->count;
+            now = ntk_wall_ms();
+            if (state->last_acknack_ms != 0 && now >= state->last_acknack_ms &&
+                now - state->last_acknack_ms < NB_RTPS_MIN_ACKNACK_INTERVAL_MS) {
+                continue;
+            }
             (void)nb_rtps_reader_build_acknack(&state->state, last_sn, &acknack);
             acknack.reader_id = local->info.endpoint_guid.entity;
             acknack.writer_id = heartbeat->writer_id;
-            (void)send_user_acknack(participant,
-                                    &local->info.endpoint_guid,
-                                    &writer_guid,
-                                    &acknack,
-                                    target_host,
-                                    target_port);
+            if (send_user_acknack(participant,
+                                  &local->info.endpoint_guid,
+                                  &writer_guid,
+                                  &acknack,
+                                  target_host,
+                                  target_port) == NB_OK) {
+                state->last_acknack_ms = now;
+            }
         }
     }
     ntk_mutex_unlock(participant->lock);
@@ -1746,7 +1800,9 @@ static void handle_user_acknack(nb_rtps_participant_t *participant,
     uint32_t first_sn = 0;
     uint32_t last_sn = 0;
     size_t sample_count = 0;
+    size_t resent = 0;
     size_t i;
+    uint64_t now;
     uint32_t gap_start = 0;
     uint32_t gap_last = 0;
 
@@ -1774,6 +1830,20 @@ static void handle_user_acknack(nb_rtps_participant_t *participant,
         copy_str(target_host, sizeof(target_host), source_host);
         target_port = source_port;
     }
+    /* Bound the work a single peer can trigger. A reader that repeats an
+     * ACKNACK, or one that floods them, gets at most one resend burst per
+     * interval; the periodic HEARTBEAT brings the remaining samples back. */
+    now = ntk_wall_ms();
+    if (local->resend_seen &&
+        nb_rtps_guid_equal(&local->last_resend_reader, &reader_guid) &&
+        now >= local->last_resend_ms &&
+        now - local->last_resend_ms < NB_RTPS_MIN_RESEND_INTERVAL_MS) {
+        ntk_mutex_unlock(participant->lock);
+        return;
+    }
+    local->resend_seen = 1;
+    local->last_resend_reader = reader_guid;
+    local->last_resend_ms = now;
     nb_rtps_reliable_state(local->history, &first_sn, &last_sn, &sample_count);
     for (i = 0; i < acknack->num_bits; i++) {
         const uint8_t *payload = NULL;
@@ -1789,6 +1859,10 @@ static void handle_user_acknack(nb_rtps_participant_t *participant,
         rc = nb_rtps_reliable_get(
             local->history, sn, &payload, &payload_len, &dispose);
         if (rc == NB_OK && payload && payload_len > 0) {
+            if (resent >= NB_RTPS_MAX_RESEND_PER_ACK) {
+                break;
+            }
+            resent++;
             (void)send_user_data(participant,
                                  &local->info.endpoint_guid,
                                  &reader_guid,

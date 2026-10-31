@@ -302,6 +302,25 @@ static void fill_config(nb_rtps_participant_config_t *config, const char *name)
     config->max_remote_participants = 8;
 }
 
+/* Fill a dds::Message endpoint description with the framework defaults. */
+static void init_data_endpoint(nb_rtps_endpoint_info_t *info, int reliable)
+{
+    memset(info, 0, sizeof(*info));
+    (void)snprintf(info->topic_name,
+                   sizeof(info->topic_name),
+                   "%s",
+                   NB_RTPS_DDS_MESSAGE_TOPIC);
+    (void)snprintf(info->type_name,
+                   sizeof(info->type_name),
+                   "%s",
+                   NB_RTPS_DDS_MESSAGE_TYPE);
+    info->reliability =
+        reliable ? NB_RTPS_RELIABILITY_RELIABLE : NB_RTPS_RELIABILITY_BEST_EFFORT;
+    info->durability = NB_RTPS_DURABILITY_VOLATILE;
+    info->history_kind = NB_RTPS_HISTORY_KEEP_LAST;
+    info->history_depth = 8;
+}
+
 static void test_unicast_peers(void)
 {
     nb_rtps_participant_config_t config;
@@ -1016,6 +1035,123 @@ static void test_reliable_gap(void)
     ntk_mutex_destroy(data_state.lock);
 }
 
+/*
+ * The reader window table is capped by max_remote_endpoints. With more active
+ * (writer, reader) pairs than that, the extra pairs run without a window:
+ * delivery must still work, memory stays bounded, and the degraded pairs must
+ * not trigger a retransmission storm for the pairs that do have a window.
+ */
+static void test_reliable_reader_capacity(void)
+{
+    nb_rtps_participant_config_t config;
+    nb_rtps_participant_t *publisher;
+    nb_rtps_participant_t *subscriber;
+    nb_rtps_endpoint_info_t publications[2];
+    nb_rtps_endpoint_info_t subscriptions[3];
+    nb_rtps_dds_message_t message;
+    test_state_t publisher_state;
+    test_state_t subscriber_state;
+    reliable_data_state_t data_state;
+    static const uint8_t payloads[2] = {0xa1, 0xb2};
+    uint16_t publisher_port;
+    uint16_t subscriber_port;
+    int round;
+    size_t i;
+
+    memset(&publisher_state, 0, sizeof(publisher_state));
+    memset(&subscriber_state, 0, sizeof(subscriber_state));
+    memset(&data_state, 0, sizeof(data_state));
+
+    fill_config(&config, "evict-publisher");
+    config.data_heartbeat_ms = 100;
+    config.max_remote_endpoints = 4;
+    publisher = nb_rtps_participant_create(&config);
+    CHECK(publisher != NULL);
+    if (!publisher) {
+        return;
+    }
+    publisher_port = nb_rtps_participant_spdp_port(publisher);
+    fill_config(&config, "evict-subscriber");
+    config.data_heartbeat_ms = 100;
+    config.max_remote_endpoints = 4;
+    subscriber = nb_rtps_participant_create(&config);
+    CHECK(subscriber != NULL);
+    if (!subscriber) {
+        nb_rtps_participant_destroy(publisher);
+        return;
+    }
+    subscriber_port = nb_rtps_participant_spdp_port(subscriber);
+    CHECK(nb_rtps_participant_add_peer(publisher, "127.0.0.1", subscriber_port) == NB_OK);
+    CHECK(nb_rtps_participant_add_peer(subscriber, "127.0.0.1", publisher_port) == NB_OK);
+
+    publisher_state.lock = ntk_mutex_create(NTK_MUTEX_NORMAL);
+    subscriber_state.lock = ntk_mutex_create(NTK_MUTEX_NORMAL);
+    data_state.lock = ntk_mutex_create(NTK_MUTEX_NORMAL);
+    CHECK(publisher_state.lock != NULL);
+    CHECK(subscriber_state.lock != NULL);
+    CHECK(data_state.lock != NULL);
+    if (!publisher_state.lock || !subscriber_state.lock || !data_state.lock) {
+        nb_rtps_participant_destroy(publisher);
+        nb_rtps_participant_destroy(subscriber);
+        if (publisher_state.lock) {
+            ntk_mutex_destroy(publisher_state.lock);
+        }
+        if (subscriber_state.lock) {
+            ntk_mutex_destroy(subscriber_state.lock);
+        }
+        if (data_state.lock) {
+            ntk_mutex_destroy(data_state.lock);
+        }
+        return;
+    }
+    nb_rtps_participant_set_callback(publisher, on_participant, &publisher_state);
+    nb_rtps_participant_set_callback(subscriber, on_participant, &subscriber_state);
+    nb_rtps_participant_set_endpoint_callback(publisher, on_endpoint, &publisher_state);
+    nb_rtps_participant_set_endpoint_callback(subscriber, on_endpoint, &subscriber_state);
+    nb_rtps_participant_set_data_callback(subscriber, on_reliable_data, &data_state);
+    CHECK(nb_rtps_participant_start(publisher) == NB_OK);
+    CHECK(nb_rtps_participant_start(subscriber) == NB_OK);
+    CHECK(wait_count(&publisher_state, 0, 1, 5000));
+    CHECK(wait_count(&subscriber_state, 0, 1, 5000));
+
+    /* Two writers and three readers make six pairs against four slots. */
+    for (i = 0; i < sizeof(publications) / sizeof(publications[0]); i++) {
+        init_data_endpoint(&publications[i], 1);
+        CHECK(nb_rtps_participant_add_endpoint(
+                  publisher, NB_RTPS_ENDPOINT_PUBLICATION, &publications[i]) == NB_OK);
+    }
+    for (i = 0; i < sizeof(subscriptions) / sizeof(subscriptions[0]); i++) {
+        init_data_endpoint(&subscriptions[i], 1);
+        CHECK(nb_rtps_participant_add_endpoint(
+                  subscriber, NB_RTPS_ENDPOINT_SUBSCRIPTION, &subscriptions[i]) == NB_OK);
+    }
+    CHECK(wait_endpoint_count(&subscriber_state, 0, 2, 5000));
+    CHECK(wait_endpoint_count(&publisher_state, 0, 3, 5000));
+
+    /* Every reader must still receive every writer at least once. */
+    for (round = 0; round < 4; round++) {
+        for (i = 0; i < sizeof(publications) / sizeof(publications[0]); i++) {
+            message.payload = &payloads[i];
+            message.payload_len = 1;
+            CHECK(nb_rtps_participant_publish_dds_message(
+                      publisher, &publications[i].endpoint_guid, &message) == NB_OK);
+        }
+        ntk_sleep_ms(50);
+    }
+    CHECK(wait_reliable_data(&data_state, 6, 5000));
+    ntk_sleep_ms(300);
+    /* A pair without a window must not turn into a retransmission storm. */
+    CHECK(reliable_data_count(&data_state) <= 64);
+
+    nb_rtps_participant_stop(publisher);
+    nb_rtps_participant_stop(subscriber);
+    nb_rtps_participant_destroy(publisher);
+    nb_rtps_participant_destroy(subscriber);
+    ntk_mutex_destroy(publisher_state.lock);
+    ntk_mutex_destroy(subscriber_state.lock);
+    ntk_mutex_destroy(data_state.lock);
+}
+
 int main(void)
 {
     test_create_destroy();
@@ -1024,6 +1160,7 @@ int main(void)
     test_data_roundtrip();
     test_reliable_late_joiner();
     test_reliable_gap();
+    test_reliable_reader_capacity();
     test_multicast();
     if (g_fail) {
         nb_log_error("rtps participant tests failed");

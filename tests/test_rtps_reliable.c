@@ -111,6 +111,36 @@ static void test_history_and_acknack(void)
     nb_rtps_reliable_writer_destroy(writer);
 }
 
+/*
+ * The history is bounded by bytes as well as by sample count, so a deep
+ * configuration cannot pin an unbounded amount of memory.
+ */
+static void test_history_byte_budget(void)
+{
+    enum { SAMPLE_SIZE = 100 * 1024, SAMPLE_COUNT = 4 };
+    static uint8_t sample[SAMPLE_SIZE];
+    nb_rtps_reliable_writer_t *writer = nb_rtps_reliable_writer_create(64);
+    uint32_t first = 0;
+    uint32_t last = 0;
+    size_t count = 0;
+    size_t i;
+
+    CHECK(writer != NULL);
+    if (!writer) {
+        return;
+    }
+    memset(sample, 0x5a, sizeof(sample));
+    for (i = 0; i < SAMPLE_COUNT; i++) {
+        CHECK(nb_rtps_reliable_add(writer, sample, sizeof(sample), 0, NULL) == NB_OK);
+    }
+    nb_rtps_reliable_state(writer, &first, &last, &count);
+    /* The 256 KiB budget holds only two of the 100 KiB samples. */
+    CHECK(count == 2);
+    CHECK(first == (uint32_t)(SAMPLE_COUNT - 1));
+    CHECK(last == (uint32_t)SAMPLE_COUNT);
+    nb_rtps_reliable_writer_destroy(writer);
+}
+
 static void test_reader_window(void)
 {
     nb_rtps_reader_state_t state;
@@ -179,6 +209,7 @@ static void test_reader_window(void)
 int main(void)
 {
     test_history_and_acknack();
+    test_history_byte_budget();
     test_reader_window();
     if (g_fail) {
         nb_log_error("rtps reliable tests failed");

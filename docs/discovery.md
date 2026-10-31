@@ -12,10 +12,12 @@ Status: the wire codec, SPDP announcement payload, SPDP participant runtime,
 reliable SEDP endpoint exchange, and best-effort plus reliable `dds::Message`
 application `DATA` are implemented and covered by unit and end-to-end tests.
 Bidirectional `dds::Message` delivery with Cyclone DDS and between two nb RTPS
-participants is verified on Linux; reliable application data between two nb
-participants is verified on Windows. Cyclone sees nb SEDP endpoints and
-receives nb samples; nb also receives and dispatches Cyclone samples. Mapping
-remote endpoints into the framework registry remains M4 work.
+participants is verified on Linux; reliable application data is verified both
+between two nb participants and against Cyclone on Windows, in multicast and
+unicast-only modes. Reliable traffic is rate limited on both sides, and the
+writer history and reader window tables are bounded. Cyclone sees nb SEDP
+endpoints and receives nb samples; nb also receives and dispatches Cyclone
+samples. Mapping remote endpoints into the framework registry remains M4 work.
 
 ## 1. Scope
 
@@ -136,6 +138,8 @@ HEARTBEAT.
 | SEDP heartbeat | 1 s | per reliable writer while unacknowledged |
 | Application data heartbeat | 1 s | per reliable publication with retained samples |
 | Lease sweep | 200 ms | runtime tick; leases are checked against wall-clock time |
+| ACKNACK suppression | 20 ms | a reader answers at most one HEARTBEAT per (writer, reader) window in this interval |
+| Resend pacing | 10 ms | a writer serves at most one ACKNACK burst for the same reader in this interval |
 
 Defaults are configuration values, not constants in the protocol.
 
@@ -281,14 +285,32 @@ sockets and initializes state, so callers can learn ephemeral ports before
    `HEARTBEAT`, retransmits samples requested by an ACKNACK, and announces
    samples dropped by history trimming with `GAP`. A reliable reader answers
    `HEARTBEAT` with the missing subset as `ACKNACK`.
-8. Key remotes by GUID prefix. The callback fires on first sight (`ADDED`), on
+8. Both sides are rate limited so a duplicate or aggressive peer costs a
+   packet, not a burst. A reader sends at most one ACKNACK per 20 ms per
+   (writer, reader) window; a writer serves at most one ACKNACK burst per 10 ms
+   for the same reader (it remembers the most recent reader per publication)
+   and resends at most 64 samples per ACKNACK, with the remainder picked up by
+   the next heartbeat round.
+9. A reliable writer history is bounded by sample count **and** by a 256 KiB
+   byte budget per publication. Samples are dropped from the oldest end in
+   both cases and the dropped range is announced with `GAP`.
+10. Key remotes by GUID prefix. The callback fires on first sight (`ADDED`), on
    a changed record (`UPDATED`), and when the lease expires (`REMOVED`).
-9. Callbacks run outside the table lock. The table holds 1024 entries by
+11. Callbacks run outside the table lock. The table holds 1024 entries by
    default; when full, the entry with the oldest `last_seen` is replaced.
 
 The receive path itself does not allocate per packet. Reliable writer history
 and the lazily created reader windows allocate on first use and are bounded by
 the configured endpoint and history limits.
+
+The reader window table holds `max_remote_endpoints` entries (capped at 4096).
+When a participant has more active (writer, reader) pairs than that, the extra
+pairs run without a window: samples are delivered, but duplicates are not
+filtered and no ACKNACK is sent for them, and the runtime logs a single
+warning. Recycling a working window was rejected: restarting it makes the peer
+replay its whole history, which was measured to turn into a duplicate storm
+for the pairs that were working. Size `max_remote_endpoints` for
+remote writers times local readers to avoid the degraded mode.
 
 ### 6.4 Unicast peers
 
@@ -310,8 +332,18 @@ superpeer/relay, or a discovery server) is still open; see section 7.
   `DATA_FRAG`. A single global callback is invoked once per matching local
   subscription, and its payload is a zero-copy view valid only for the
   callback.
+- Reliable history is capped by sample count, by
+  `NB_RTPS_RELIABLE_MAX_BYTES` (256 KiB) per writer, and by the reader window
+  table size (`max_remote_endpoints`, at most 4096 pairs). Beyond the table
+  size, extra pairs run without deduplication and without ACKNACK. Timeouts,
+  blocking writes, and per-sample size above `NB_RTPS_DATA_PAYLOAD_MAX` are
+  not handled.
 - On multi-host deployments `advertise_host` must be set explicitly. With a
   wildcard bind and no advertise host, the runtime falls back to `127.0.0.1`.
+  Besides being unreachable from other hosts, a loopback locator also breaks
+  same-host interop with peers that bind their sockets to a real interface:
+  Cyclone DDS on Windows logs `ddsi_udp_conn_write ... failed with retcode -3`
+  when nb advertises `127.0.0.1`. Use a routable interface address.
 - `stop()` clears the local remote table without emitting `REMOVED` callbacks.
 
 State:
@@ -407,17 +439,20 @@ Current:
 - `unit.rtps_sedp`: endpoint payload round trips, defaults, repeated
   24-byte locator parameters, 12-byte reliability, partition, user data, and
   missing-field rejection.
-- `unit.rtps_reliable`: history trimming, sequence-number state, ACKNACK bitmap
-  retransmit, dispose samples, and the reader window (dedupe, gap advance,
-  missing-sample bitmap). `unit.rtps_sedp` and the SEDP runtime share the same
-  reader window helpers.
+- `unit.rtps_reliable`: history trimming (by count and by the 256 KiB byte
+  budget), sequence-number state, ACKNACK bitmap retransmit, dispose samples,
+  and the reader window (dedupe, gap advance, missing-sample bitmap).
+  `unit.rtps_sedp` and the SEDP runtime share the same reader window helpers.
 - `e2e.rtps_participant`: two participants discover each other over unicast
   peers, exchange SEDP publications/subscriptions, deliver `dds::Message` data
   between a local publication and subscription, dispose endpoints, and expire
   leases. Reliable coverage includes a late-joining subscriber that recovers
   three samples from the writer history through HEARTBEAT/ACKNACK, and a GAP
   test in which injected gap announcements suppress the reused sequence
-  numbers. The test also covers repeated create/destroy.
+  numbers. A window-table capacity test runs two writers against three
+  subscriptions (six pairs) with four table slots and checks that every pair
+  still receives data without a retransmission storm. The test also covers
+  repeated create/destroy.
 - The multicast path has an opt-in loopback test:
   `NB_TEST_RTPS_MULTICAST=1 ctest -C Debug -R rtps`.
 - Cyclone SPDP/SEDP interop is opt-in:
@@ -426,15 +461,27 @@ Current:
   skips successfully. The test checks participant visibility, nb publication
   visibility through Cyclone's built-in publication reader, nb-to-Cyclone
   `dds::Message` delivery, and Cyclone-to-nb delivery through the subscription
-  callback.
+  callback. Both sides use RELIABLE QoS, so Cyclone's HEARTBEAT/ACKNACK traffic
+  exercises the nb writer and reader paths (verified on Windows against
+  Cyclone 0.10.5, five consecutive runs).
+- `NB_TEST_RTPS_UNICAST_ONLY=1` switches the same test to explicit unicast
+  discovery: nb disables multicast and uses fixed ports 47100 (SPDP) and 47101
+  (unicast), and Cyclone is created through `dds_create_domain()` with
+  `<Peers>` pointing at nb and a fixed participant index. This path does not
+  depend on multicast routing.
+- `tools/verify-rtps-interop.sh` runs all of the above on a Linux host:
+  build, `ctest -L "unit|rtps"`, three repeated `e2e.rtps_participant` runs,
+  and both Cyclone modes. It derives the advertise address from the default
+  route unless `NB_RTPS_ADVERTISE_HOST` is set.
 - `e2e.dds_remote` covers the separate Cyclone-backed DDS provider: the parent
   publishes through `dds://61` with the local fast path disabled, and a spawned
   Cyclone reader must receive the encoded event sample.
 
 Planned:
 
-- Cross-implementation: Cyclone DDS SPDP/SEDP and bidirectional `dds::Message`
-  data are verified; Fast DDS and CI automation remain.
+- Cross-implementation: Cyclone DDS SPDP/SEDP and bidirectional reliable
+  `dds::Message` data are verified on Windows; the Linux runner still has to
+  run `tools/verify-rtps-interop.sh`. Fast DDS and CI automation remain.
 - Scale: 100/500/1000 simulated participants, measuring packets per second,
   memory, and discovery latency.
 - Fuzzing: `ParameterList`, submessage headers, and `DATA` inline QoS.
@@ -448,7 +495,7 @@ Planned:
 | M3 (done) | SEDP: reliable built-in writers, heartbeat/acknack, endpoint callbacks |
 | M4 | Public discovery API and provider seam; mesh broadcast becomes one provider |
 | M5 | Scale to about 1000 participants: unicast peer scoping, table caps, load tests |
-| M6 (partial) | Cyclone SPDP/SEDP and bidirectional `dds::Message` DATA verified; reliable application DATA verified nb-to-nb, Cyclone reliable interop and CI automation pending |
+| M6 (partial) | Cyclone SPDP/SEDP and bidirectional reliable `dds::Message` DATA verified on Windows (multicast and unicast-only); Linux runner pass and CI automation pending |
 | M7 | Standalone `libnb_discovery` target, examples, packaging |
 
 M2 and M3 are the first point at which two framework processes can discover

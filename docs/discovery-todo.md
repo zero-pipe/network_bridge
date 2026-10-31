@@ -23,8 +23,9 @@ changes state so a later session can resume without reading the whole history.
 - M4 integration: pending
 - M5 scale: pending
 - M6 Cyclone interop: partial (SPDP/SEDP and bidirectional `dds::Message`
-  delivery verified on Linux; reliable application DATA verified nb-to-nb on
-  Windows; Cyclone reliable interop and the CI job pending)
+  delivery verified on Linux; reliable application DATA verified nb-to-nb
+  and against Cyclone on Windows, in multicast and unicast-only modes; the
+  Linux runner pass and the CI job pending)
 - M7 packaging: pending
 
 ## M1: wire codec (done)
@@ -99,6 +100,12 @@ changes state so a later session can resume without reading the whole history.
 - [x] Verify an independent Cyclone reader receives data from the separate
       Cyclone-backed `dds` provider (`e2e.dds_remote`)
 - [x] Reliable application `DATA`: writer history, HEARTBEAT/ACKNACK, GAP
+- [x] Rate-limit ACKNACK/HEARTBEAT traffic, bound history by bytes, and define
+      the reader-window capacity policy
+- [x] Verify reliable `dds::Message` with Cyclone (RELIABLE QoS on both sides,
+      Windows, 5 consecutive runs)
+- [x] Explicit unicast peer plus fixed locator mode for the Cyclone test
+      (`NB_TEST_RTPS_UNICAST_ONLY=1`)
 - [ ] `DATA_FRAG`
 - [x] Vendor id note for `0x01,0x10` quirks
 - [x] Interop test in `tests/` or `tools/`
@@ -119,15 +126,22 @@ and accepts trailing submessage padding.
 
 Reliable application `DATA` was verified locally on Windows on 2026-10-31:
 `-L rtps` passed with the new late-join replay and injected-GAP cases, and
-`e2e.rtps_participant` passed 10 repeated runs. Cyclone could not be exercised
-in that environment (`e2e.rtps_cyclone` fails the same way on the parent
-commit because the Cyclone participant never discovers the nb participant), so
-reliable Cyclone interop still needs the Linux runner.
+`e2e.rtps_participant` passed 10 repeated runs.
+
+The earlier Windows Cyclone failure was not multicast: the nb participant
+advertised `127.0.0.1` because `bind_host` was wildcard and no advertise host
+was set, and Cyclone binds its sockets to a real interface, so every write to
+the loopback locator failed with `ddsi_udp_conn_write ... retcode -3`. With
+`NB_TEST_RTPS_ADVERTISE_HOST=192.168.1.4` the interop test passes, and with
+RELIABLE QoS on both sides it passes 5/5 repeated runs. `AllowMulticast` is not
+recognised by Cyclone 0.10.5, so the unicast-only mode relies on `<Peers>` plus
+a fixed participant index instead.
 
 ## Follow-ups after bidirectional DATA
 
 - [x] Reliable application `DATA`: writer history, HEARTBEAT/ACKNACK, GAP
 - [ ] Verify reliable `dds::Message` against Cyclone on the Linux runner
+      (Windows done; run `tools/verify-rtps-interop.sh` on 192.168.54.14)
 - [ ] `DATA_FRAG` for samples larger than the MTU
 - [ ] Generic IDL/topic-type support; the RTPS path is fixed to `dds::Message`
 - [ ] Per-endpoint subscription callbacks; the current callback is global and
@@ -148,6 +162,9 @@ reliable Cyclone interop still needs the Linux runner.
 - SPDP is `O(N^2)` multicast; SEDP adds pairwise endpoint state. 1000
   participants need peers/scoping or a server; do not assume plain multicast.
 - Windows multicast binding and firewall behavior differ from Linux.
+- A loopback `advertise_host` breaks same-host interop with peers that bind to
+  a real interface. Defaulting to `127.0.0.1` on a wildcard bind is convenient
+  for loopback tests but must not be used against Cyclone or across hosts.
 - Cyclone DDS vendor-specific behavior must be verified, not assumed.
 - The RTPS data plane covers best-effort and reliable `dds::Message`, without
   fragmentation. Arbitrary IDL and ROS 2 topic/service exchange still need a
@@ -165,6 +182,10 @@ reliable Cyclone interop still needs the Linux runner.
   `NB_TEST_RTPS_CYCLONE=1` and usually
   `NB_TEST_RTPS_ADVERTISE_HOST=<local-ip>`. Run `ctest` from inside
   `build-linux`; the installed CTest does not support `--test-dir`.
+- Linux interop sweep: `cd <repo> && tools/verify-rtps-interop.sh` builds,
+  runs `-L "unit|rtps"`, repeats `e2e.rtps_participant` three times, and runs
+  the Cyclone test in multicast and unicast-only modes. It picks the advertise
+  address from the default route unless `NB_RTPS_ADVERTISE_HOST` is set.
 - Do not commit `build-review/`, `artifacts/`, `Testing/` or other build output.
 - Commit identity: `OldChen <825988516@qq.com>` (repository-local config).
 - Next task: M4 framework integration: map RTPS endpoints to registry service
@@ -205,3 +226,11 @@ reliable Cyclone interop still needs the Linux runner.
   `GAP` codec, `data_heartbeat_ms`/`data_history_depth` config, unit tests and
   nb-to-nb late-join/GAP end-to-end tests. SEDP now shares the reader-window
   helpers. Cyclone reliable interop is still to be run on Linux.
+- 2026-10-31: Reliable data-plane hardening. Reader ACKNACK suppression
+  (20 ms), writer resend pacing (10 ms) and a 64-sample per-ACKNACK cap,
+  256 KiB per-writer history byte budget, and a reader window table capped at
+  `max_remote_endpoints` (4096) with a documented degraded mode instead of
+  window recycling. Added `unit`/`e2e` tests and the Cyclone unicast-only mode
+  (fixed ports plus explicit `dds_create_domain()` peers). Cyclone interop now
+  runs with RELIABLE QoS on both sides and passes on Windows in both modes;
+  `tools/verify-rtps-interop.sh` runs the same sweep on Linux.

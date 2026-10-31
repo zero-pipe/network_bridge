@@ -18,8 +18,22 @@ struct nb_rtps_reliable_writer {
     size_t capacity;
     size_t count;
     size_t head;
+    size_t bytes;
     uint32_t next_sn;
 };
+
+/* Drop the oldest sample. The caller holds the writer lock. */
+static void drop_oldest(nb_rtps_reliable_writer_t *writer)
+{
+    nb_rtps_reliable_sample_t *sample = &writer->samples[writer->head];
+
+    writer->bytes -= sample->len;
+    free(sample->payload);
+    sample->payload = NULL;
+    sample->len = 0;
+    writer->head = (writer->head + 1u) % writer->capacity;
+    writer->count--;
+}
 
 static nb_rtps_reliable_sample_t *find_sample(nb_rtps_reliable_writer_t *writer, uint32_t sn)
 {
@@ -103,14 +117,14 @@ int nb_rtps_reliable_add(nb_rtps_reliable_writer_t *writer,
     }
 
     ntk_mutex_lock(writer->lock);
-    if (writer->count < writer->capacity) {
-        index = (writer->head + writer->count) % writer->capacity;
-        writer->count++;
-    } else {
-        index = writer->head;
-        free(writer->samples[index].payload);
-        writer->head = (writer->head + 1) % writer->capacity;
+    while (writer->count > 0 &&
+           (writer->count >= writer->capacity ||
+            writer->bytes + len > NB_RTPS_RELIABLE_MAX_BYTES)) {
+        drop_oldest(writer);
     }
+    index = (writer->head + writer->count) % writer->capacity;
+    writer->count++;
+    writer->bytes += len;
     sample = &writer->samples[index];
     sample->sn = ++writer->next_sn;
     sample->payload = copy;

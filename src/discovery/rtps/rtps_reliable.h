@@ -18,6 +18,10 @@
 
 #define NB_RTPS_RELIABLE_DEFAULT_CAPACITY 8u
 #define NB_RTPS_RELIABLE_MAX_CAPACITY 4096u
+/* Byte budget per writer history. Samples are dropped from the oldest end
+ * when the budget would be exceeded, regardless of the sample capacity, so a
+ * deep configuration cannot pin an unbounded amount of memory. */
+#define NB_RTPS_RELIABLE_MAX_BYTES (256u * 1024u)
 
 typedef struct nb_rtps_reliable_writer nb_rtps_reliable_writer_t;
 
@@ -32,7 +36,10 @@ nb_rtps_reliable_writer_t *nb_rtps_reliable_writer_create(size_t capacity);
 void nb_rtps_reliable_writer_destroy(nb_rtps_reliable_writer_t *writer);
 
 /* Append a sample. The sequence number starts at 1. When the history is full,
- * the oldest sample is dropped. */
+ * or when adding the sample would exceed NB_RTPS_RELIABLE_MAX_BYTES, the
+ * oldest samples are dropped. Callers detect the eviction by comparing the
+ * first sequence number before and after the call and must announce the
+ * dropped range with GAP. */
 int nb_rtps_reliable_add(nb_rtps_reliable_writer_t *writer,
                          const void *payload,
                          size_t len,

@@ -17,6 +17,37 @@
 
 static int g_fail;
 
+/* Unicast-only mode: nb and Cyclone talk over fixed ports with explicit
+ * discovery peers, so the test does not depend on multicast routing. */
+#define UNICAST_ONLY_NB_SPDP_PORT 47100
+#define UNICAST_ONLY_NB_UNICAST_PORT 47101
+#define UNICAST_ONLY_CYCLONE_SPDP_PORT 7410
+
+static dds_entity_t g_cyclone_domain = 0;
+
+static dds_entity_t create_cyclone_participant(int unicast_only, const char *addr)
+{
+    if (unicast_only) {
+        char xml[512];
+
+        (void)snprintf(xml,
+                       sizeof(xml),
+                       "<CycloneDDS><Domain id=\"any\"><Discovery>"
+                       "<ParticipantIndex>0</ParticipantIndex>"
+                       "<Peers><Peer address=\"%s:%d\"/></Peers>"
+                       "</Discovery></Domain></CycloneDDS>",
+                       addr,
+                       UNICAST_ONLY_NB_SPDP_PORT);
+        g_cyclone_domain = dds_create_domain(0, xml);
+        if (g_cyclone_domain < 0) {
+            nb_log_error("Cyclone rejected the unicast-only domain config: %d",
+                         (int)g_cyclone_domain);
+            return g_cyclone_domain;
+        }
+    }
+    return dds_create_participant(0, NULL, NULL);
+}
+
 #define CHECK(cond)                                                     \
     do {                                                                \
         if (!(cond)) {                                                  \
@@ -181,6 +212,10 @@ static void test_cyclone_spdp(void)
 {
     const char *enabled = getenv("NB_TEST_RTPS_CYCLONE");
     const char *advertise_host = getenv("NB_TEST_RTPS_ADVERTISE_HOST");
+    const char *unicast_only_env = getenv("NB_TEST_RTPS_UNICAST_ONLY");
+    int unicast_only = unicast_only_env && strcmp(unicast_only_env, "1") == 0;
+    const char *addr =
+        (advertise_host && advertise_host[0]) ? advertise_host : "127.0.0.1";
     nb_rtps_participant_config_t config;
     nb_rtps_participant_t *nb;
     dds_entity_t cyclone;
@@ -207,7 +242,7 @@ static void test_cyclone_spdp(void)
         return;
     }
 
-    cyclone = dds_create_participant(0, NULL, NULL);
+    cyclone = create_cyclone_participant(unicast_only, addr);
     CHECK(cyclone > 0);
     if (cyclone <= 0) {
         return;
@@ -245,7 +280,7 @@ static void test_cyclone_spdp(void)
             (void)dds_delete(cyclone);
             return;
         }
-        dds_qset_reliability(reader_qos, DDS_RELIABILITY_BEST_EFFORT, DDS_SECS(1));
+        dds_qset_reliability(reader_qos, DDS_RELIABILITY_RELIABLE, DDS_SECS(1));
         message_reader = dds_create_reader(cyclone, message_topic, reader_qos, NULL);
         dds_delete_qos(reader_qos);
     }
@@ -268,7 +303,7 @@ static void test_cyclone_spdp(void)
             (void)dds_delete(cyclone);
             return;
         }
-        dds_qset_reliability(writer_qos, DDS_RELIABILITY_BEST_EFFORT, DDS_SECS(1));
+        dds_qset_reliability(writer_qos, DDS_RELIABILITY_RELIABLE, DDS_SECS(1));
         message_writer = dds_create_writer(cyclone, message_topic, writer_qos, NULL);
         dds_delete_qos(writer_qos);
     }
@@ -285,11 +320,15 @@ static void test_cyclone_spdp(void)
     memset(&config, 0, sizeof(config));
     config.domain_id = 0;
     config.bind_host = "0.0.0.0";
-    config.advertise_host =
-        (advertise_host && advertise_host[0] != '\0') ? advertise_host
-                                                      : "127.0.0.1";
-    config.multicast_group = "239.255.0.1";
-    config.spdp_port = 0; /* 7400 + 250 * 0 */
+    config.advertise_host = addr;
+    if (unicast_only) {
+        config.multicast_group = "";
+        config.spdp_port = UNICAST_ONLY_NB_SPDP_PORT;
+        config.unicast_port = UNICAST_ONLY_NB_UNICAST_PORT;
+    } else {
+        config.multicast_group = "239.255.0.1";
+        config.spdp_port = 0; /* 7400 + 250 * 0 */
+    }
     config.announce_interval_ms = 200;
     config.lease_ms = 3000;
     config.name = "nb-rtps-interop";
@@ -304,6 +343,10 @@ static void test_cyclone_spdp(void)
         (void)dds_delete(publication_reader);
         (void)dds_delete(cyclone);
         return;
+    }
+    if (unicast_only) {
+        CHECK(nb_rtps_participant_add_peer(
+                  nb, addr, UNICAST_ONLY_CYCLONE_SPDP_PORT) == NB_OK);
     }
     memset(&inbound_state, 0, sizeof(inbound_state));
     inbound_state.lock = ntk_mutex_create(NTK_MUTEX_NORMAL);
@@ -339,7 +382,7 @@ static void test_cyclone_spdp(void)
                    sizeof(message_endpoint.type_name),
                    "%s",
                    NB_RTPS_DDS_MESSAGE_TYPE);
-    message_endpoint.reliability = NB_RTPS_RELIABILITY_BEST_EFFORT;
+    message_endpoint.reliability = NB_RTPS_RELIABILITY_RELIABLE;
     message_endpoint.durability = NB_RTPS_DURABILITY_VOLATILE;
     message_endpoint.history_kind = NB_RTPS_HISTORY_KEEP_LAST;
     message_endpoint.history_depth = 1;
@@ -355,7 +398,7 @@ static void test_cyclone_spdp(void)
                    sizeof(subscription_endpoint.type_name),
                    "%s",
                    NB_RTPS_DDS_MESSAGE_TYPE);
-    subscription_endpoint.reliability = NB_RTPS_RELIABILITY_BEST_EFFORT;
+    subscription_endpoint.reliability = NB_RTPS_RELIABILITY_RELIABLE;
     subscription_endpoint.durability = NB_RTPS_DURABILITY_VOLATILE;
     subscription_endpoint.history_kind = NB_RTPS_HISTORY_KEEP_LAST;
     subscription_endpoint.history_depth = 1;
@@ -510,6 +553,10 @@ static void test_cyclone_spdp(void)
     (void)dds_delete(reader);
     (void)dds_delete(publication_reader);
     (void)dds_delete(cyclone);
+    if (g_cyclone_domain > 0) {
+        (void)dds_delete(g_cyclone_domain);
+        g_cyclone_domain = 0;
+    }
 }
 
 int main(void)
