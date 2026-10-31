@@ -26,7 +26,15 @@
 #define NB_RTPS_PEER_HOST_MAX 64
 #define NB_RTPS_MAX_PEERS 64
 #define NB_RTPS_DEFAULT_MAX_REMOTES 1024u
+/* Largest payload carried inline in a single DATA submessage. Bigger samples
+ * are split into DATA_FRAG fragments of NB_RTPS_FRAGMENT_SIZE octets. */
 #define NB_RTPS_DATA_PAYLOAD_MAX 1200u
+/* Largest sample accepted by nb_rtps_participant_publish(). */
+#define NB_RTPS_SAMPLE_MAX 65536u
+/* Fragment size used when a sample does not fit in one DATA submessage. Must
+ * stay well below the packet budget so a fragment plus its submessage header
+ * fits in one datagram on a 1500-byte MTU. */
+#define NB_RTPS_FRAGMENT_SIZE 1024u
 
 typedef enum nb_rtps_participant_event {
     NB_RTPS_PARTICIPANT_ADDED = 0,

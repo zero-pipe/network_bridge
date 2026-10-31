@@ -287,6 +287,99 @@ static void test_message_data(void)
     CHECK(nb_rtps_message_next(message, 24, &offset, &view) < 0);
 }
 
+static void test_message_data_frag(void)
+{
+    uint8_t payload[40];
+    uint8_t message[256];
+    nb_rtps_header_t header;
+    nb_rtps_data_frag_t fragment;
+    nb_rtps_data_frag_t parsed;
+    nb_cdr_writer_t writer;
+    nb_rtps_submessage_view_t view;
+    size_t offset = 0;
+    size_t i;
+
+    for (i = 0; i < sizeof(payload); i++) {
+        payload[i] = (uint8_t)(i * 7u + 3u);
+    }
+    memset(&header, 0, sizeof(header));
+    header.version_major = NB_RTPS_PROTOCOL_VERSION_MAJOR;
+    header.version_minor = NB_RTPS_PROTOCOL_VERSION_MINOR;
+    header.vendor_id[0] = NB_RTPS_VENDOR_ID_0;
+    header.vendor_id[1] = NB_RTPS_VENDOR_ID_1;
+    header.guid_prefix.bytes[0] = 0x5a;
+
+    /* Two full fragments, then a 8-byte tail: 40 = 16 + 16 + 8. */
+    memset(&fragment, 0, sizeof(fragment));
+    fragment.reader_id = nb_rtps_eid_unknown;
+    fragment.writer_id.bytes[0] = 0x04;
+    fragment.writer_id.bytes[1] = 0x02;
+    fragment.writer_sn.high = 0;
+    fragment.writer_sn.low = 9;
+    fragment.fragment_starting_num = 1;
+    fragment.fragments_in_submessage = 2;
+    fragment.fragment_size = 16;
+    fragment.sample_size = 40;
+    fragment.payload = payload;
+    fragment.payload_len = 32;
+
+    CHECK(nb_rtps_message_init(&writer, message, sizeof(message), &header) == NB_OK);
+    CHECK(nb_rtps_data_frag(&writer, &fragment) == NB_OK);
+    CHECK(nb_cdr_writer_ok(&writer));
+
+    CHECK(nb_rtps_message_begin(message, nb_cdr_writer_len(&writer), &header, &offset) == NB_OK);
+    CHECK(nb_rtps_message_next(message, nb_cdr_writer_len(&writer), &offset, &view) == 1);
+    CHECK(view.id == NB_RTPS_SUBMSG_DATA_FRAG);
+    CHECK((view.flags & NB_RTPS_FLAG_ENDIAN_LITTLE) != 0);
+    CHECK(nb_rtps_data_frag_decode(view.flags, view.body, view.body_len, &parsed) == NB_OK);
+    CHECK(parsed.fragment_starting_num == 1);
+    CHECK(parsed.fragments_in_submessage == 2);
+    CHECK(parsed.fragment_size == 16);
+    CHECK(parsed.sample_size == 40);
+    CHECK(parsed.writer_sn.low == 9);
+    CHECK(parsed.payload_len == 32);
+    CHECK(memcmp(parsed.payload, payload, 32) == 0);
+    CHECK(!parsed.key);
+
+    /* The tail fragment carries only the remaining eight octets. */
+    fragment.fragment_starting_num = 3;
+    fragment.fragments_in_submessage = 1;
+    fragment.payload = payload + 32;
+    fragment.payload_len = 8;
+    CHECK(nb_rtps_message_init(&writer, message, sizeof(message), &header) == NB_OK);
+    CHECK(nb_rtps_data_frag(&writer, &fragment) == NB_OK);
+    offset = 0;
+    CHECK(nb_rtps_message_begin(message, nb_cdr_writer_len(&writer), &header, &offset) == NB_OK);
+    CHECK(nb_rtps_message_next(message, nb_cdr_writer_len(&writer), &offset, &view) == 1);
+    CHECK(nb_rtps_data_frag_decode(view.flags, view.body, view.body_len, &parsed) == NB_OK);
+    CHECK(parsed.payload_len == 8);
+    CHECK(memcmp(parsed.payload, payload + 32, 8) == 0);
+
+    /* Malformed fragments are rejected. */
+    CHECK(nb_rtps_data_frag_decode(view.flags, view.body, 31, &parsed) != NB_OK);
+    fragment.fragment_starting_num = 0;
+    CHECK(nb_rtps_data_frag(&writer, &fragment) != NB_OK ||
+          !nb_cdr_writer_ok(&writer));
+    fragment.fragment_starting_num = 4; /* offset 48 >= sample size 40 */
+    CHECK(nb_rtps_message_init(&writer, message, sizeof(message), &header) == NB_OK);
+    CHECK(nb_rtps_data_frag(&writer, &fragment) == NB_OK);
+    offset = 0;
+    CHECK(nb_rtps_message_begin(message, nb_cdr_writer_len(&writer), &header, &offset) == NB_OK);
+    CHECK(nb_rtps_message_next(message, nb_cdr_writer_len(&writer), &offset, &view) == 1);
+    CHECK(nb_rtps_data_frag_decode(view.flags, view.body, view.body_len, &parsed) != NB_OK);
+
+    /* A payload shorter than the declared fragments is rejected. */
+    fragment.fragment_starting_num = 1;
+    fragment.fragments_in_submessage = 2;
+    fragment.payload_len = 16;
+    CHECK(nb_rtps_message_init(&writer, message, sizeof(message), &header) == NB_OK);
+    CHECK(nb_rtps_data_frag(&writer, &fragment) == NB_OK);
+    offset = 0;
+    CHECK(nb_rtps_message_begin(message, nb_cdr_writer_len(&writer), &header, &offset) == NB_OK);
+    CHECK(nb_rtps_message_next(message, nb_cdr_writer_len(&writer), &offset, &view) == 1);
+    CHECK(nb_rtps_data_frag_decode(view.flags, view.body, view.body_len, &parsed) != NB_OK);
+}
+
 static void test_heartbeat_acknack(void)
 {
     uint8_t buf[256];
@@ -471,6 +564,7 @@ int main(void)
     test_dds_message_cdr();
     test_param_roundtrip();
     test_message_data();
+    test_message_data_frag();
     test_heartbeat_acknack();
     test_gap();
     test_spdp_roundtrip();

@@ -30,7 +30,8 @@ changes state so a later session can resume without reading the whole history.
   multicast and unicast-only modes; only the automated CI job is pending)
 - M7 packaging: pending
 - M8 serialization on Micro-CDR: done (vendored subset, no submodule)
-- M9 `DATA_FRAG`: pending
+- M9 `DATA_FRAG`: partial (application samples up to 64 KiB both ways;
+  SEDP-over-fragments and Cyclone large-sample interop pending)
 - M10 generic type support: pending
 - M11 QoS semantics: pending
 
@@ -41,9 +42,8 @@ it. Work is ordered so each step removes a real interop limit.
 
 | Order | Track | Why |
 | --- | --- | --- |
-| P0 | M9: `DATA_FRAG` | Samples and SEDP payloads are capped at 1200 bytes today; large IDL values are impossible without it |
-| P1 | M8 follow-ups | Optional Micro-CDR cleanups (typed SPDP/SEDP codecs, shared encapsulation helper); wire format unchanged |
-| P2 | M10: generic type support | The point of "own DDS": arbitrary structs instead of the fixed `dds::Message` |
+| P0 | M10: generic type support | The point of "own DDS": arbitrary structs instead of the fixed `dds::Message` |
+| P1 | M9 remainder | SEDP over fragments and Cyclone large-sample interop; needs a type larger than `dds::Message` |
 | P3 | M11: QoS semantics | Late-joiner durability, keep-all history, partition matching |
 | P4 | M5: scale and scoping | Unicast peer scoping, discovery server, 1000-participant measurements |
 | P5 | M6/M7: CI and second implementation | Fast DDS interop and an automated Linux job |
@@ -199,17 +199,27 @@ a fixed participant index instead.
 
 ## M9: DATA_FRAG (P1)
 
-- [ ] Fragment outgoing samples larger than the MTU; keep one sequence number
-      per sample and track fragment state per (writer, reader)
-- [ ] Reassemble incoming fragments with a bounded buffer, a timeout and
-      duplicate handling; deliver only complete samples to the callback
-- [ ] HEARTBEAT/ACKNACK interaction: a partly received sample stays missing;
-      retransmit whole samples first and add `NACK_FRAG` later
+- [x] Fragment outgoing samples larger than the MTU; keep one sequence number
+      per sample. `nb_rtps_participant_publish()` now accepts up to
+      `NB_RTPS_SAMPLE_MAX` (64 KiB) and splits anything above
+      `NB_RTPS_DATA_PAYLOAD_MAX` (1200 bytes) into `DATA_FRAG` submessages of
+      `NB_RTPS_FRAGMENT_SIZE` (1024 bytes), one fragment per datagram
+- [x] Reassemble incoming fragments with a bounded buffer, a timeout and
+      duplicate handling; deliver only complete samples to the callback.
+      Four concurrent samples, a 256 KiB byte budget, and incomplete samples
+      expire after 2 s or on budget pressure (oldest first)
+- [x] HEARTBEAT/ACKNACK interaction: a partly received sample stays missing;
+      retransmits replay the whole sample, which re-fragments through the same
+      send path. Per-fragment `NACK_FRAG` is still not implemented
+- [x] Tests: nb-to-nb 4 KiB and 60 KiB payloads over RELIABLE QoS, plus a
+      `DATA_FRAG` encode/decode wire test with malformed-input cases
 - [ ] SEDP over fragments: long topic/type names, partitions and user data
-      already exceed 1200 bytes
-- [ ] Tests: nb-to-nb 4 KiB and 64 KiB payloads, Cyclone sending `DATA_FRAG` to
-      nb, and nb sending `DATA_FRAG` to a Cyclone reader
-- [ ] Raise `NB_RTPS_DATA_PAYLOAD_MAX` and document the memory bound
+      already exceed 1200 bytes. The receive side already reassembles SEDP
+      fragments and routes them by writer id; the SEDP *sender* still caps the
+      payload at 1200 bytes
+- [ ] Cyclone sending `DATA_FRAG` to nb and nb sending `DATA_FRAG` to a Cyclone
+      reader: the `dds::Message` test type is bounded below 1200 bytes, so a
+      larger IDL type is needed first (M10)
 
 ## M10: generic type support (P2)
 
@@ -361,3 +371,10 @@ a fixed participant index instead.
   discovery and the TCP RPC stay on the nb broadcast. Re-ordered the plan
   around the DDS stack: M8 serialization on Micro-CDR 2.0.2 (P0), M9
   `DATA_FRAG` (P1), M10 generic types (P2), M11 QoS (P3), then scale and CI.
+- 2026-11-01: M9 `DATA_FRAG` for application samples. `publish()` accepts up to
+  64 KiB and fragments anything above 1200 bytes into 1024-byte fragments, one
+  per datagram; the receiver reassembles with a four-slot, 256 KiB budget and a
+  2 s timeout and only then delivers the sample (or routes it to SEDP). A
+  partly received sample stays missing for ACKNACK, so retransmits replay the
+  whole sample. Tests: wire encode/decode plus nb-to-nb 4 KiB and 60 KiB over
+  RELIABLE QoS.

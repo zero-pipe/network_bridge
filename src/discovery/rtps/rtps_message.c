@@ -288,6 +288,134 @@ int nb_rtps_data_decode(uint8_t flags,
     return NB_OK;
 }
 
+int nb_rtps_data_frag(nb_cdr_writer_t *writer, const nb_rtps_data_frag_t *fragment)
+{
+    size_t start;
+    uint8_t flags = NB_RTPS_FLAG_ENDIAN_LITTLE;
+
+    if (!writer || !fragment) {
+        return NB_ERR_INVALID;
+    }
+    if (fragment->fragment_starting_num == 0 ||
+        fragment->fragments_in_submessage == 0 ||
+        fragment->fragment_size == 0 || fragment->sample_size == 0) {
+        return NB_ERR_INVALID;
+    }
+    if (fragment->inline_qos && fragment->inline_qos_len > 0) {
+        flags |= NB_RTPS_FLAG_INLINE_QOS;
+    }
+    if (fragment->key) {
+        flags |= NB_RTPS_FLAG_KEY;
+    }
+    start = nb_rtps_submessage_begin(writer, NB_RTPS_SUBMSG_DATA_FRAG, flags);
+    if (start == SIZE_MAX) {
+        return NB_ERR_TOOBIG;
+    }
+    nb_cdr_put_u16(writer, 0);  /* extraFlags */
+    nb_cdr_put_u16(writer, 28); /* octetsToInlineQos, relative to field end */
+    nb_cdr_put_bytes(writer, fragment->reader_id.bytes, NB_RTPS_ENTITY_ID_SIZE);
+    nb_cdr_put_bytes(writer, fragment->writer_id.bytes, NB_RTPS_ENTITY_ID_SIZE);
+    nb_cdr_put_i32(writer, fragment->writer_sn.high);
+    nb_cdr_put_u32(writer, fragment->writer_sn.low);
+    nb_cdr_put_u32(writer, fragment->fragment_starting_num);
+    nb_cdr_put_u16(writer, fragment->fragments_in_submessage);
+    nb_cdr_put_u16(writer, fragment->fragment_size);
+    nb_cdr_put_u32(writer, fragment->sample_size);
+    if (flags & NB_RTPS_FLAG_INLINE_QOS) {
+        nb_cdr_put_bytes(writer, fragment->inline_qos, fragment->inline_qos_len);
+    }
+    if (fragment->payload && fragment->payload_len > 0) {
+        nb_cdr_put_bytes(writer, fragment->payload, fragment->payload_len);
+    }
+    return nb_rtps_submessage_end(writer, start);
+}
+
+int nb_rtps_data_frag_decode(uint8_t flags,
+                             const uint8_t *body,
+                             size_t body_len,
+                             nb_rtps_data_frag_t *out)
+{
+    uint16_t octets_to_inline_qos;
+    size_t inline_qos_offset;
+    size_t payload_offset;
+    size_t fragments_from_start;
+    size_t expected;
+    int rc;
+
+    if (!body || !out || body_len < 32) {
+        return NB_ERR_BAD_MESSAGE;
+    }
+    if ((flags & NB_RTPS_FLAG_ENDIAN_LITTLE) == 0) {
+        return NB_ERR_NOT_SUPPORTED;
+    }
+    octets_to_inline_qos = rd_u16(body + 2);
+    if (octets_to_inline_qos < 28) {
+        return NB_ERR_BAD_MESSAGE;
+    }
+    inline_qos_offset = 4u + (size_t)octets_to_inline_qos;
+    if (inline_qos_offset > body_len) {
+        return NB_ERR_BAD_MESSAGE;
+    }
+
+    memset(out, 0, sizeof(*out));
+    memcpy(out->reader_id.bytes, body + 4, NB_RTPS_ENTITY_ID_SIZE);
+    memcpy(out->writer_id.bytes, body + 8, NB_RTPS_ENTITY_ID_SIZE);
+    out->writer_sn.high = (int32_t)rd_u32(body + 12);
+    out->writer_sn.low = rd_u32(body + 16);
+    out->fragment_starting_num = rd_u32(body + 20);
+    out->fragments_in_submessage = rd_u16(body + 24);
+    out->fragment_size = rd_u16(body + 26);
+    out->sample_size = rd_u32(body + 28);
+    out->key = (flags & NB_RTPS_FLAG_KEY) ? 1 : 0;
+
+    if (out->fragment_starting_num == 0 || out->fragments_in_submessage == 0 ||
+        out->fragment_size == 0 || out->sample_size == 0) {
+        return NB_ERR_BAD_MESSAGE;
+    }
+    fragments_from_start = (size_t)out->fragment_starting_num - 1u;
+    {
+        uint64_t offset_bytes = (uint64_t)fragments_from_start *
+                                (uint64_t)out->fragment_size;
+
+        if (offset_bytes >= (uint64_t)out->sample_size) {
+            return NB_ERR_BAD_MESSAGE;
+        }
+    }
+    payload_offset = inline_qos_offset;
+    if (flags & NB_RTPS_FLAG_INLINE_QOS) {
+        size_t after_qos = 0;
+
+        out->inline_qos = body + inline_qos_offset;
+        rc = data_decode_inline_qos(body, body_len, inline_qos_offset, &after_qos);
+        if (rc != NB_OK) {
+            return rc;
+        }
+        out->inline_qos_len = after_qos - inline_qos_offset;
+        payload_offset = after_qos;
+    }
+    if (payload_offset > body_len) {
+        return NB_ERR_BAD_MESSAGE;
+    }
+
+    /* The last fragment of a sample is shorter than fragmentSize. Any padding
+     * a sender adds after it is ignored. */
+    expected = (size_t)out->fragments_in_submessage * (size_t)out->fragment_size;
+    {
+        size_t available = (size_t)out->sample_size -
+                           fragments_from_start * (size_t)out->fragment_size;
+
+        if (expected > available) {
+            expected = available;
+        }
+    }
+    if (body_len - payload_offset < expected) {
+        return NB_ERR_BAD_MESSAGE;
+    }
+    out->payload = body + payload_offset;
+    out->payload_len = expected;
+    return NB_OK;
+}
+
 int nb_rtps_heartbeat(nb_cdr_writer_t *writer, const nb_rtps_heartbeat_t *heartbeat)
 {
     size_t start;

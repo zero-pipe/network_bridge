@@ -78,6 +78,27 @@ typedef struct nb_rtps_data_view {
     int key;
 } nb_rtps_data_view_t;
 
+/*
+ * DATA_FRAG carries one or more fragments of a sample that is too large for a
+ * single DATA submessage. fragmentStartingNum is 1-based, fragmentSize is the
+ * size of every fragment except possibly the last one, and sampleSize is the
+ * size of the whole serialized payload.
+ */
+typedef struct nb_rtps_data_frag {
+    nb_rtps_entity_id_t reader_id;
+    nb_rtps_entity_id_t writer_id;
+    nb_rtps_sequence_number_t writer_sn;
+    uint32_t fragment_starting_num;
+    uint16_t fragments_in_submessage;
+    uint16_t fragment_size;
+    uint32_t sample_size;
+    const uint8_t *inline_qos;
+    size_t inline_qos_len;
+    const uint8_t *payload;
+    size_t payload_len;
+    int key;
+} nb_rtps_data_frag_t;
+
 #define NB_RTPS_ACKNACK_MAX_BITS 256u
 #define NB_RTPS_ACKNACK_MAX_WORDS (NB_RTPS_ACKNACK_MAX_BITS / 32u)
 
@@ -138,6 +159,12 @@ int nb_rtps_data_decode(uint8_t flags,
                         const uint8_t *body,
                         size_t body_len,
                         nb_rtps_data_view_t *out);
+
+int nb_rtps_data_frag(nb_cdr_writer_t *writer, const nb_rtps_data_frag_t *fragment);
+int nb_rtps_data_frag_decode(uint8_t flags,
+                             const uint8_t *body,
+                             size_t body_len,
+                             nb_rtps_data_frag_t *out);
 
 int nb_rtps_heartbeat(nb_cdr_writer_t *writer, const nb_rtps_heartbeat_t *heartbeat);
 int nb_rtps_heartbeat_decode(const uint8_t *body, size_t body_len, nb_rtps_heartbeat_t *out);

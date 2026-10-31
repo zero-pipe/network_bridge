@@ -653,6 +653,230 @@ static void test_data_roundtrip(void)
     ntk_mutex_destroy(data_state.lock);
 }
 
+/*
+ * Fragmentation path: samples above NB_RTPS_DATA_PAYLOAD_MAX are split into
+ * DATA_FRAG submessages and must be reassembled byte for byte. RELIABLE QoS is
+ * used because a partly received sample stays missing and has to be replayed.
+ */
+typedef struct frag_state {
+    ntk_mutex *lock;
+    int received;
+    size_t len;
+    uint32_t hash;
+} frag_state_t;
+
+static uint32_t payload_hash(const uint8_t *data, size_t len)
+{
+    uint32_t hash = 2166136261u;
+    size_t i;
+
+    for (i = 0; i < len; i++) {
+        hash ^= data[i];
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+static void on_frag_data(void *user,
+                         const nb_rtps_guid_t *reader_guid,
+                         const nb_rtps_guid_t *writer_guid,
+                         const nb_rtps_dds_message_t *message)
+{
+    frag_state_t *state = (frag_state_t *)user;
+    uint32_t hash;
+
+    (void)reader_guid;
+    (void)writer_guid;
+    if (!state || !message || !message->payload) {
+        return;
+    }
+    hash = payload_hash(message->payload, message->payload_len);
+    ntk_mutex_lock(state->lock);
+    if (!state->received) {
+        state->received = 1;
+        state->len = message->payload_len;
+        state->hash = hash;
+    }
+    ntk_mutex_unlock(state->lock);
+}
+
+static int send_frag_sample(nb_rtps_participant_t *publisher,
+                            const nb_rtps_endpoint_info_t *publication,
+                            const uint8_t *payload,
+                            size_t payload_len,
+                            frag_state_t *state)
+{
+    nb_rtps_dds_message_t message;
+    uint8_t *serialized;
+    size_t serialized_len = 0;
+    uint32_t expected_hash = payload_hash(payload, payload_len);
+    int waited;
+    int ok = 0;
+    int rc;
+
+    serialized = (uint8_t *)malloc(payload_len + 8u);
+    if (!serialized) {
+        return 0;
+    }
+    message.payload = payload;
+    message.payload_len = payload_len;
+    rc = nb_rtps_dds_message_serialize(
+        &message, serialized, payload_len + 8u, &serialized_len);
+    if (rc != NB_OK) {
+        free(serialized);
+        return 0;
+    }
+
+    for (waited = 0; waited < 5000; waited += 50) {
+        ntk_mutex_lock(state->lock);
+        state->received = 0;
+        ntk_mutex_unlock(state->lock);
+        if (nb_rtps_participant_publish(publisher,
+                                        &publication->endpoint_guid,
+                                        serialized,
+                                        serialized_len) == NB_OK) {
+            ntk_sleep_ms(50);
+            ntk_mutex_lock(state->lock);
+            ok = state->received && state->len == payload_len &&
+                 state->hash == expected_hash;
+            ntk_mutex_unlock(state->lock);
+            if (ok) {
+                break;
+            }
+        } else {
+            ntk_sleep_ms(50);
+        }
+    }
+    free(serialized);
+    return ok;
+}
+
+static void test_fragmented_data(void)
+{
+    static const size_t sizes[] = {4096u, 60000u};
+    nb_rtps_participant_config_t config;
+    nb_rtps_participant_t *publisher;
+    nb_rtps_participant_t *subscriber;
+    nb_rtps_endpoint_info_t publication;
+    nb_rtps_endpoint_info_t subscription;
+    test_state_t publisher_state;
+    test_state_t subscriber_state;
+    frag_state_t frag_state;
+    uint16_t publisher_port;
+    uint16_t subscriber_port;
+    size_t s;
+
+    memset(&publisher_state, 0, sizeof(publisher_state));
+    memset(&subscriber_state, 0, sizeof(subscriber_state));
+    memset(&frag_state, 0, sizeof(frag_state));
+
+    fill_config(&config, "frag-publisher");
+    publisher = nb_rtps_participant_create(&config);
+    CHECK(publisher != NULL);
+    if (!publisher) {
+        return;
+    }
+    publisher_port = nb_rtps_participant_spdp_port(publisher);
+    fill_config(&config, "frag-subscriber");
+    subscriber = nb_rtps_participant_create(&config);
+    CHECK(subscriber != NULL);
+    if (!subscriber) {
+        nb_rtps_participant_destroy(publisher);
+        return;
+    }
+    subscriber_port = nb_rtps_participant_spdp_port(subscriber);
+    CHECK(nb_rtps_participant_add_peer(publisher, "127.0.0.1", subscriber_port) == NB_OK);
+    CHECK(nb_rtps_participant_add_peer(subscriber, "127.0.0.1", publisher_port) == NB_OK);
+
+    publisher_state.lock = ntk_mutex_create(NTK_MUTEX_NORMAL);
+    subscriber_state.lock = ntk_mutex_create(NTK_MUTEX_NORMAL);
+    frag_state.lock = ntk_mutex_create(NTK_MUTEX_NORMAL);
+    CHECK(publisher_state.lock && subscriber_state.lock && frag_state.lock);
+    if (!publisher_state.lock || !subscriber_state.lock || !frag_state.lock) {
+        goto cleanup;
+    }
+    nb_rtps_participant_set_callback(publisher, on_participant, &publisher_state);
+    nb_rtps_participant_set_callback(subscriber, on_participant, &subscriber_state);
+    nb_rtps_participant_set_endpoint_callback(publisher, on_endpoint, &publisher_state);
+    nb_rtps_participant_set_endpoint_callback(subscriber, on_endpoint, &subscriber_state);
+    nb_rtps_participant_set_data_callback(subscriber, on_frag_data, &frag_state);
+    CHECK(nb_rtps_participant_start(publisher) == NB_OK);
+    CHECK(nb_rtps_participant_start(subscriber) == NB_OK);
+    CHECK(wait_count(&publisher_state, 0, 1, 5000));
+    CHECK(wait_count(&subscriber_state, 0, 1, 5000));
+
+    memset(&publication, 0, sizeof(publication));
+    (void)snprintf(publication.topic_name,
+                   sizeof(publication.topic_name),
+                   "%s",
+                   NB_RTPS_DDS_MESSAGE_TOPIC);
+    (void)snprintf(publication.type_name,
+                   sizeof(publication.type_name),
+                   "%s",
+                   NB_RTPS_DDS_MESSAGE_TYPE);
+    publication.reliability = NB_RTPS_RELIABILITY_RELIABLE;
+    publication.history_kind = NB_RTPS_HISTORY_KEEP_LAST;
+    publication.history_depth = 4;
+    CHECK(nb_rtps_participant_add_endpoint(
+              publisher, NB_RTPS_ENDPOINT_PUBLICATION, &publication) == NB_OK);
+
+    memset(&subscription, 0, sizeof(subscription));
+    (void)snprintf(subscription.topic_name,
+                   sizeof(subscription.topic_name),
+                   "%s",
+                   NB_RTPS_DDS_MESSAGE_TOPIC);
+    (void)snprintf(subscription.type_name,
+                   sizeof(subscription.type_name),
+                   "%s",
+                   NB_RTPS_DDS_MESSAGE_TYPE);
+    subscription.reliability = NB_RTPS_RELIABILITY_RELIABLE;
+    subscription.history_kind = NB_RTPS_HISTORY_KEEP_LAST;
+    subscription.history_depth = 4;
+    CHECK(nb_rtps_participant_add_endpoint(
+              subscriber, NB_RTPS_ENDPOINT_SUBSCRIPTION, &subscription) == NB_OK);
+    CHECK(wait_endpoint_count(&subscriber_state, 0, 1, 5000));
+    CHECK(wait_endpoint_count(&publisher_state, 0, 1, 5000));
+
+    for (s = 0; s < sizeof(sizes) / sizeof(sizes[0]); s++) {
+        size_t len = sizes[s];
+        uint8_t *payload = (uint8_t *)malloc(len);
+        size_t i;
+
+        CHECK(payload != NULL);
+        if (!payload) {
+            continue;
+        }
+        for (i = 0; i < len; i++) {
+            payload[i] = (uint8_t)((i * 31u + 7u) & 0xffu);
+        }
+        CHECK(send_frag_sample(publisher, &publication, payload, len, &frag_state));
+        free(payload);
+    }
+
+cleanup:
+    if (publisher) {
+        nb_rtps_participant_stop(publisher);
+    }
+    if (subscriber) {
+        nb_rtps_participant_stop(subscriber);
+    }
+    if (publisher) {
+        nb_rtps_participant_destroy(publisher);
+    }
+    if (subscriber) {
+        nb_rtps_participant_destroy(subscriber);
+    }
+    if (publisher_state.lock) {
+        ntk_mutex_destroy(publisher_state.lock);
+    }
+    if (subscriber_state.lock) {
+        ntk_mutex_destroy(subscriber_state.lock);
+    }
+    if (frag_state.lock) {
+        ntk_mutex_destroy(frag_state.lock);
+    }
+}
+
 static void test_multicast(void)
 {
     const char *enabled = getenv("NB_TEST_RTPS_MULTICAST");
@@ -1158,6 +1382,7 @@ int main(void)
     test_unicast_peers();
     test_sedp_endpoints();
     test_data_roundtrip();
+    test_fragmented_data();
     test_reliable_late_joiner();
     test_reliable_gap();
     test_reliable_reader_capacity();

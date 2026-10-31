@@ -25,6 +25,13 @@
 #define NB_RTPS_SWEEP_INTERVAL_MS 200u
 #define NB_RTPS_PACKET_MAX 1400u
 #define NB_RTPS_SPDP_PAYLOAD_MAX 1200u
+
+/* Incoming DATA_FRAG reassembly. Four concurrent samples, at most 256 KiB of
+ * sample bytes in flight, and a sample that stops arriving is dropped after
+ * two seconds. */
+#define NB_RTPS_FRAG_MAX_ACTIVE 4u
+#define NB_RTPS_FRAG_BUDGET_BYTES (256u * 1024u)
+#define NB_RTPS_FRAG_TIMEOUT_MS 2000u
 #define NB_RTPS_DEFAULT_MAX_LOCAL_ENDPOINTS 1024u
 #define NB_RTPS_DEFAULT_MAX_REMOTE_ENDPOINTS 4096u
 #define NB_RTPS_MAX_LOCAL_ENDPOINTS 4096u
@@ -98,6 +105,25 @@ typedef struct nb_rtps_data_reader_state {
     uint64_t last_acknack_ms;
 } nb_rtps_data_reader_state_t;
 
+/*
+ * One sample being reassembled from DATA_FRAG submessages. data holds
+ * sample_size octets, received[] carries one flag per fragment.
+ */
+typedef struct nb_rtps_frag_assembly {
+    int used;
+    int complete;
+    nb_rtps_guid_t writer;
+    uint32_t sn;
+    uint32_t sample_size;
+    uint16_t fragment_size;
+    uint32_t fragment_count;
+    uint32_t received_count;
+    uint8_t *data;
+    uint8_t *received;
+    size_t reserved;
+    uint64_t last_update_ms;
+} nb_rtps_frag_assembly_t;
+
 struct nb_rtps_participant {
     char bind_host[NB_RTPS_PEER_HOST_MAX];
     char advertise_host[NB_RTPS_PEER_HOST_MAX];
@@ -149,6 +175,9 @@ struct nb_rtps_participant {
     size_t max_data_readers;
     size_t data_reader_count;
     int data_reader_overflow_logged;
+    nb_rtps_frag_assembly_t *frag_assemblies;
+    size_t max_frag_assemblies;
+    size_t frag_bytes_in_use;
     volatile int stop;
     int started;
     uint32_t rng;
@@ -448,6 +477,72 @@ static int send_sedp_data(nb_rtps_participant_t *participant,
     return NB_OK;
 }
 
+/*
+ * Split a sample across DATA_FRAG submessages. One fragment travels per
+ * datagram: a 1024-byte fragment plus the RTPS and submessage headers stays
+ * well inside the 1400-byte packet budget, and it keeps the send path simple
+ * and predictable under loss.
+ */
+static int send_user_data_fragmented(nb_rtps_participant_t *participant,
+                                     const nb_rtps_guid_t *writer_guid,
+                                     const nb_rtps_guid_t *reader_guid,
+                                     uint32_t sn,
+                                     const uint8_t *payload,
+                                     size_t payload_len,
+                                     const char *host,
+                                     uint16_t port)
+{
+    uint8_t message[NB_RTPS_PACKET_MAX];
+    nb_rtps_header_t header;
+    nb_rtps_time_t timestamp;
+    nb_rtps_data_frag_t fragment;
+    nb_cdr_writer_t writer;
+    uint64_t now;
+    size_t offset = 0;
+    uint32_t fragment_num = 1;
+
+    init_header(participant, &header);
+    now = ntk_wall_ms();
+    timestamp.seconds = (int32_t)(now / 1000u);
+    timestamp.fraction = (uint32_t)(((now % 1000u) << 32) / 1000u);
+
+    while (offset < payload_len) {
+        size_t chunk = payload_len - offset;
+        size_t message_len;
+
+        if (chunk > NB_RTPS_FRAGMENT_SIZE) {
+            chunk = NB_RTPS_FRAGMENT_SIZE;
+        }
+        memset(&fragment, 0, sizeof(fragment));
+        fragment.reader_id = reader_guid->entity;
+        fragment.writer_id = writer_guid->entity;
+        fragment.writer_sn.high = 0;
+        fragment.writer_sn.low = sn;
+        fragment.fragment_starting_num = fragment_num;
+        fragment.fragments_in_submessage = 1;
+        fragment.fragment_size = NB_RTPS_FRAGMENT_SIZE;
+        fragment.sample_size = (uint32_t)payload_len;
+        fragment.payload = payload + offset;
+        fragment.payload_len = chunk;
+
+        if (nb_rtps_message_init(&writer, message, sizeof(message), &header) != NB_OK ||
+            nb_rtps_info_ts(&writer, &timestamp, false) != NB_OK ||
+            nb_rtps_info_dst(&writer, &reader_guid->prefix) != NB_OK ||
+            nb_rtps_data_frag(&writer, &fragment) != NB_OK ||
+            !nb_cdr_writer_ok(&writer)) {
+            return NB_ERR_BAD_MESSAGE;
+        }
+        message_len = nb_cdr_writer_len(&writer);
+        if (ntk_socket_sendto(
+                participant->unicast_sock, message, message_len, host, port) < 0) {
+            return NB_ERR_IO;
+        }
+        offset += chunk;
+        fragment_num++;
+    }
+    return NB_OK;
+}
+
 static int send_user_data(nb_rtps_participant_t *participant,
                           const nb_rtps_guid_t *writer_guid,
                           const nb_rtps_guid_t *reader_guid,
@@ -466,9 +561,19 @@ static int send_user_data(nb_rtps_participant_t *participant,
     size_t message_len;
 
     if (!participant || !writer_guid || !reader_guid || !payload ||
-        payload_len == 0 || payload_len > NB_RTPS_DATA_PAYLOAD_MAX ||
+        payload_len == 0 || payload_len > NB_RTPS_SAMPLE_MAX ||
         !host || host[0] == '\0' || port == 0) {
         return NB_ERR_INVALID;
+    }
+    if (payload_len > NB_RTPS_DATA_PAYLOAD_MAX) {
+        return send_user_data_fragmented(participant,
+                                         writer_guid,
+                                         reader_guid,
+                                         sn,
+                                         (const uint8_t *)payload,
+                                         payload_len,
+                                         host,
+                                         port);
     }
     init_header(participant, &header);
     now = ntk_wall_ms();
@@ -1890,6 +1995,261 @@ static void handle_user_acknack(nb_rtps_participant_t *participant,
     ntk_mutex_unlock(participant->lock);
 }
 
+/*
+ * Route one complete sample. DATA and a reassembled DATA_FRAG sequence carry
+ * the same payload, so both paths end here.
+ */
+static void dispatch_data_view(nb_rtps_participant_t *participant,
+                               const nb_rtps_data_view_t *data,
+                               const nb_rtps_guid_prefix_t *prefix,
+                               const char *source_host,
+                               uint16_t source_port)
+{
+    nb_rtps_participant_info_t info;
+
+    if (nb_rtps_entity_id_equal(&data->writer_id, &nb_rtps_eid_spdp_writer)) {
+        if (nb_rtps_spdp_parse(data->payload, data->payload_len, &info) == NB_OK &&
+            nb_rtps_guid_prefix_equal(&info.guid.prefix, prefix)) {
+            update_remote(participant, &info, source_host, source_port);
+        }
+    } else if (nb_rtps_entity_id_equal(&data->writer_id,
+                                       &nb_rtps_eid_sedp_publications_writer)) {
+        handle_sedp_data(participant, NB_RTPS_ENDPOINT_PUBLICATION, data, prefix);
+    } else if (nb_rtps_entity_id_equal(&data->writer_id,
+                                       &nb_rtps_eid_sedp_subscriptions_writer)) {
+        handle_sedp_data(participant, NB_RTPS_ENDPOINT_SUBSCRIPTION, data, prefix);
+    } else {
+        handle_user_data(participant, data, prefix);
+    }
+}
+
+static void frag_assembly_release(nb_rtps_participant_t *participant,
+                                  nb_rtps_frag_assembly_t *assembly)
+{
+    if (!assembly || !assembly->used) {
+        return;
+    }
+    if (participant->frag_bytes_in_use >= assembly->reserved) {
+        participant->frag_bytes_in_use -= assembly->reserved;
+    } else {
+        participant->frag_bytes_in_use = 0;
+    }
+    free(assembly->data);
+    free(assembly->received);
+    memset(assembly, 0, sizeof(*assembly));
+}
+
+static nb_rtps_frag_assembly_t *frag_assembly_find(nb_rtps_participant_t *participant,
+                                                   const nb_rtps_guid_t *writer,
+                                                   uint32_t sn)
+{
+    size_t i;
+
+    for (i = 0; i < participant->max_frag_assemblies; i++) {
+        nb_rtps_frag_assembly_t *assembly = &participant->frag_assemblies[i];
+
+        if (assembly->used && assembly->sn == sn &&
+            nb_rtps_guid_equal(&assembly->writer, writer)) {
+            return assembly;
+        }
+    }
+    return NULL;
+}
+
+static nb_rtps_frag_assembly_t *frag_assembly_free_slot(nb_rtps_participant_t *participant)
+{
+    nb_rtps_frag_assembly_t *oldest = NULL;
+    size_t i;
+
+    for (i = 0; i < participant->max_frag_assemblies; i++) {
+        nb_rtps_frag_assembly_t *assembly = &participant->frag_assemblies[i];
+
+        if (!assembly->used) {
+            return assembly;
+        }
+        if (!oldest || assembly->last_update_ms < oldest->last_update_ms) {
+            oldest = assembly;
+        }
+    }
+    /* No free slot: drop the sample that has been waiting longest. */
+    if (oldest) {
+        frag_assembly_release(participant, oldest);
+    }
+    return oldest;
+}
+
+/*
+ * Find or create the reassembly state for (writer, sn). Called with the
+ * participant lock held. Returns NULL when the sample is too large for the
+ * budget or memory is exhausted.
+ */
+static nb_rtps_frag_assembly_t *frag_assembly_get(nb_rtps_participant_t *participant,
+                                                  const nb_rtps_guid_t *writer,
+                                                  uint32_t sn,
+                                                  uint32_t sample_size,
+                                                  uint16_t fragment_size,
+                                                  uint64_t now)
+{
+    nb_rtps_frag_assembly_t *assembly;
+    size_t fragment_count;
+    size_t reserved;
+    size_t i;
+
+    if (participant->frag_assemblies == NULL) {
+        participant->max_frag_assemblies = NB_RTPS_FRAG_MAX_ACTIVE;
+        participant->frag_assemblies = (nb_rtps_frag_assembly_t *)calloc(
+            participant->max_frag_assemblies, sizeof(*participant->frag_assemblies));
+        if (!participant->frag_assemblies) {
+            participant->max_frag_assemblies = 0;
+            return NULL;
+        }
+    }
+    fragment_count = (sample_size + fragment_size - 1u) / fragment_size;
+    if (fragment_count == 0) {
+        return NULL;
+    }
+    reserved = (size_t)sample_size + fragment_count;
+    if (reserved > NB_RTPS_FRAG_BUDGET_BYTES) {
+        return NULL;
+    }
+
+    assembly = frag_assembly_find(participant, writer, sn);
+    if (assembly) {
+        if (assembly->complete) {
+            return NULL;
+        }
+        if (assembly->sample_size != sample_size ||
+            assembly->fragment_size != fragment_size) {
+            frag_assembly_release(participant, assembly);
+        } else {
+            return assembly;
+        }
+    }
+
+    /* Expire samples that stopped arriving, then make room in the budget. */
+    for (i = 0; i < participant->max_frag_assemblies; i++) {
+        nb_rtps_frag_assembly_t *stale = &participant->frag_assemblies[i];
+
+        if (stale->used && !stale->complete &&
+            now - stale->last_update_ms > NB_RTPS_FRAG_TIMEOUT_MS) {
+            frag_assembly_release(participant, stale);
+        }
+    }
+    while (participant->frag_bytes_in_use + reserved > NB_RTPS_FRAG_BUDGET_BYTES) {
+        nb_rtps_frag_assembly_t *oldest = NULL;
+
+        for (i = 0; i < participant->max_frag_assemblies; i++) {
+            nb_rtps_frag_assembly_t *candidate = &participant->frag_assemblies[i];
+
+            if (candidate->used && !candidate->complete &&
+                (!oldest || candidate->last_update_ms < oldest->last_update_ms)) {
+                oldest = candidate;
+            }
+        }
+        if (!oldest) {
+            return NULL;
+        }
+        frag_assembly_release(participant, oldest);
+    }
+
+    assembly = frag_assembly_free_slot(participant);
+    if (!assembly) {
+        return NULL;
+    }
+    memset(assembly, 0, sizeof(*assembly));
+    assembly->data = (uint8_t *)calloc(1, sample_size);
+    assembly->received = (uint8_t *)calloc(1, fragment_count);
+    if (!assembly->data || !assembly->received) {
+        free(assembly->data);
+        free(assembly->received);
+        memset(assembly, 0, sizeof(*assembly));
+        return NULL;
+    }
+    assembly->used = 1;
+    assembly->writer = *writer;
+    assembly->sn = sn;
+    assembly->sample_size = sample_size;
+    assembly->fragment_size = fragment_size;
+    assembly->fragment_count = (uint32_t)fragment_count;
+    assembly->reserved = reserved;
+    assembly->last_update_ms = now;
+    participant->frag_bytes_in_use += reserved;
+    return assembly;
+}
+
+static void handle_data_frag(nb_rtps_participant_t *participant,
+                             const nb_rtps_data_frag_t *fragment,
+                             const nb_rtps_guid_prefix_t *prefix,
+                             const char *source_host,
+                             uint16_t source_port)
+{
+    nb_rtps_guid_t writer;
+    nb_rtps_frag_assembly_t *assembly;
+    uint32_t index;
+    size_t offset;
+    size_t copy_len;
+    uint64_t now;
+    int complete = 0;
+
+    if (!participant || !fragment || !prefix || fragment->writer_sn.high != 0) {
+        return;
+    }
+    if (fragment->sample_size == 0 || fragment->sample_size > NB_RTPS_SAMPLE_MAX ||
+        fragment->fragment_size == 0 || fragment->fragment_starting_num == 0) {
+        return;
+    }
+    writer.prefix = *prefix;
+    writer.entity = fragment->writer_id;
+
+    now = ntk_wall_ms();
+    ntk_mutex_lock(participant->lock);
+    assembly = frag_assembly_get(participant,
+                                 &writer,
+                                 fragment->writer_sn.low,
+                                 fragment->sample_size,
+                                 fragment->fragment_size,
+                                 now);
+    if (assembly) {
+        index = fragment->fragment_starting_num - 1u;
+        offset = (size_t)index * assembly->fragment_size;
+        copy_len = fragment->payload_len;
+        if (index < assembly->fragment_count &&
+            offset + copy_len <= assembly->sample_size) {
+            memcpy(assembly->data + offset, fragment->payload, copy_len);
+            if (!assembly->received[index]) {
+                assembly->received[index] = 1;
+                assembly->received_count++;
+            }
+            assembly->last_update_ms = now;
+            if (assembly->received_count == assembly->fragment_count) {
+                assembly->complete = 1;
+                complete = 1;
+            }
+        }
+    }
+    ntk_mutex_unlock(participant->lock);
+
+    if (complete) {
+        nb_rtps_data_view_t view;
+
+        memset(&view, 0, sizeof(view));
+        view.reader_id = fragment->reader_id;
+        view.writer_id = fragment->writer_id;
+        view.writer_sn = fragment->writer_sn;
+        view.payload = assembly->data;
+        view.payload_len = assembly->sample_size;
+        view.key = fragment->key;
+        view.dispose = fragment->key;
+        dispatch_data_view(participant, &view, prefix, source_host, source_port);
+
+        ntk_mutex_lock(participant->lock);
+        if (assembly->used && assembly->complete) {
+            frag_assembly_release(participant, assembly);
+        }
+        ntk_mutex_unlock(participant->lock);
+    }
+}
+
 static void handle_datagram(nb_rtps_participant_t *participant,
                             const uint8_t *buf,
                             size_t len,
@@ -1910,26 +2270,22 @@ static void handle_datagram(nb_rtps_participant_t *participant,
     while ((rc = nb_rtps_message_next(buf, len, &offset, &view)) == 1) {
         if (view.id == NB_RTPS_SUBMSG_DATA) {
             nb_rtps_data_view_t data;
-            nb_rtps_participant_info_t info;
 
             if (nb_rtps_data_decode(view.flags, view.body, view.body_len, &data) != NB_OK) {
                 continue;
             }
-            if (nb_rtps_entity_id_equal(&data.writer_id, &nb_rtps_eid_spdp_writer)) {
-                if (nb_rtps_spdp_parse(data.payload, data.payload_len, &info) == NB_OK &&
-                    nb_rtps_guid_prefix_equal(&info.guid.prefix, &header.guid_prefix)) {
-                    update_remote(participant, &info, source_host, source_port);
-                }
-            } else if (nb_rtps_entity_id_equal(&data.writer_id,
-                                               &nb_rtps_eid_sedp_publications_writer)) {
-                handle_sedp_data(
-                    participant, NB_RTPS_ENDPOINT_PUBLICATION, &data, &header.guid_prefix);
-            } else if (nb_rtps_entity_id_equal(&data.writer_id,
-                                               &nb_rtps_eid_sedp_subscriptions_writer)) {
-                handle_sedp_data(
-                    participant, NB_RTPS_ENDPOINT_SUBSCRIPTION, &data, &header.guid_prefix);
-            } else {
-                handle_user_data(participant, &data, &header.guid_prefix);
+            dispatch_data_view(
+                participant, &data, &header.guid_prefix, source_host, source_port);
+        } else if (view.id == NB_RTPS_SUBMSG_DATA_FRAG) {
+            nb_rtps_data_frag_t fragment;
+
+            if (nb_rtps_data_frag_decode(
+                    view.flags, view.body, view.body_len, &fragment) == NB_OK) {
+                handle_data_frag(participant,
+                                 &fragment,
+                                 &header.guid_prefix,
+                                 source_host,
+                                 source_port);
             }
         } else if (view.id == NB_RTPS_SUBMSG_HEARTBEAT) {
             nb_rtps_heartbeat_t heartbeat;
@@ -2138,6 +2494,17 @@ static void free_participant(nb_rtps_participant_t *participant)
         for (i = 0; i < participant->max_local_endpoints; i++) {
             nb_rtps_reliable_writer_destroy(participant->local_endpoints[i].history);
         }
+    }
+    if (participant->frag_assemblies) {
+        size_t i;
+
+        for (i = 0; i < participant->max_frag_assemblies; i++) {
+            nb_rtps_frag_assembly_t *assembly = &participant->frag_assemblies[i];
+
+            free(assembly->data);
+            free(assembly->received);
+        }
+        free(participant->frag_assemblies);
     }
     free(participant->data_readers);
     free(participant->local_endpoints);
@@ -2663,7 +3030,7 @@ int nb_rtps_participant_publish(nb_rtps_participant_t *participant,
     int last_rc = NB_ERR_IO;
 
     if (!participant || !writer_guid || !payload || payload_len == 0 ||
-        payload_len > NB_RTPS_DATA_PAYLOAD_MAX) {
+        payload_len > NB_RTPS_SAMPLE_MAX) {
         return NB_ERR_INVALID;
     }
 
