@@ -118,6 +118,6 @@ if(NB_ENABLE_DDS)
         TIMEOUT 30)
     nb_add_test(test_rtps_cyclone e2e.rtps_cyclone
         LABELS "e2e;dds;rtps"
-        INCLUDES ${NB_SRC_DIR}/discovery/rtps
+        INCLUDES ${NB_SRC_DIR}/discovery/rtps ${NB_SRC_DIR}/transport/dds
         TIMEOUT 60)
 endif()

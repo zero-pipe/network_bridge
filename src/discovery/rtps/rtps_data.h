@@ -1,0 +1,53 @@
+#ifndef NB_RTPS_DATA_H
+#define NB_RTPS_DATA_H
+
+/*
+ * Application DATA payload for the RTPS data plane.
+ *
+ * The wire type is the standard DDS IDL type:
+ *
+ *   module dds {
+ *     struct Message {
+ *       sequence<octet> payload;
+ *     };
+ *   };
+ *
+ * A payload is a CDR_LE encapsulated XCDR1 value:
+ *
+ *   00 01 00 00 | uint32 payload_length | payload bytes
+ *
+ * The four-byte encapsulation header is followed by the CDR sequence length
+ * and the raw bytes. No framework-specific framing is added here.
+ */
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include <nb/error.h>
+
+#define NB_RTPS_DDS_MESSAGE_TOPIC "dds/Message"
+#define NB_RTPS_DDS_MESSAGE_TYPE "dds::Message"
+
+/*
+ * A non-owning view of dds::Message.payload. When produced by
+ * nb_rtps_dds_message_deserialize(), payload points into the caller's input
+ * buffer and remains valid for as long as that buffer is valid.
+ */
+typedef struct nb_rtps_dds_message {
+    const uint8_t *payload;
+    size_t payload_len;
+} nb_rtps_dds_message_t;
+
+/* Serialize dds::Message with the CDR_LE encapsulation header. The output
+ * length is 8 + payload_len. */
+int nb_rtps_dds_message_serialize(const nb_rtps_dds_message_t *message,
+                                  void *buf,
+                                  size_t cap,
+                                  size_t *out_len);
+
+/* Deserialize dds::Message without copying payload bytes. */
+int nb_rtps_dds_message_deserialize(const void *buf,
+                                    size_t len,
+                                    nb_rtps_dds_message_t *out);
+
+#endif /* NB_RTPS_DATA_H */

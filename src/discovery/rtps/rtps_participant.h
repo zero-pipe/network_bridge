@@ -8,8 +8,8 @@
  * multicast group (optional) and to configured unicast peers, receives
  * announcements from other participants, and tracks their leases.
  *
- * The runtime is discovery-only. It does not send or receive application
- * data; SEDP endpoint exchange is layered on top of it later.
+ * The runtime owns discovery and a minimal best-effort application-data send
+ * path. Incoming application data is not delivered to a local reader yet.
  */
 
 #include <stddef.h>
@@ -17,6 +17,7 @@
 
 #include <nb/error.h>
 
+#include "rtps_data.h"
 #include "rtps_sedp.h"
 #include "rtps_spdp.h"
 #include "rtps_types.h"
@@ -24,6 +25,7 @@
 #define NB_RTPS_PEER_HOST_MAX 64
 #define NB_RTPS_MAX_PEERS 64
 #define NB_RTPS_DEFAULT_MAX_REMOTES 1024u
+#define NB_RTPS_DATA_PAYLOAD_MAX 1200u
 
 typedef enum nb_rtps_participant_event {
     NB_RTPS_PARTICIPANT_ADDED = 0,
@@ -112,6 +114,21 @@ int nb_rtps_participant_add_endpoint(nb_rtps_participant_t *participant,
 /* Remove a local endpoint and send a SEDP dispose to known peers. */
 int nb_rtps_participant_remove_endpoint(nb_rtps_participant_t *participant,
                                         const nb_rtps_guid_t *endpoint_guid);
+
+/* Send an already CDR-encapsulated payload as application DATA to every
+ * matching remote subscription. writer_guid must identify a local publication
+ * endpoint added with nb_rtps_participant_add_endpoint(). The send path is
+ * best-effort: it does not keep history or process user-data ACKNACKs. */
+int nb_rtps_participant_publish(nb_rtps_participant_t *participant,
+                                const nb_rtps_guid_t *writer_guid,
+                                const void *payload,
+                                size_t payload_len);
+
+/* Serialize dds::Message (sequence<octet> payload) with CDR_LE and publish it. */
+int nb_rtps_participant_publish_dds_message(
+    nb_rtps_participant_t *participant,
+    const nb_rtps_guid_t *writer_guid,
+    const nb_rtps_dds_message_t *message);
 
 /* Add a unicast SPDP destination. Only valid before start. */
 int nb_rtps_participant_add_peer(nb_rtps_participant_t *participant,

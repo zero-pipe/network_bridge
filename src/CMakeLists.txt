@@ -66,6 +66,7 @@ set(NB_SOURCES
     discovery/rtps/rtps_message.c
     discovery/rtps/rtps_spdp.c
     discovery/rtps/rtps_sedp.c
+    discovery/rtps/rtps_data.c
     discovery/rtps/rtps_reliable.c
     discovery/rtps/rtps_participant.c
     config/config.c

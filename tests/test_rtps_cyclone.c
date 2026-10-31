@@ -2,12 +2,15 @@
 
 #include "rtps_participant.h"
 
+#include "cy_dds_message.h"
+
 #define NB_LOG_TAG "test"
 #include <nb/log.h>
 
 #include <dds/dds.h>
 #include <ntk.h>
 
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -56,13 +59,14 @@ static int cyclone_sees_participant(dds_entity_t reader)
     return found;
 }
 
-static int cyclone_sees_publication(dds_entity_t reader,
-                                    const nb_rtps_guid_prefix_t *prefix)
+static void cyclone_scan_publications(dds_entity_t reader,
+                                      const nb_rtps_guid_prefix_t *prefix,
+                                      int *saw_sedp,
+                                      int *saw_message)
 {
     void *sample = NULL;
     dds_sample_info_t info;
     dds_return_t n;
-    int found = 0;
 
     for (;;) {
         dds_builtintopic_endpoint_t *endpoint;
@@ -72,21 +76,54 @@ static int cyclone_sees_publication(dds_entity_t reader,
         n = dds_take(reader, &sample, &info, 1, 1);
         if (n < 0) {
             nb_log_error("dds_read publication failed: %s", dds_strretcode(n));
-            return found;
+            return;
         }
         if (n == 0) {
             break;
         }
         endpoint = (dds_builtintopic_endpoint_t *)sample;
         if (info.valid_data && endpoint && endpoint->topic_name && endpoint->type_name &&
-            strcmp(endpoint->topic_name, "nb/sedp") == 0 &&
-            strcmp(endpoint->type_name, "nb::Sedp") == 0 &&
             memcmp(endpoint->participant_key.v, prefix->bytes, 12) == 0) {
-            found = 1;
+            if (strcmp(endpoint->topic_name, "nb/sedp") == 0 &&
+                strcmp(endpoint->type_name, "nb::Sedp") == 0) {
+                *saw_sedp = 1;
+            }
+            if (strcmp(endpoint->topic_name, NB_RTPS_DDS_MESSAGE_TOPIC) == 0 &&
+                strcmp(endpoint->type_name, NB_RTPS_DDS_MESSAGE_TYPE) == 0) {
+                *saw_message = 1;
+            }
         }
         if (sample) {
             (void)dds_return_loan(reader, &sample, (size_t)n);
         }
+    }
+}
+
+static int cyclone_takes_message(dds_entity_t reader,
+                                 const uint8_t *expected,
+                                 size_t expected_len)
+{
+    void *sample = NULL;
+    dds_sample_info_t info;
+    dds_return_t n;
+    int found = 0;
+
+    memset(&info, 0, sizeof(info));
+    n = dds_take(reader, &sample, &info, 1, 1);
+    if (n < 0) {
+        nb_log_error("dds_take message failed: %s", dds_strretcode(n));
+        return 0;
+    }
+    if (n > 0) {
+        dds_Message *received = (dds_Message *)sample;
+        if (info.valid_data && received &&
+            received->payload._length == (uint32_t)expected_len &&
+            (expected_len == 0 ||
+             (received->payload._buffer != NULL &&
+              memcmp(received->payload._buffer, expected, expected_len) == 0))) {
+            found = 1;
+        }
+        (void)dds_return_loan(reader, &sample, (size_t)n);
     }
     return found;
 }
@@ -100,11 +137,16 @@ static void test_cyclone_spdp(void)
     dds_entity_t cyclone;
     dds_entity_t reader;
     dds_entity_t publication_reader;
+    dds_entity_t message_topic;
+    dds_entity_t message_reader;
     nb_rtps_endpoint_info_t endpoint;
+    nb_rtps_endpoint_info_t message_endpoint;
     nb_rtps_participant_info_t local_info;
     int saw_cyclone = 0;
     int saw_nb = 0;
     int saw_publication = 0;
+    int saw_message_publication = 0;
+    int saw_message = 0;
     int waited = 0;
 
     if (!enabled || strcmp(enabled, "1") != 0) {
@@ -131,6 +173,37 @@ static void test_cyclone_spdp(void)
         (void)dds_delete(cyclone);
         return;
     }
+    message_topic = dds_create_topic(
+        cyclone, &dds_Message_desc, NB_RTPS_DDS_MESSAGE_TOPIC, NULL, NULL);
+    CHECK(message_topic > 0);
+    if (message_topic <= 0) {
+        (void)dds_delete(publication_reader);
+        (void)dds_delete(reader);
+        (void)dds_delete(cyclone);
+        return;
+    }
+    {
+        dds_qos_t *reader_qos = dds_create_qos();
+        CHECK(reader_qos != NULL);
+        if (!reader_qos) {
+            (void)dds_delete(message_topic);
+            (void)dds_delete(publication_reader);
+            (void)dds_delete(reader);
+            (void)dds_delete(cyclone);
+            return;
+        }
+        dds_qset_reliability(reader_qos, DDS_RELIABILITY_BEST_EFFORT, DDS_SECS(1));
+        message_reader = dds_create_reader(cyclone, message_topic, reader_qos, NULL);
+        dds_delete_qos(reader_qos);
+    }
+    CHECK(message_reader > 0);
+    if (message_reader <= 0) {
+        (void)dds_delete(message_topic);
+        (void)dds_delete(publication_reader);
+        (void)dds_delete(reader);
+        (void)dds_delete(cyclone);
+        return;
+    }
 
     memset(&config, 0, sizeof(config));
     config.domain_id = 0;
@@ -147,6 +220,8 @@ static void test_cyclone_spdp(void)
     nb = nb_rtps_participant_create(&config);
     CHECK(nb != NULL);
     if (!nb) {
+        (void)dds_delete(message_reader);
+        (void)dds_delete(message_topic);
         (void)dds_delete(reader);
         (void)dds_delete(publication_reader);
         (void)dds_delete(cyclone);
@@ -162,20 +237,39 @@ static void test_cyclone_spdp(void)
     endpoint.history_depth = 1;
     CHECK(nb_rtps_participant_add_endpoint(
               nb, NB_RTPS_ENDPOINT_PUBLICATION, &endpoint) == NB_OK);
+
+    memset(&message_endpoint, 0, sizeof(message_endpoint));
+    (void)snprintf(message_endpoint.topic_name,
+                   sizeof(message_endpoint.topic_name),
+                   "%s",
+                   NB_RTPS_DDS_MESSAGE_TOPIC);
+    (void)snprintf(message_endpoint.type_name,
+                   sizeof(message_endpoint.type_name),
+                   "%s",
+                   NB_RTPS_DDS_MESSAGE_TYPE);
+    message_endpoint.reliability = NB_RTPS_RELIABILITY_BEST_EFFORT;
+    message_endpoint.durability = NB_RTPS_DURABILITY_VOLATILE;
+    message_endpoint.history_kind = NB_RTPS_HISTORY_KEEP_LAST;
+    message_endpoint.history_depth = 1;
+    CHECK(nb_rtps_participant_add_endpoint(
+              nb, NB_RTPS_ENDPOINT_PUBLICATION, &message_endpoint) == NB_OK);
     CHECK(nb_rtps_participant_start(nb) == NB_OK);
 
-    while (waited < 10000 && (!saw_nb || !saw_cyclone || !saw_publication)) {
+    while (waited < 10000 &&
+           (!saw_nb || !saw_cyclone || !saw_publication || !saw_message_publication)) {
         if (!saw_nb) {
             saw_nb = cyclone_sees_participant(reader);
         }
         if (!saw_cyclone) {
             saw_cyclone = nb_rtps_participant_remote_count(nb) > 0;
         }
-        if (!saw_publication) {
-            saw_publication = cyclone_sees_publication(
-                publication_reader, &local_info.guid.prefix);
+        if (!saw_publication || !saw_message_publication) {
+            cyclone_scan_publications(publication_reader,
+                                      &local_info.guid.prefix,
+                                      &saw_publication,
+                                      &saw_message_publication);
         }
-        if (!saw_nb || !saw_cyclone || !saw_publication) {
+        if (!saw_nb || !saw_cyclone || !saw_publication || !saw_message_publication) {
             ntk_sleep_ms(100);
             waited += 100;
         }
@@ -183,16 +277,70 @@ static void test_cyclone_spdp(void)
     CHECK(saw_nb);
     CHECK(saw_cyclone);
     CHECK(saw_publication);
-    if (!saw_nb || !saw_cyclone || !saw_publication) {
-        nb_log_error("Cyclone interop failed after %d ms (nb=%d cyclone=%d publication=%d)",
+    CHECK(saw_message_publication);
+    if (!saw_nb || !saw_cyclone || !saw_publication || !saw_message_publication) {
+        nb_log_error("Cyclone interop failed after %d ms (nb=%d cyclone=%d publication=%d message_publication=%d)",
                      waited,
                      saw_nb,
                      saw_cyclone,
-                     saw_publication);
+                     saw_publication,
+                     saw_message_publication);
+    }
+
+    {
+        dds_instance_handle_t matched[8];
+        dds_return_t matched_count =
+            dds_get_matched_publications(message_reader, matched, 8);
+        CHECK(matched_count > 0);
+        if (matched_count <= 0) {
+            nb_log_error("Cyclone message reader did not match the RTPS publication");
+        }
+    }
+
+    for (waited = 0;
+         waited < 10000 && nb_rtps_participant_remote_endpoint_count(nb) == 0;
+         waited += 50) {
+        ntk_sleep_ms(50);
+    }
+    CHECK(nb_rtps_participant_remote_endpoint_count(nb) > 0);
+    if (nb_rtps_participant_remote_endpoint_count(nb) == 0) {
+        nb_log_error("nb participant did not discover the Cyclone subscription");
+    }
+
+    for (waited = 0; waited < 10000 && !saw_message; waited += 50) {
+        static const uint8_t expected[] = {
+            0xde, 0xad, 0xbe, 0xef, 0x00, 0x11, 0x22
+        };
+        nb_rtps_dds_message_t message;
+        int rc;
+
+        message.payload = expected;
+        message.payload_len = sizeof(expected);
+        rc = nb_rtps_participant_publish_dds_message(
+            nb, &message_endpoint.endpoint_guid, &message);
+        if (rc != NB_OK && (waited % 1000) == 0) {
+            nb_log_info("publish rc=%d remote_endpoints=%zu at %d ms",
+                        rc,
+                        nb_rtps_participant_remote_endpoint_count(nb),
+                        waited);
+        }
+        if (rc == NB_OK) {
+            saw_message = cyclone_takes_message(
+                message_reader, expected, sizeof(expected));
+        }
+        if (!saw_message) {
+            ntk_sleep_ms(50);
+        }
+    }
+    CHECK(saw_message);
+    if (!saw_message) {
+        nb_log_error("Cyclone did not receive/deserialize RTPS DATA after %d ms", waited);
     }
 
     nb_rtps_participant_stop(nb);
     nb_rtps_participant_destroy(nb);
+    (void)dds_delete(message_reader);
+    (void)dds_delete(message_topic);
     (void)dds_delete(reader);
     (void)dds_delete(publication_reader);
     (void)dds_delete(cyclone);

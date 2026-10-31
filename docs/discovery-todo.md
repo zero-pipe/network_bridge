@@ -90,18 +90,25 @@ changes state so a later session can resume without reading the whole history.
 - [x] Verify we see Cyclone participants (SPDP)
 - [ ] Verify we see Cyclone SEDP endpoints (explicit bidirectional assertion)
 - [x] Verify Cyclone sees our SEDP publication endpoint
+- [x] Standard CDR_LE `dds::Message` (`sequence<octet> payload`) DATA encoding
+- [x] Verify a Cyclone reader receives and deserializes nb RTPS DATA on Linux
 - [x] Verify an independent Cyclone reader receives data from the separate
       Cyclone-backed `dds` provider (`e2e.dds_remote`)
+- [ ] Reliable user data and `DATA_FRAG`
 - [x] Vendor id note for `0x01,0x10` quirks
 - [x] Interop test in `tests/` or `tools/`
 
-Manual verification: Cyclone DDS 0.10.5 on Windows and Linux. The Linux
-capture used `ens1` (`192.168.54.14`) and `udp port 7400`; Cyclone and nb both
-used `PL_CDR_LE`, and the locator address was in the last four bytes of the
-16-byte address field. The Cyclone SEDP test creates an nb publication and
-checks that Cyclone's `DCPSPublication` reader sees `nb/sedp` and `nb::Sedp`.
-The final Linux capture showed 55 RTPS packets across three passing runs,
-instead of the earlier ACKNACK/HEARTBEAT storm.
+Manual verification: Cyclone DDS 0.10.5 on Windows and the bundled 0.11.0 on
+Linux. The Linux capture used `ens1` (`192.168.54.14`) and `udp port 7400`;
+Cyclone and nb both used `PL_CDR_LE`, and the locator address was in the last
+four bytes of the 16-byte address field. The Cyclone SEDP test creates an nb
+publication and checks that Cyclone's `DCPSPublication` reader sees `nb/sedp`
+and `nb::Sedp`. The final Linux capture showed 55 RTPS packets across three
+passing runs, instead of the earlier ACKNACK/HEARTBEAT storm.
+
+The `dds::Message` data-plane verification ran on Linux (`192.168.54.14`) on
+2026-10-31. `e2e.rtps_cyclone` passed repeatedly and the full `-L rtps` set
+passed 5/5 with `NB_TEST_RTPS_ADVERTISE_HOST=192.168.54.14`.
 
 ## M7: packaging
 

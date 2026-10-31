@@ -2,15 +2,17 @@
 
 This document describes the standards-based discovery layer used by the
 framework. It implements the RTPS discovery protocols (SPDP and SEDP) without
-taking a dependency on a DDS implementation. The RTPS path carries discovery
-only; native traffic remains on the framework's UDP/TCP/SHM transports. The
-separate Cyclone-backed `dds` transport provider is a normal data-plane
-transport and is not part of the self-developed RTPS stack.
+taking a dependency on a DDS implementation. The RTPS path also has a
+best-effort application `DATA` path for the standard `dds::Message` type;
+native traffic remains on the framework's UDP/TCP/SHM transports. The separate
+Cyclone-backed `dds` transport provider is a normal data-plane transport and is
+not part of the self-developed RTPS stack.
 
 Status: the wire codec, SPDP announcement payload, SPDP participant runtime,
-and reliable SEDP endpoint exchange are implemented and covered by unit and
-loopback tests. SPDP interop with Cyclone DDS 0.10.5 is verified on Windows and
-Linux. Cyclone also sees an nb SEDP publication endpoint on Linux. Mapping
+reliable SEDP endpoint exchange, and best-effort `dds::Message` application
+`DATA` are implemented and covered by unit and interop tests. SPDP interop with
+Cyclone DDS is verified on Windows and Linux. Cyclone also sees an nb SEDP
+publication endpoint and receives nb `dds::Message` samples on Linux. Mapping
 remote endpoints into the framework registry remains M4 work.
 
 ## 1. Scope
@@ -21,13 +23,15 @@ In scope:
 - Little-endian CDR and RTPS `ParameterList` encoding.
 - SPDP: periodic participant announcement on the well-known multicast group.
 - SEDP: reliable built-in endpoint exchange for publications and subscriptions.
+- Best-effort application `DATA` carrying standard CDR_LE `dds::Message`
+  (`sequence<octet> payload`) samples.
 - Lease-based participant expiry.
 - Mapping between RTPS endpoints and framework service records.
 
 Out of scope (for now):
 
-- The RTPS data plane (`DATA` carrying application payloads, `DATA_FRAG`,
-  batching). Business traffic never uses RTPS.
+- RTPS fragmentation (`DATA_FRAG`), batching, reliable user-data delivery, and
+  arbitrary IDL types. Business traffic does not use RTPS by default.
 - DDS Security, TCP transport, IPv6, shared-memory locators.
 - Full DDS QoS semantics. Only the QoS needed to describe framework endpoints
   is published.
@@ -273,7 +277,8 @@ superpeer/relay, or a discovery server) is still open; see section 7.
 
 - SPDP and SEDP endpoints are exchanged, but remote endpoints are not yet
   mapped into framework service records (M4).
-- No RTPS data plane, fragmentation, security, TCP, or IPv6.
+- Application `DATA` is best-effort and limited to `dds::Message`; no
+  fragmentation, reliable user data, security, TCP, or IPv6.
 - On multi-host deployments `advertise_host` must be set explicitly. With a
   wildcard bind and no advertise host, the runtime falls back to `127.0.0.1`.
 - `stop()` clears the local remote table without emitting `REMOVED` callbacks.
@@ -328,9 +333,12 @@ Discovery-level:
 
 Data-level:
 
-- A DDS participant that matches a framework endpoint will try to send RTPS
-  `DATA` to the advertised locator. The framework data plane does not speak
-  RTPS, so payloads do not flow unless a gateway translates them.
+- A DDS participant that matches a framework endpoint can receive RTPS `DATA`
+  from the best-effort path. The serialized payload is standard CDR_LE
+  `dds::Message`: `00 01 00 00`, a `uint32` length, then the raw payload bytes.
+- `e2e.rtps_cyclone` creates an nb publication of type `dds::Message` and an
+  independent Cyclone reader, publishes a byte sequence, and verifies that
+  Cyclone receives and deserializes it.
 - The built-in Cyclone-backed `dds` transport provider is a separate data plane
   and does carry application frames over DDS. `e2e.dds_remote` starts an
   independent Cyclone reader and verifies that it receives an nb event sample
@@ -354,7 +362,8 @@ only to populate the registry, and traffic uses the framework transports.
 
 Current:
 
-- `unit.rtps_wire`: CDR round trips, alignment, `ParameterList` round trips,
+- `unit.rtps_wire`: CDR round trips, alignment, `dds::Message` serialization
+  (header + length + raw octets, zero-copy parse), `ParameterList` round trips,
   `DATA`/`HEARTBEAT`/`ACKNACK` framing, truncation handling.
 - `unit.rtps_sedp`: endpoint payload round trips, defaults, repeated
   24-byte locator parameters, 12-byte reliability, partition, user data, and
@@ -369,8 +378,9 @@ Current:
 - Cyclone SPDP/SEDP interop is opt-in:
   `NB_TEST_RTPS_CYCLONE=1 NB_TEST_RTPS_ADVERTISE_HOST=<local-ip>
   ctest -C Debug -R rtps_cyclone`. Without the environment variable the test
-  skips successfully. The test checks participant visibility and nb publication
-  visibility through Cyclone's built-in publication reader.
+  skips successfully. The test checks participant visibility, nb publication
+  visibility through Cyclone's built-in publication reader, and end-to-end
+  `dds::Message` data delivery to a Cyclone reader.
 - `e2e.dds_remote` covers the separate Cyclone-backed DDS provider: the parent
   publishes through `dds://61` with the local fast path disabled, and a spawned
   Cyclone reader must receive the encoded event sample.
@@ -393,7 +403,7 @@ Planned:
 | M3 (done) | SEDP: reliable built-in writers, heartbeat/acknack, endpoint callbacks |
 | M4 | Public discovery API and provider seam; mesh broadcast becomes one provider |
 | M5 | Scale to about 1000 participants: unicast peer scoping, table caps, load tests |
-| M6 (partial) | Cyclone DDS SPDP and nb SEDP publication visibility verified; CI job pending |
+| M6 (partial) | Cyclone DDS SPDP/SEDP visibility and best-effort `dds::Message` DATA verified; CI job pending |
 | M7 | Standalone `libnb_discovery` target, examples, packaging |
 
 M2 and M3 are the first point at which two framework processes can discover
@@ -404,7 +414,7 @@ each other over RTPS without changing the data plane.
 - Vendor id: use the placeholder `0x01,0x9a` for now; replace it with an
   OMG-assigned value before claiming conformance.
 - ROS 2 naming, node graph visibility, and `ros_discovery_info` are deferred.
-- A DDS/ROS 2 data-plane gateway is out of scope; discovery alone does not move
-  business payloads.
+- A general DDS/ROS 2 data-plane gateway and arbitrary IDL types are out of
+  scope; the current RTPS data path is fixed to `dds::Message`.
 - Scale target is about 1000 participants. The scoping model (peer groups,
   superpeer/relay, or discovery server) is not chosen yet.

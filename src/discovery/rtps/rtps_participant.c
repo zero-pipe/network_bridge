@@ -40,6 +40,7 @@ typedef struct nb_rtps_local_endpoint {
     nb_rtps_endpoint_kind_t kind;
     nb_rtps_endpoint_info_t info;
     uint32_t sn;
+    uint32_t data_sn;
 } nb_rtps_local_endpoint_t;
 
 typedef struct nb_rtps_remote_endpoint {
@@ -245,7 +246,9 @@ static void allocate_local_entity(nb_rtps_participant_t *participant,
     out->bytes[0] = (uint8_t)(key & 0xffu);
     out->bytes[1] = (uint8_t)((key >> 8) & 0xffu);
     out->bytes[2] = (uint8_t)((key >> 16) & 0xffu);
-    out->bytes[3] = kind == NB_RTPS_ENDPOINT_PUBLICATION ? 0x02u : 0x04u;
+    /* All locally created endpoints are keyless: user-defined writer without
+     * key (0x03) and user-defined reader without key (0x04). */
+    out->bytes[3] = kind == NB_RTPS_ENDPOINT_PUBLICATION ? 0x03u : 0x04u;
 }
 
 static int locator_to_host(const nb_rtps_locator_t *locator,
@@ -416,6 +419,54 @@ static int send_sedp_data(nb_rtps_participant_t *participant,
     if (nb_rtps_message_init(&writer, message, sizeof(message), &header) != NB_OK ||
         nb_rtps_info_ts(&writer, &timestamp, false) != NB_OK ||
         (dst && nb_rtps_info_dst(&writer, dst) != NB_OK) ||
+        nb_rtps_data(&writer, &data) != NB_OK ||
+        !nb_cdr_writer_ok(&writer)) {
+        return NB_ERR_BAD_MESSAGE;
+    }
+    message_len = nb_cdr_writer_len(&writer);
+    if (ntk_socket_sendto(participant->unicast_sock, message, message_len, host, port) < 0) {
+        return NB_ERR_IO;
+    }
+    return NB_OK;
+}
+
+static int send_user_data(nb_rtps_participant_t *participant,
+                          const nb_rtps_guid_t *writer_guid,
+                          const nb_rtps_guid_t *reader_guid,
+                          uint32_t sn,
+                          const void *payload,
+                          size_t payload_len,
+                          const char *host,
+                          uint16_t port)
+{
+    uint8_t message[NB_RTPS_PACKET_MAX];
+    nb_rtps_header_t header;
+    nb_rtps_time_t timestamp;
+    nb_rtps_data_t data;
+    nb_cdr_writer_t writer;
+    uint64_t now;
+    size_t message_len;
+
+    if (!participant || !writer_guid || !reader_guid || !payload ||
+        payload_len == 0 || payload_len > NB_RTPS_DATA_PAYLOAD_MAX ||
+        !host || host[0] == '\0' || port == 0) {
+        return NB_ERR_INVALID;
+    }
+    init_header(participant, &header);
+    now = ntk_wall_ms();
+    timestamp.seconds = (int32_t)(now / 1000u);
+    timestamp.fraction = (uint32_t)(((now % 1000u) << 32) / 1000u);
+    memset(&data, 0, sizeof(data));
+    data.reader_id = reader_guid->entity;
+    data.writer_id = writer_guid->entity;
+    data.writer_sn.high = 0;
+    data.writer_sn.low = sn;
+    data.payload = (const uint8_t *)payload;
+    data.payload_len = payload_len;
+
+    if (nb_rtps_message_init(&writer, message, sizeof(message), &header) != NB_OK ||
+        nb_rtps_info_ts(&writer, &timestamp, false) != NB_OK ||
+        nb_rtps_info_dst(&writer, &reader_guid->prefix) != NB_OK ||
         nb_rtps_data(&writer, &data) != NB_OK ||
         !nb_cdr_writer_ok(&writer)) {
         return NB_ERR_BAD_MESSAGE;
@@ -717,6 +768,49 @@ static nb_rtps_remote_participant_t *find_remote(nb_rtps_participant_t *particip
         }
     }
     return NULL;
+}
+
+static int endpoint_data_target(nb_rtps_participant_t *participant,
+                                const nb_rtps_remote_endpoint_t *endpoint,
+                                char *host,
+                                size_t cap,
+                                uint16_t *port)
+{
+    nb_rtps_remote_participant_t *remote;
+    size_t i;
+
+    if (!participant || !endpoint || !host || cap == 0 || !port) {
+        return NB_ERR_INVALID;
+    }
+    for (i = 0; i < endpoint->info.unicast_count; i++) {
+        const nb_rtps_locator_t *locator = &endpoint->info.unicast[i];
+
+        /* A 0.0.0.0 locator is not routable; fall back to the participant's
+         * default locator or the SEDP source address below. */
+        if (locator->address[12] == 0 && locator->address[13] == 0 &&
+            locator->address[14] == 0 && locator->address[15] == 0) {
+            continue;
+        }
+        if (locator_to_host(locator, host, cap, port) == NB_OK) {
+            return NB_OK;
+        }
+    }
+
+    remote = find_remote(participant, &endpoint->info.endpoint_guid.prefix);
+    if (remote) {
+        if (locator_to_host(&remote->info.default_unicast, host, cap, port) == NB_OK) {
+            return NB_OK;
+        }
+        if (locator_to_host(&remote->info.metatraffic_unicast, host, cap, port) == NB_OK) {
+            return NB_OK;
+        }
+        if (remote->source_port != 0) {
+            copy_str(host, cap, remote->source_host);
+            *port = remote->source_port;
+            return NB_OK;
+        }
+    }
+    return NB_ERR_NOTFOUND;
 }
 
 static void update_remote_endpoint(nb_rtps_participant_t *participant,
@@ -1727,6 +1821,108 @@ int nb_rtps_participant_remove_endpoint(nb_rtps_participant_t *participant,
     broadcast_sedp_sample(
         participant, local.kind, sn, payload, payload_len, 1);
     return NB_OK;
+}
+
+int nb_rtps_participant_publish(nb_rtps_participant_t *participant,
+                                const nb_rtps_guid_t *writer_guid,
+                                const void *payload,
+                                size_t payload_len)
+{
+    nb_rtps_local_endpoint_t *local;
+    uint32_t sn;
+    uint32_t local_reliability;
+    size_t i;
+    int targets = 0;
+    int sent = 0;
+    int last_rc = NB_ERR_IO;
+
+    if (!participant || !writer_guid || !payload || payload_len == 0 ||
+        payload_len > NB_RTPS_DATA_PAYLOAD_MAX) {
+        return NB_ERR_INVALID;
+    }
+
+    ntk_mutex_lock(participant->lock);
+    local = find_local_endpoint(participant, writer_guid);
+    if (!local || local->kind != NB_RTPS_ENDPOINT_PUBLICATION) {
+        ntk_mutex_unlock(participant->lock);
+        return NB_ERR_NOTFOUND;
+    }
+    sn = local->data_sn + 1u;
+    if (sn == 0) {
+        sn = 1;
+    }
+    local->data_sn = sn;
+    local_reliability = local->info.reliability
+                            ? local->info.reliability
+                            : NB_RTPS_RELIABILITY_BEST_EFFORT;
+
+    for (i = 0; i < participant->max_remote_endpoints; i++) {
+        nb_rtps_remote_endpoint_t *remote = &participant->remote_endpoints[i];
+        char host[NB_RTPS_PEER_HOST_MAX];
+        uint16_t port = 0;
+        uint32_t remote_reliability;
+
+        if (!remote->used || remote->kind != NB_RTPS_ENDPOINT_SUBSCRIPTION) {
+            continue;
+        }
+        if (strcmp(remote->info.topic_name, local->info.topic_name) != 0 ||
+            strcmp(remote->info.type_name, local->info.type_name) != 0 ||
+            strcmp(remote->info.partition, local->info.partition) != 0) {
+            continue;
+        }
+        remote_reliability = remote->info.reliability
+                                 ? remote->info.reliability
+                                 : NB_RTPS_RELIABILITY_BEST_EFFORT;
+        if (remote_reliability == NB_RTPS_RELIABILITY_RELIABLE &&
+            local_reliability != NB_RTPS_RELIABILITY_RELIABLE) {
+            continue;
+        }
+        if (remote->info.durability > local->info.durability) {
+            continue;
+        }
+        if (endpoint_data_target(participant, remote, host, sizeof(host), &port) != NB_OK) {
+            continue;
+        }
+        targets++;
+        last_rc = send_user_data(participant,
+                                 &local->info.endpoint_guid,
+                                 &remote->info.endpoint_guid,
+                                 sn,
+                                 payload,
+                                 payload_len,
+                                 host,
+                                 port);
+        if (last_rc == NB_OK) {
+            sent++;
+        }
+    }
+    ntk_mutex_unlock(participant->lock);
+
+    if (targets == 0) {
+        return NB_ERR_NOTFOUND;
+    }
+    return sent > 0 ? NB_OK : last_rc;
+}
+
+int nb_rtps_participant_publish_dds_message(
+    nb_rtps_participant_t *participant,
+    const nb_rtps_guid_t *writer_guid,
+    const nb_rtps_dds_message_t *message)
+{
+    uint8_t payload[NB_RTPS_DATA_PAYLOAD_MAX];
+    size_t payload_len = 0;
+    int rc;
+
+    if (!message) {
+        return NB_ERR_INVALID;
+    }
+    rc = nb_rtps_dds_message_serialize(
+        message, payload, sizeof(payload), &payload_len);
+    if (rc != NB_OK) {
+        return rc;
+    }
+    return nb_rtps_participant_publish(
+        participant, writer_guid, payload, payload_len);
 }
 
 int nb_rtps_participant_add_peer(nb_rtps_participant_t *participant,

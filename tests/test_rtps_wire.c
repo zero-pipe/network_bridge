@@ -1,4 +1,5 @@
 #include "rtps_cdr.h"
+#include "rtps_data.h"
 #include "rtps_message.h"
 #include "rtps_param.h"
 #include "rtps_spdp.h"
@@ -50,6 +51,57 @@ static void test_cdr_roundtrip(void)
     nb_cdr_reader_init(&reader, buf, 4);
     CHECK(nb_cdr_get_u64(&reader) == 0);
     CHECK(!nb_cdr_reader_ok(&reader));
+}
+
+static void test_dds_message_cdr(void)
+{
+    static const uint8_t bytes[] = {0xde, 0xad, 0xbe, 0xef, 0x00, 0x11, 0x22};
+    nb_rtps_dds_message_t message;
+    nb_rtps_dds_message_t parsed;
+    uint8_t buf[64];
+    uint8_t small[14];
+    size_t len = 0;
+
+    CHECK(strcmp(NB_RTPS_DDS_MESSAGE_TYPE, "dds::Message") == 0);
+    message.payload = bytes;
+    message.payload_len = sizeof(bytes);
+    CHECK(nb_rtps_dds_message_serialize(&message, buf, sizeof(buf), &len) == NB_OK);
+    CHECK(len == 4u + 4u + sizeof(bytes));
+    CHECK(buf[0] == 0x00 && buf[1] == 0x01 && buf[2] == 0x00 && buf[3] == 0x00);
+    CHECK(buf[4] == 0x07 && buf[5] == 0x00 && buf[6] == 0x00 && buf[7] == 0x00);
+    CHECK(memcmp(buf + 8, bytes, sizeof(bytes)) == 0);
+
+    CHECK(nb_rtps_dds_message_deserialize(buf, len, &parsed) == NB_OK);
+    CHECK(parsed.payload == buf + 8);
+    CHECK(parsed.payload_len == sizeof(bytes));
+    CHECK(memcmp(parsed.payload, bytes, sizeof(bytes)) == 0);
+
+    /* Truncated payload must fail. */
+    CHECK(nb_rtps_dds_message_deserialize(buf, len - 1u, &parsed) != NB_OK);
+    /* Bad encapsulation header must fail. */
+    buf[1] = 0x00;
+    CHECK(nb_rtps_dds_message_deserialize(buf, len, &parsed) == NB_ERR_NOT_SUPPORTED);
+    buf[1] = 0x01;
+
+    /* Empty sequence is valid and still points into the input buffer. */
+    message.payload = NULL;
+    message.payload_len = 0;
+    CHECK(nb_rtps_dds_message_serialize(&message, buf, sizeof(buf), &len) == NB_OK);
+    CHECK(len == 8u);
+    CHECK(nb_rtps_dds_message_deserialize(buf, len, &parsed) == NB_OK);
+    CHECK(parsed.payload == buf + 8);
+    CHECK(parsed.payload_len == 0);
+
+    /* Non-empty payload requires a valid pointer. */
+    message.payload = NULL;
+    message.payload_len = 1;
+    CHECK(nb_rtps_dds_message_serialize(&message, buf, sizeof(buf), &len) != NB_OK);
+
+    /* A buffer that cannot hold header + length + payload must fail. */
+    message.payload = bytes;
+    message.payload_len = sizeof(bytes);
+    CHECK(nb_rtps_dds_message_serialize(
+              &message, small, sizeof(small), &len) != NB_OK);
 }
 
 static void test_param_roundtrip(void)
@@ -352,6 +404,7 @@ static void test_spdp_roundtrip(void)
 int main(void)
 {
     test_cdr_roundtrip();
+    test_dds_message_cdr();
     test_param_roundtrip();
     test_message_data();
     test_heartbeat_acknack();
