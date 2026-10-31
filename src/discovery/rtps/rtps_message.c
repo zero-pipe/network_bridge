@@ -330,7 +330,7 @@ int nb_rtps_acknack(nb_cdr_writer_t *writer, const nb_rtps_acknack_t *acknack)
     }
     word_count = (acknack->num_bits + 31u) / 32u;
     start = nb_rtps_submessage_begin(writer, NB_RTPS_SUBMSG_ACKNACK,
-                                     NB_RTPS_FLAG_ENDIAN_LITTLE);
+                                     NB_RTPS_FLAG_ENDIAN_LITTLE | NB_RTPS_ACKNACK_FLAG_FINAL);
     if (start == SIZE_MAX) {
         return NB_ERR_TOOBIG;
     }

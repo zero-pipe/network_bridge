@@ -353,6 +353,31 @@ int nb_rtps_param_put_history(nb_rtps_param_writer_t *writer,
     return param_write(writer, pid, buf, sizeof(buf));
 }
 
+int nb_rtps_param_put_reliability(nb_rtps_param_writer_t *writer,
+                                  uint16_t pid,
+                                  uint32_t kind,
+                                  const nb_rtps_duration_t *max_blocking_time)
+{
+    uint8_t buf[12];
+
+    if (!max_blocking_time) {
+        return NB_ERR_INVALID;
+    }
+    buf[0] = (uint8_t)(kind & 0xffu);
+    buf[1] = (uint8_t)((kind >> 8) & 0xffu);
+    buf[2] = (uint8_t)((kind >> 16) & 0xffu);
+    buf[3] = (uint8_t)((kind >> 24) & 0xffu);
+    buf[4] = (uint8_t)((uint32_t)max_blocking_time->seconds & 0xffu);
+    buf[5] = (uint8_t)(((uint32_t)max_blocking_time->seconds >> 8) & 0xffu);
+    buf[6] = (uint8_t)(((uint32_t)max_blocking_time->seconds >> 16) & 0xffu);
+    buf[7] = (uint8_t)(((uint32_t)max_blocking_time->seconds >> 24) & 0xffu);
+    buf[8] = (uint8_t)(max_blocking_time->fraction & 0xffu);
+    buf[9] = (uint8_t)((max_blocking_time->fraction >> 8) & 0xffu);
+    buf[10] = (uint8_t)((max_blocking_time->fraction >> 16) & 0xffu);
+    buf[11] = (uint8_t)((max_blocking_time->fraction >> 24) & 0xffu);
+    return param_write(writer, pid, buf, sizeof(buf));
+}
+
 int nb_rtps_param_put_duration(nb_rtps_param_writer_t *writer,
                                uint16_t pid,
                                const nb_rtps_duration_t *duration)

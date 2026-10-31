@@ -37,6 +37,9 @@
 #define NB_RTPS_FLAG_DATA 0x04u
 #define NB_RTPS_FLAG_KEY 0x08u
 
+/* ACKNACK submessage flag: no heartbeat response is required. */
+#define NB_RTPS_ACKNACK_FLAG_FINAL 0x02u
+
 typedef struct nb_rtps_header {
     uint8_t version_major;
     uint8_t version_minor;

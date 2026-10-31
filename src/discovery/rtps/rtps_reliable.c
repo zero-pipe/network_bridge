@@ -210,7 +210,7 @@ int nb_rtps_reliable_process_acknack(nb_rtps_reliable_writer_t *writer,
         nb_rtps_reliable_sample_t *sample;
         uint32_t sn;
 
-        if ((acknack->bitmap[i / 32u] & (1u << (i % 32u))) == 0) {
+        if ((acknack->bitmap[i / 32u] & (1u << (31u - (i % 32u)))) == 0) {
             continue;
         }
         sn = acknack->base.low + i;

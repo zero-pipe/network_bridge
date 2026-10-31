@@ -115,6 +115,10 @@ int nb_rtps_param_put_history(nb_rtps_param_writer_t *writer,
                               uint16_t pid,
                               uint32_t kind,
                               uint32_t depth);
+int nb_rtps_param_put_reliability(nb_rtps_param_writer_t *writer,
+                                  uint16_t pid,
+                                  uint32_t kind,
+                                  const nb_rtps_duration_t *max_blocking_time);
 int nb_rtps_param_put_duration(nb_rtps_param_writer_t *writer,
                                uint16_t pid,
                                const nb_rtps_duration_t *duration);

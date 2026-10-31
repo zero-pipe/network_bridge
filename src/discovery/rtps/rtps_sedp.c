@@ -26,6 +26,7 @@ int nb_rtps_sedp_build(const nb_rtps_endpoint_info_t *info,
                        size_t *out_len)
 {
     nb_rtps_param_writer_t writer;
+    nb_rtps_duration_t max_blocking_time;
     uint32_t reliability;
     uint32_t history_depth;
     const char *partition[1];
@@ -40,6 +41,8 @@ int nb_rtps_sedp_build(const nb_rtps_endpoint_info_t *info,
         return NB_ERR_TOOBIG;
     }
     reliability = info->reliability ? info->reliability : NB_RTPS_RELIABILITY_BEST_EFFORT;
+    max_blocking_time.seconds = 0;
+    max_blocking_time.fraction = 0;
     history_depth = info->history_depth ? info->history_depth : 1;
 
     nb_rtps_param_writer_init(&writer, buf, cap);
@@ -59,7 +62,8 @@ int nb_rtps_sedp_build(const nb_rtps_endpoint_info_t *info,
     if (rc != NB_OK) {
         return rc;
     }
-    rc = nb_rtps_param_put_u32(&writer, NB_RTPS_PID_RELIABILITY, reliability);
+    rc = nb_rtps_param_put_reliability(
+        &writer, NB_RTPS_PID_RELIABILITY, reliability, &max_blocking_time);
     if (rc != NB_OK) {
         return rc;
     }
@@ -81,17 +85,23 @@ int nb_rtps_sedp_build(const nb_rtps_endpoint_info_t *info,
         }
     }
     if (info->unicast_count > 0) {
-        rc = nb_rtps_param_put_locator_sequence(
-            &writer, NB_RTPS_PID_UNICAST_LOCATOR, info->unicast, info->unicast_count);
-        if (rc != NB_OK) {
-            return rc;
+        size_t i;
+        for (i = 0; i < info->unicast_count; i++) {
+            rc = nb_rtps_param_put_locator(
+                &writer, NB_RTPS_PID_UNICAST_LOCATOR, &info->unicast[i]);
+            if (rc != NB_OK) {
+                return rc;
+            }
         }
     }
     if (info->multicast_count > 0) {
-        rc = nb_rtps_param_put_locator_sequence(
-            &writer, NB_RTPS_PID_MULTICAST_LOCATOR, info->multicast, info->multicast_count);
-        if (rc != NB_OK) {
-            return rc;
+        size_t i;
+        for (i = 0; i < info->multicast_count; i++) {
+            rc = nb_rtps_param_put_locator(
+                &writer, NB_RTPS_PID_MULTICAST_LOCATOR, &info->multicast[i]);
+            if (rc != NB_OK) {
+                return rc;
+            }
         }
     }
     if (info->user_data_len > 0) {
@@ -194,23 +204,23 @@ int nb_rtps_sedp_parse(const void *payload, size_t len, nb_rtps_endpoint_info_t 
             }
             break;
         case NB_RTPS_PID_UNICAST_LOCATOR:
-            rc = nb_rtps_param_get_locator_sequence(value,
-                                                    value_len,
-                                                    out->unicast,
-                                                    NB_RTPS_SEDP_LOCATORS_MAX,
-                                                    &out->unicast_count);
-            if (rc != NB_OK) {
-                return rc;
+            if (out->unicast_count < NB_RTPS_SEDP_LOCATORS_MAX) {
+                rc = nb_rtps_param_get_locator(
+                    value, value_len, &out->unicast[out->unicast_count]);
+                if (rc != NB_OK) {
+                    return rc;
+                }
+                out->unicast_count++;
             }
             break;
         case NB_RTPS_PID_MULTICAST_LOCATOR:
-            rc = nb_rtps_param_get_locator_sequence(value,
-                                                    value_len,
-                                                    out->multicast,
-                                                    NB_RTPS_SEDP_LOCATORS_MAX,
-                                                    &out->multicast_count);
-            if (rc != NB_OK) {
-                return rc;
+            if (out->multicast_count < NB_RTPS_SEDP_LOCATORS_MAX) {
+                rc = nb_rtps_param_get_locator(
+                    value, value_len, &out->multicast[out->multicast_count]);
+                if (rc != NB_OK) {
+                    return rc;
+                }
+                out->multicast_count++;
             }
             break;
         case NB_RTPS_PID_USER_DATA: {
@@ -239,6 +249,46 @@ int nb_rtps_sedp_parse(const void *payload, size_t len, nb_rtps_endpoint_info_t 
     }
     if (!seen_guid || !seen_topic || !seen_type ||
         out->topic_name[0] == '\0' || out->type_name[0] == '\0') {
+        return NB_ERR_BAD_MESSAGE;
+    }
+    return NB_OK;
+}
+
+int nb_rtps_sedp_parse_key(const void *payload, size_t len, nb_rtps_guid_t *out)
+{
+    nb_rtps_param_reader_t reader;
+    const uint8_t *params;
+    size_t params_len = 0;
+    uint16_t pid = 0;
+    const uint8_t *value = NULL;
+    size_t value_len = 0;
+    int found = 0;
+    int rc;
+
+    if (!payload || !out) {
+        return NB_ERR_INVALID;
+    }
+    memset(out, 0, sizeof(*out));
+    params = sedp_params_begin((const uint8_t *)payload, len, &params_len);
+    nb_rtps_param_reader_init(&reader, params, params_len);
+    for (;;) {
+        rc = nb_rtps_param_reader_next(&reader, &pid, &value, &value_len);
+        if (rc < 0) {
+            return rc;
+        }
+        if (rc == 0) {
+            break;
+        }
+        if (pid == NB_RTPS_PID_ENDPOINT_GUID) {
+            rc = nb_rtps_param_get_guid(value, value_len, out);
+            if (rc != NB_OK) {
+                return rc;
+            }
+            found = 1;
+            break;
+        }
+    }
+    if (!nb_rtps_param_reader_ok(&reader) || !found) {
         return NB_ERR_BAD_MESSAGE;
     }
     return NB_OK;

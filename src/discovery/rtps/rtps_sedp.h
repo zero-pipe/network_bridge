@@ -21,6 +21,7 @@
 #define NB_RTPS_SEDP_PARTITION_MAX 64
 #define NB_RTPS_SEDP_USER_DATA_MAX 256
 #define NB_RTPS_SEDP_LOCATORS_MAX 4
+#define NB_RTPS_SEDP_PAYLOAD_MAX 1200
 
 /* QoS values used by PID_RELIABILITY, PID_DURABILITY, and PID_HISTORY. */
 #define NB_RTPS_RELIABILITY_BEST_EFFORT 1u
@@ -60,5 +61,8 @@ int nb_rtps_sedp_build(const nb_rtps_endpoint_info_t *info,
 /* Parse a SEDP payload. Endpoint GUID, topic name, and type name are required;
  * unknown parameters (including vendor-specific ones) are ignored. */
 int nb_rtps_sedp_parse(const void *payload, size_t len, nb_rtps_endpoint_info_t *out);
+
+/* Parse the endpoint GUID from a key-only dispose sample. */
+int nb_rtps_sedp_parse_key(const void *payload, size_t len, nb_rtps_guid_t *out);
 
 #endif /* NB_RTPS_SEDP_H */

@@ -17,7 +17,7 @@
 #include "rtps_message.h"
 
 #define NB_RTPS_RELIABLE_DEFAULT_CAPACITY 8u
-#define NB_RTPS_RELIABLE_MAX_CAPACITY 256u
+#define NB_RTPS_RELIABLE_MAX_CAPACITY 4096u
 
 typedef struct nb_rtps_reliable_writer nb_rtps_reliable_writer_t;
 
