@@ -26,9 +26,8 @@ changes state so a later session can resume without reading the whole history.
 - M4 integration: dropped by decision (self-contained DDS discovery)
 - M5 scale: pending
 - M6 Cyclone interop: partial (SPDP/SEDP and bidirectional `dds::Message`
-  delivery verified on Linux; reliable application DATA verified nb-to-nb
-  and against Cyclone on Windows, in multicast and unicast-only modes; the
-  Linux runner pass and the CI job pending)
+  delivery verified nb-to-nb and against Cyclone on Windows and Linux, in
+  multicast and unicast-only modes; only the automated CI job is pending)
 - M7 packaging: pending
 - M8 serialization on Micro-CDR: done (vendored subset, no submodule)
 - M9 `DATA_FRAG`: pending
@@ -294,6 +293,10 @@ a fixed participant index instead.
   from Windows either run the commands by hand or install `plink`.
 - Remote run: `cd /home/pengze/chenqw/nb && git pull &&
   tools/verify-rtps-interop.sh`.
+- The host accepts password SSH only, but OpenSSH 9.5 on Windows drives it
+  non-interactively with an `SSH_ASKPASS` helper and
+  `SSH_ASKPASS_REQUIRE=force`, so an agent can sync a tree and run the script
+  without a terminal.
 - Next task: M8, move the CDR layer onto Micro-CDR 2.0.2 (P0), then M9
   `DATA_FRAG`, then M10 generic types. (M8 is done; M9 is next.) M4
   (RTPS-to-registry mapping) is dropped: DDS discovery is self-contained and
@@ -330,6 +333,10 @@ a fixed participant index instead.
   a trimmed `CMakeLists.txt` and the Apache-2.0 `LICENSE`); the Git submodule
   and `.gitmodules` entry are gone, and the upstream tests, examples, CI and
   packaging directories were removed.
+- 2026-10-31: Linux verification passed on `192.168.54.14` from a clean
+  `git archive` of HEAD: fresh Ninja build, 18 unit/RTPS tests,
+  `e2e.rtps_participant` repeated three times, and Cyclone interop in both
+  multicast and unicast-only modes.
 - 2026-10-31: Completed bidirectional RTPS application DATA. Added the
   subscription data callback, remote publication/local subscription matching,
   nb-to-nb delivery, and Cyclone-to-nb delivery. Fixed CDR_LE option-bit
