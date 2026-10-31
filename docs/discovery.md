@@ -8,7 +8,7 @@ framework's own UDP/TCP/SHM transports.
 Status: the wire codec, the SPDP announcement payload, and the SPDP participant
 runtime are implemented and covered by unit and loopback tests. SPDP interop
 with Cyclone DDS 0.10.5 is verified on Windows and Linux. SEDP endpoint
-exchange is the next milestone.
+payload codec is implemented; reliable endpoint exchange is the next step.
 
 ## 1. Scope
 
@@ -161,6 +161,7 @@ Implemented in `src/discovery/rtps/`:
 | `rtps_param.h/.c` | `ParameterList` writer, iterator, typed getters |
 | `rtps_message.h/.c` | RTPS header, submessage framing, `DATA`, `HEARTBEAT`, `ACKNACK`, `INFO_TS`, `INFO_DST` |
 | `rtps_spdp.h/.c` | SPDP announcement payload builder and parser |
+| `rtps_sedp.h/.c` | SEDP publication/subscription endpoint payload builder and parser |
 | `rtps_participant.h/.c` | SPDP runtime: sockets, thread, timers, remote participant table |
 
 Encoding rules:
@@ -328,6 +329,8 @@ Current:
 
 - `unit.rtps_wire`: CDR round trips, alignment, `ParameterList` round trips,
   `DATA`/`HEARTBEAT`/`ACKNACK` framing, truncation handling.
+- `unit.rtps_sedp`: endpoint payload round trips, defaults, locator sequences,
+  partition, user data, and missing-field rejection.
 - `e2e.rtps_participant`: two participants discover each other over unicast
   peers, names and counts are checked, and an abrupt stop expires the lease.
   The test also covers repeated create/destroy.

@@ -19,7 +19,7 @@ changes state so a later session can resume without reading the whole history.
 - M0 design: done (`docs/discovery.md`)
 - M1 wire codec: done
 - M2 SPDP runtime: done
-- M3 SEDP: pending
+- M3 SEDP: in progress (endpoint payload codec done)
 - M4 integration: pending
 - M5 scale: pending
 - M6 Cyclone interop: partial (SPDP verified; SEDP waits for M3)
@@ -53,7 +53,7 @@ changes state so a later session can resume without reading the whole history.
 
 ## M3: SEDP
 
-- [ ] Endpoint payload codec: endpoint GUID, topic, type, reliability,
+- [x] Endpoint payload codec: endpoint GUID, topic, type, reliability,
       durability, history, partition, locators, user data
 - [ ] Reliable writer history (bounded, keep last N)
 - [ ] HEARTBEAT timer and ACKNACK retransmit
@@ -135,3 +135,5 @@ used `PL_CDR_LE`, and the locator address was in the last four bytes of the
 - 2026-10-31: SPDP interop with Cyclone DDS 0.10.5 verified on Windows and
   Linux. Fixed parameter padding, `PL_CDR_LE` encapsulation, DATA flags,
   IPv4 locator layout, and the default unicast locator fallback.
+- 2026-10-31: SEDP endpoint payload codec and unit tests added; reliable
+  writer and runtime integration are next.
