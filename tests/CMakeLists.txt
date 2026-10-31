@@ -69,6 +69,9 @@ nb_add_test(test_poller_alloc unit.poller_alloc
 nb_add_test(test_iobuf unit.iobuf
     LABELS "unit;iobuf"
     INCLUDES ${NB_SRC_DIR}/core ${NB_SRC_DIR}/utils)
+nb_add_test(test_rtps_wire unit.rtps_wire
+    LABELS "unit;rtps"
+    INCLUDES ${NB_SRC_DIR}/discovery/rtps)
 
 nb_add_test(test_buffer unit.buffer LABELS "unit;buffer" LIBRARIES nb_base)
 nb_add_test(test_buf_concurrency unit.buf_concurrency
