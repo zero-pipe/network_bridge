@@ -112,6 +112,10 @@ endif()
 if(NB_ENABLE_DDS)
     nb_add_test(test_dds_loan e2e.dds_loan LABELS "e2e;dds")
     nb_add_test(test_dds_local e2e.dds_local LABELS "e2e;dds")
+    nb_add_test(test_dds_remote e2e.dds_remote
+        LABELS "e2e;dds"
+        INCLUDES ${NB_SRC_DIR}/transport/dds
+        TIMEOUT 30)
     nb_add_test(test_rtps_cyclone e2e.rtps_cyclone
         LABELS "e2e;dds;rtps"
         INCLUDES ${NB_SRC_DIR}/discovery/rtps
