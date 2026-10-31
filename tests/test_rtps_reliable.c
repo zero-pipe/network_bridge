@@ -78,19 +78,19 @@ static void test_history_and_acknack(void)
     memset(&ack, 0, sizeof(ack));
     ack.base.low = 2;
     ack.num_bits = 2;
-    ack.bitmap[0] = 0x1u;
+    ack.bitmap[0] = 0x80000000u;
     memset(&state, 0, sizeof(state));
     CHECK(nb_rtps_reliable_process_acknack(writer, &ack, on_resend, &state, &count) == NB_OK);
     CHECK(count == 1 && state.count == 1u && state.sn[0] == 2);
     CHECK(strcmp(state.payload[0], "b") == 0);
 
-    ack.bitmap[0] = 0x2u;
+    ack.bitmap[0] = 0x40000000u;
     memset(&state, 0, sizeof(state));
     CHECK(nb_rtps_reliable_process_acknack(writer, &ack, on_resend, &state, &count) == NB_OK);
     CHECK(count == 1 && state.count == 1u && state.sn[0] == 3);
     CHECK(strcmp(state.payload[0], "c") == 0);
 
-    ack.bitmap[0] = 0x3u;
+    ack.bitmap[0] = 0xc0000000u;
     memset(&state, 0, sizeof(state));
     CHECK(nb_rtps_reliable_process_acknack(writer, &ack, on_resend, &state, &count) == NB_OK);
     CHECK(count == 2 && state.count == 2u);

@@ -17,6 +17,60 @@ static int g_fail;
         }                                                               \
     } while (0)
 
+static void check_reliability_parameter(const uint8_t *buf, size_t len, uint32_t kind)
+{
+    nb_rtps_param_reader_t reader;
+    const uint8_t *value = NULL;
+    size_t value_len = 0;
+    uint16_t pid = 0;
+    int found = 0;
+    int rc;
+
+    nb_rtps_param_reader_init(&reader, buf + 4, len - 4);
+    for (;;) {
+        rc = nb_rtps_param_reader_next(&reader, &pid, &value, &value_len);
+        if (rc <= 0) {
+            break;
+        }
+        if (pid == NB_RTPS_PID_RELIABILITY) {
+            found = 1;
+            CHECK(value_len == 12);
+            CHECK(value && value[0] == (uint8_t)(kind & 0xffu));
+            CHECK(value && value[1] == (uint8_t)((kind >> 8) & 0xffu));
+            CHECK(value && value[4] == 0 && value[5] == 0 && value[6] == 0 && value[7] == 0);
+            CHECK(value && value[8] == 0 && value[9] == 0 && value[10] == 0 && value[11] == 0);
+        }
+    }
+    CHECK(found);
+}
+
+static void check_locator_parameters(const uint8_t *buf,
+                                     size_t len,
+                                     uint16_t wanted_pid,
+                                     int wanted_count)
+{
+    nb_rtps_param_reader_t reader;
+    const uint8_t *value = NULL;
+    size_t value_len = 0;
+    uint16_t pid = 0;
+    int found = 0;
+    int rc;
+
+    nb_rtps_param_reader_init(&reader, buf + 4, len - 4);
+    for (;;) {
+        rc = nb_rtps_param_reader_next(&reader, &pid, &value, &value_len);
+        if (rc <= 0) {
+            break;
+        }
+        if (pid == wanted_pid) {
+            found++;
+            CHECK(value_len == 24);
+            CHECK(value != NULL);
+        }
+    }
+    CHECK(found == wanted_count);
+}
+
 static void test_endpoint_roundtrip(void)
 {
     uint8_t buf[1024];
@@ -51,6 +105,9 @@ static void test_endpoint_roundtrip(void)
     CHECK(buf[0] == 0x00);
     CHECK(buf[1] == (uint8_t)NB_RTPS_ENCAPSULATION_PL_CDR_LE);
     CHECK(buf[2] == 0x00 && buf[3] == 0x00);
+    check_reliability_parameter(buf, len, NB_RTPS_RELIABILITY_RELIABLE);
+    check_locator_parameters(buf, len, NB_RTPS_PID_UNICAST_LOCATOR, 2);
+    check_locator_parameters(buf, len, NB_RTPS_PID_MULTICAST_LOCATOR, 1);
 
     CHECK(nb_rtps_sedp_parse(buf, len, &parsed) == NB_OK);
     CHECK(nb_rtps_guid_equal(&parsed.endpoint_guid, &info.endpoint_guid));

@@ -271,6 +271,7 @@ static void test_heartbeat_acknack(void)
             CHECK(parsed_heartbeat.last_sn.low == 9);
             CHECK(parsed_heartbeat.count == 3);
         } else if (view.id == NB_RTPS_SUBMSG_ACKNACK) {
+            CHECK((view.flags & NB_RTPS_ACKNACK_FLAG_FINAL) != 0);
             CHECK(nb_rtps_acknack_decode(view.body, view.body_len, &parsed_acknack) == NB_OK);
             CHECK(parsed_acknack.num_bits == 33);
             CHECK(parsed_acknack.bitmap[0] == 0xffffffffu);

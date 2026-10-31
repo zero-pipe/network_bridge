@@ -56,6 +56,41 @@ static int cyclone_sees_participant(dds_entity_t reader)
     return found;
 }
 
+static int cyclone_sees_publication(dds_entity_t reader,
+                                    const nb_rtps_guid_prefix_t *prefix)
+{
+    void *sample = NULL;
+    dds_sample_info_t info;
+    dds_return_t n;
+    int found = 0;
+
+    for (;;) {
+        dds_builtintopic_endpoint_t *endpoint;
+
+        sample = NULL;
+        memset(&info, 0, sizeof(info));
+        n = dds_take(reader, &sample, &info, 1, 1);
+        if (n < 0) {
+            nb_log_error("dds_read publication failed: %s", dds_strretcode(n));
+            return found;
+        }
+        if (n == 0) {
+            break;
+        }
+        endpoint = (dds_builtintopic_endpoint_t *)sample;
+        if (info.valid_data && endpoint && endpoint->topic_name && endpoint->type_name &&
+            strcmp(endpoint->topic_name, "nb/sedp") == 0 &&
+            strcmp(endpoint->type_name, "nb::Sedp") == 0 &&
+            memcmp(endpoint->participant_key.v, prefix->bytes, 12) == 0) {
+            found = 1;
+        }
+        if (sample) {
+            (void)dds_return_loan(reader, &sample, (size_t)n);
+        }
+    }
+    return found;
+}
+
 static void test_cyclone_spdp(void)
 {
     const char *enabled = getenv("NB_TEST_RTPS_CYCLONE");
@@ -64,8 +99,12 @@ static void test_cyclone_spdp(void)
     nb_rtps_participant_t *nb;
     dds_entity_t cyclone;
     dds_entity_t reader;
+    dds_entity_t publication_reader;
+    nb_rtps_endpoint_info_t endpoint;
+    nb_rtps_participant_info_t local_info;
     int saw_cyclone = 0;
     int saw_nb = 0;
+    int saw_publication = 0;
     int waited = 0;
 
     if (!enabled || strcmp(enabled, "1") != 0) {
@@ -81,6 +120,14 @@ static void test_cyclone_spdp(void)
     reader = dds_create_reader(cyclone, DDS_BUILTIN_TOPIC_DCPSPARTICIPANT, NULL, NULL);
     CHECK(reader > 0);
     if (reader <= 0) {
+        (void)dds_delete(cyclone);
+        return;
+    }
+    publication_reader =
+        dds_create_reader(cyclone, DDS_BUILTIN_TOPIC_DCPSPUBLICATION, NULL, NULL);
+    CHECK(publication_reader > 0);
+    if (publication_reader <= 0) {
+        (void)dds_delete(reader);
         (void)dds_delete(cyclone);
         return;
     }
@@ -101,35 +148,53 @@ static void test_cyclone_spdp(void)
     CHECK(nb != NULL);
     if (!nb) {
         (void)dds_delete(reader);
+        (void)dds_delete(publication_reader);
         (void)dds_delete(cyclone);
         return;
     }
+    CHECK(nb_rtps_participant_local_info(nb, &local_info) == NB_OK);
+    memset(&endpoint, 0, sizeof(endpoint));
+    (void)snprintf(endpoint.topic_name, sizeof(endpoint.topic_name), "%s", "nb/sedp");
+    (void)snprintf(endpoint.type_name, sizeof(endpoint.type_name), "%s", "nb::Sedp");
+    endpoint.reliability = NB_RTPS_RELIABILITY_RELIABLE;
+    endpoint.durability = NB_RTPS_DURABILITY_VOLATILE;
+    endpoint.history_kind = NB_RTPS_HISTORY_KEEP_LAST;
+    endpoint.history_depth = 1;
+    CHECK(nb_rtps_participant_add_endpoint(
+              nb, NB_RTPS_ENDPOINT_PUBLICATION, &endpoint) == NB_OK);
     CHECK(nb_rtps_participant_start(nb) == NB_OK);
 
-    while (waited < 10000 && (!saw_nb || !saw_cyclone)) {
+    while (waited < 10000 && (!saw_nb || !saw_cyclone || !saw_publication)) {
         if (!saw_nb) {
             saw_nb = cyclone_sees_participant(reader);
         }
         if (!saw_cyclone) {
             saw_cyclone = nb_rtps_participant_remote_count(nb) > 0;
         }
-        if (!saw_nb || !saw_cyclone) {
+        if (!saw_publication) {
+            saw_publication = cyclone_sees_publication(
+                publication_reader, &local_info.guid.prefix);
+        }
+        if (!saw_nb || !saw_cyclone || !saw_publication) {
             ntk_sleep_ms(100);
             waited += 100;
         }
     }
     CHECK(saw_nb);
     CHECK(saw_cyclone);
-    if (!saw_nb || !saw_cyclone) {
-        nb_log_error("Cyclone SPDP interop failed after %d ms (nb=%d cyclone=%d)",
+    CHECK(saw_publication);
+    if (!saw_nb || !saw_cyclone || !saw_publication) {
+        nb_log_error("Cyclone interop failed after %d ms (nb=%d cyclone=%d publication=%d)",
                      waited,
                      saw_nb,
-                     saw_cyclone);
+                     saw_cyclone,
+                     saw_publication);
     }
 
     nb_rtps_participant_stop(nb);
     nb_rtps_participant_destroy(nb);
     (void)dds_delete(reader);
+    (void)dds_delete(publication_reader);
     (void)dds_delete(cyclone);
 }
 
