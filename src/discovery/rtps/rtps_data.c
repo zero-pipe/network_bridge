@@ -56,8 +56,12 @@ int nb_rtps_dds_message_deserialize(const void *buf,
     if (!encapsulated || !out || len < NB_RTPS_CDR_HEADER_SIZE) {
         return NB_ERR_INVALID;
     }
-    if (encapsulated[0] != 0x00 || encapsulated[1] != 0x01 ||
-        encapsulated[2] != 0x00 || encapsulated[3] != 0x00) {
+    /*
+     * The first two bytes are the CDR encapsulation identifier (0x0001 for
+     * CDR_LE). The remaining two bytes are option bits. Cyclone DDS emits
+     * 0x0001 here, so accept any options and treat the body as CDR_LE.
+     */
+    if (encapsulated[0] != 0x00 || encapsulated[1] != 0x01) {
         return NB_ERR_NOT_SUPPORTED;
     }
 

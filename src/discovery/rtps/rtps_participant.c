@@ -26,6 +26,7 @@
 #define NB_RTPS_DEFAULT_MAX_REMOTE_ENDPOINTS 4096u
 #define NB_RTPS_MAX_LOCAL_ENDPOINTS 4096u
 #define NB_RTPS_MAX_REMOTE_ENDPOINTS 4096u
+#define NB_RTPS_MAX_DATA_TARGETS 16u
 #define NB_RTPS_DEFAULT_SEDP_HEARTBEAT_MS 1000u
 #define NB_RTPS_MIN_SEDP_HEARTBEAT_MS 100u
 
@@ -93,6 +94,8 @@ struct nb_rtps_participant {
     void *callback_user;
     nb_rtps_endpoint_callback_t endpoint_callback;
     void *endpoint_user;
+    nb_rtps_data_callback_t data_callback;
+    void *data_user;
     nb_rtps_local_endpoint_t *local_endpoints;
     size_t max_local_endpoints;
     size_t local_endpoint_count;
@@ -1175,6 +1178,88 @@ static void handle_sedp_acknack(nb_rtps_participant_t *participant,
         history, acknack, sedp_resend_callback, &context, NULL);
 }
 
+static int data_endpoint_matches(const nb_rtps_local_endpoint_t *local,
+                                 const nb_rtps_remote_endpoint_t *remote)
+{
+    uint32_t local_reliability;
+    uint32_t remote_reliability;
+
+    if (!local || !remote || local->kind != NB_RTPS_ENDPOINT_SUBSCRIPTION ||
+        remote->kind != NB_RTPS_ENDPOINT_PUBLICATION) {
+        return 0;
+    }
+    if (strcmp(local->info.topic_name, remote->info.topic_name) != 0 ||
+        strcmp(local->info.type_name, remote->info.type_name) != 0 ||
+        strcmp(local->info.partition, remote->info.partition) != 0) {
+        return 0;
+    }
+    local_reliability =
+        local->info.reliability ? local->info.reliability : NB_RTPS_RELIABILITY_BEST_EFFORT;
+    remote_reliability =
+        remote->info.reliability ? remote->info.reliability : NB_RTPS_RELIABILITY_BEST_EFFORT;
+    if (local_reliability == NB_RTPS_RELIABILITY_RELIABLE &&
+        remote_reliability != NB_RTPS_RELIABILITY_RELIABLE) {
+        return 0;
+    }
+    if (remote->info.durability > local->info.durability) {
+        return 0;
+    }
+    return 1;
+}
+
+static void handle_user_data(nb_rtps_participant_t *participant,
+                             const nb_rtps_data_view_t *data,
+                             const nb_rtps_guid_prefix_t *source_prefix)
+{
+    nb_rtps_dds_message_t message;
+    nb_rtps_guid_t writer_guid;
+    nb_rtps_guid_t readers[NB_RTPS_MAX_DATA_TARGETS];
+    nb_rtps_data_callback_t callback;
+    void *user;
+    nb_rtps_remote_endpoint_t *remote;
+    size_t reader_count = 0;
+    size_t i;
+
+    if (!participant || !data || !source_prefix || data->dispose || data->key) {
+        return;
+    }
+    if (nb_rtps_dds_message_deserialize(
+            data->payload, data->payload_len, &message) != NB_OK) {
+        return;
+    }
+    writer_guid.prefix = *source_prefix;
+    writer_guid.entity = data->writer_id;
+
+    ntk_mutex_lock(participant->lock);
+    callback = participant->data_callback;
+    user = participant->data_user;
+    if (callback) {
+        remote = find_remote_endpoint(participant, &writer_guid);
+        if (remote) {
+            for (i = 0; i < participant->max_local_endpoints; i++) {
+                nb_rtps_local_endpoint_t *local = &participant->local_endpoints[i];
+
+                if (!local->used ||
+                    !data_endpoint_matches(local, remote) ||
+                    (!nb_rtps_entity_id_equal(&data->reader_id, &nb_rtps_eid_unknown) &&
+                     !nb_rtps_entity_id_equal(&data->reader_id,
+                                              &local->info.endpoint_guid.entity))) {
+                    continue;
+                }
+                if (reader_count == NB_RTPS_MAX_DATA_TARGETS) {
+                    break;
+                }
+                readers[reader_count++] = local->info.endpoint_guid;
+            }
+        }
+    }
+    ntk_mutex_unlock(participant->lock);
+
+    for (i = 0; i < reader_count; i++) {
+        callback(user, &readers[i], &writer_guid, &message);
+    }
+}
+
 static void handle_datagram(nb_rtps_participant_t *participant,
                             const uint8_t *buf,
                             size_t len,
@@ -1213,6 +1298,8 @@ static void handle_datagram(nb_rtps_participant_t *participant,
                                                &nb_rtps_eid_sedp_subscriptions_writer)) {
                 handle_sedp_data(
                     participant, NB_RTPS_ENDPOINT_SUBSCRIPTION, &data, &header.guid_prefix);
+            } else {
+                handle_user_data(participant, &data, &header.guid_prefix);
             }
         } else if (view.id == NB_RTPS_SUBMSG_HEARTBEAT) {
             nb_rtps_heartbeat_t heartbeat;
@@ -1720,6 +1807,19 @@ void nb_rtps_participant_set_endpoint_callback(nb_rtps_participant_t *participan
     ntk_mutex_unlock(participant->lock);
 }
 
+void nb_rtps_participant_set_data_callback(nb_rtps_participant_t *participant,
+                                           nb_rtps_data_callback_t callback,
+                                           void *user)
+{
+    if (!participant) {
+        return;
+    }
+    ntk_mutex_lock(participant->lock);
+    participant->data_callback = callback;
+    participant->data_user = user;
+    ntk_mutex_unlock(participant->lock);
+}
+
 int nb_rtps_participant_add_endpoint(nb_rtps_participant_t *participant,
                                      nb_rtps_endpoint_kind_t kind,
                                      nb_rtps_endpoint_info_t *info)
@@ -1756,10 +1856,20 @@ int nb_rtps_participant_add_endpoint(nb_rtps_participant_t *participant,
         }
     }
     allocate_local_entity(participant, kind, &local.info.endpoint_guid.entity);
-    if (local.info.unicast_count == 0 &&
-        participant->default_unicast.kind == NB_RTPS_LOCATOR_KIND_UDPV4) {
-        local.info.unicast[0] = participant->default_unicast;
-        local.info.unicast_count = 1;
+    if (local.info.unicast_count == 0) {
+        const nb_rtps_locator_t *fallback = NULL;
+
+        if (participant->default_unicast.kind == NB_RTPS_LOCATOR_KIND_UDPV4 &&
+            participant->default_unicast.port != 0) {
+            fallback = &participant->default_unicast;
+        } else if (participant->metatraffic_unicast.kind == NB_RTPS_LOCATOR_KIND_UDPV4 &&
+                   participant->metatraffic_unicast.port != 0) {
+            fallback = &participant->metatraffic_unicast;
+        }
+        if (fallback) {
+            local.info.unicast[0] = *fallback;
+            local.info.unicast_count = 1;
+        }
     }
     if (nb_rtps_sedp_build(&local.info, payload, sizeof(payload), &payload_len) != NB_OK) {
         ntk_mutex_unlock(participant->lock);

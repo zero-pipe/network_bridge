@@ -34,6 +34,15 @@ typedef struct test_state {
     char last_name[NB_RTPS_SPDP_NAME_MAX];
 } test_state_t;
 
+typedef struct test_data_state {
+    ntk_mutex *lock;
+    int received;
+    nb_rtps_guid_t reader_guid;
+    nb_rtps_guid_t writer_guid;
+    uint8_t payload[NB_RTPS_DATA_PAYLOAD_MAX];
+    size_t payload_len;
+} test_data_state_t;
+
 static void on_participant(void *user,
                            nb_rtps_participant_event_t event,
                            const nb_rtps_participant_info_t *info)
@@ -70,6 +79,46 @@ static void on_endpoint(void *user,
     state->last_endpoint_kind = (int)kind;
     state->last_endpoint = *info;
     ntk_mutex_unlock(state->lock);
+}
+
+static void on_data(void *user,
+                    const nb_rtps_guid_t *reader_guid,
+                    const nb_rtps_guid_t *writer_guid,
+                    const nb_rtps_dds_message_t *message)
+{
+    test_data_state_t *state = (test_data_state_t *)user;
+    size_t copy_len;
+
+    if (!state || !reader_guid || !writer_guid || !message) {
+        return;
+    }
+    ntk_mutex_lock(state->lock);
+    if (state->received) {
+        ntk_mutex_unlock(state->lock);
+        return;
+    }
+    state->reader_guid = *reader_guid;
+    state->writer_guid = *writer_guid;
+    state->payload_len = message->payload_len;
+    copy_len = message->payload_len;
+    if (copy_len > sizeof(state->payload)) {
+        copy_len = sizeof(state->payload);
+    }
+    if (copy_len > 0 && message->payload) {
+        memcpy(state->payload, message->payload, copy_len);
+    }
+    state->received = 1;
+    ntk_mutex_unlock(state->lock);
+}
+
+static int data_received(test_data_state_t *state)
+{
+    int received;
+
+    ntk_mutex_lock(state->lock);
+    received = state->received;
+    ntk_mutex_unlock(state->lock);
+    return received;
 }
 
 static int state_count(test_state_t *state, int removed)
@@ -332,6 +381,141 @@ static void test_sedp_endpoints(void)
     ntk_mutex_destroy(state_b.lock);
 }
 
+static void test_data_roundtrip(void)
+{
+    static const uint8_t expected[] = {0xde, 0xad, 0xbe, 0xef, 0x00, 0x11, 0x22};
+    nb_rtps_participant_config_t config;
+    nb_rtps_participant_t *publisher;
+    nb_rtps_participant_t *subscriber;
+    nb_rtps_endpoint_info_t publication;
+    nb_rtps_endpoint_info_t subscription;
+    nb_rtps_participant_info_t publisher_info;
+    nb_rtps_dds_message_t message;
+    test_state_t publisher_state;
+    test_state_t subscriber_state;
+    test_data_state_t data_state;
+    uint16_t publisher_port;
+    uint16_t subscriber_port;
+    int waited;
+    int received = 0;
+
+    memset(&publisher_state, 0, sizeof(publisher_state));
+    memset(&subscriber_state, 0, sizeof(subscriber_state));
+    memset(&data_state, 0, sizeof(data_state));
+
+    fill_config(&config, "data-publisher");
+    publisher = nb_rtps_participant_create(&config);
+    CHECK(publisher != NULL);
+    if (!publisher) {
+        return;
+    }
+    publisher_port = nb_rtps_participant_spdp_port(publisher);
+    fill_config(&config, "data-subscriber");
+    subscriber = nb_rtps_participant_create(&config);
+    CHECK(subscriber != NULL);
+    if (!subscriber) {
+        nb_rtps_participant_destroy(publisher);
+        return;
+    }
+    subscriber_port = nb_rtps_participant_spdp_port(subscriber);
+    CHECK(nb_rtps_participant_add_peer(publisher, "127.0.0.1", subscriber_port) == NB_OK);
+    CHECK(nb_rtps_participant_add_peer(subscriber, "127.0.0.1", publisher_port) == NB_OK);
+
+    publisher_state.lock = ntk_mutex_create(NTK_MUTEX_NORMAL);
+    subscriber_state.lock = ntk_mutex_create(NTK_MUTEX_NORMAL);
+    data_state.lock = ntk_mutex_create(NTK_MUTEX_NORMAL);
+    CHECK(publisher_state.lock != NULL);
+    CHECK(subscriber_state.lock != NULL);
+    CHECK(data_state.lock != NULL);
+    if (!publisher_state.lock || !subscriber_state.lock || !data_state.lock) {
+        nb_rtps_participant_destroy(publisher);
+        nb_rtps_participant_destroy(subscriber);
+        if (publisher_state.lock) {
+            ntk_mutex_destroy(publisher_state.lock);
+        }
+        if (subscriber_state.lock) {
+            ntk_mutex_destroy(subscriber_state.lock);
+        }
+        if (data_state.lock) {
+            ntk_mutex_destroy(data_state.lock);
+        }
+        return;
+    }
+    nb_rtps_participant_set_callback(publisher, on_participant, &publisher_state);
+    nb_rtps_participant_set_callback(subscriber, on_participant, &subscriber_state);
+    nb_rtps_participant_set_endpoint_callback(publisher, on_endpoint, &publisher_state);
+    nb_rtps_participant_set_endpoint_callback(subscriber, on_endpoint, &subscriber_state);
+    nb_rtps_participant_set_data_callback(subscriber, on_data, &data_state);
+    CHECK(nb_rtps_participant_start(publisher) == NB_OK);
+    CHECK(nb_rtps_participant_start(subscriber) == NB_OK);
+    CHECK(wait_count(&publisher_state, 0, 1, 5000));
+    CHECK(wait_count(&subscriber_state, 0, 1, 5000));
+
+    memset(&publication, 0, sizeof(publication));
+    (void)snprintf(publication.topic_name,
+                   sizeof(publication.topic_name),
+                   "%s",
+                   NB_RTPS_DDS_MESSAGE_TOPIC);
+    (void)snprintf(publication.type_name,
+                   sizeof(publication.type_name),
+                   "%s",
+                   NB_RTPS_DDS_MESSAGE_TYPE);
+    publication.reliability = NB_RTPS_RELIABILITY_BEST_EFFORT;
+    publication.durability = NB_RTPS_DURABILITY_VOLATILE;
+    publication.history_kind = NB_RTPS_HISTORY_KEEP_LAST;
+    publication.history_depth = 1;
+    CHECK(nb_rtps_participant_add_endpoint(
+              publisher, NB_RTPS_ENDPOINT_PUBLICATION, &publication) == NB_OK);
+
+    memset(&subscription, 0, sizeof(subscription));
+    (void)snprintf(subscription.topic_name,
+                   sizeof(subscription.topic_name),
+                   "%s",
+                   NB_RTPS_DDS_MESSAGE_TOPIC);
+    (void)snprintf(subscription.type_name,
+                   sizeof(subscription.type_name),
+                   "%s",
+                   NB_RTPS_DDS_MESSAGE_TYPE);
+    subscription.reliability = NB_RTPS_RELIABILITY_BEST_EFFORT;
+    subscription.durability = NB_RTPS_DURABILITY_VOLATILE;
+    subscription.history_kind = NB_RTPS_HISTORY_KEEP_LAST;
+    subscription.history_depth = 1;
+    CHECK(nb_rtps_participant_add_endpoint(
+              subscriber, NB_RTPS_ENDPOINT_SUBSCRIPTION, &subscription) == NB_OK);
+    CHECK(subscription.unicast_count > 0);
+    CHECK(wait_endpoint_count(&subscriber_state, 0, 1, 5000));
+    CHECK(wait_endpoint_count(&publisher_state, 0, 1, 5000));
+
+    CHECK(nb_rtps_participant_local_info(publisher, &publisher_info) == NB_OK);
+    message.payload = expected;
+    message.payload_len = sizeof(expected);
+    for (waited = 0; waited < 5000 && !received; waited += 50) {
+        if (nb_rtps_participant_publish_dds_message(
+                publisher, &publication.endpoint_guid, &message) == NB_OK) {
+            received = data_received(&data_state);
+        }
+        if (!received) {
+            ntk_sleep_ms(50);
+        }
+    }
+    CHECK(received);
+    CHECK(data_state.payload_len == sizeof(expected));
+    CHECK(memcmp(data_state.payload, expected, sizeof(expected)) == 0);
+    CHECK(nb_rtps_guid_equal(&data_state.reader_guid, &subscription.endpoint_guid));
+    CHECK(nb_rtps_guid_prefix_equal(&data_state.writer_guid.prefix,
+                                    &publisher_info.guid.prefix));
+    CHECK(nb_rtps_entity_id_equal(&data_state.writer_guid.entity,
+                                  &publication.endpoint_guid.entity));
+
+    nb_rtps_participant_stop(publisher);
+    nb_rtps_participant_stop(subscriber);
+    nb_rtps_participant_destroy(publisher);
+    nb_rtps_participant_destroy(subscriber);
+    ntk_mutex_destroy(publisher_state.lock);
+    ntk_mutex_destroy(subscriber_state.lock);
+    ntk_mutex_destroy(data_state.lock);
+}
+
 static void test_multicast(void)
 {
     const char *enabled = getenv("NB_TEST_RTPS_MULTICAST");
@@ -398,6 +582,7 @@ int main(void)
     test_create_destroy();
     test_unicast_peers();
     test_sedp_endpoints();
+    test_data_roundtrip();
     test_multicast();
     if (g_fail) {
         nb_log_error("rtps participant tests failed");

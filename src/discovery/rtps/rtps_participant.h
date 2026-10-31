@@ -8,8 +8,9 @@
  * multicast group (optional) and to configured unicast peers, receives
  * announcements from other participants, and tracks their leases.
  *
- * The runtime owns discovery and a minimal best-effort application-data send
- * path. Incoming application data is not delivered to a local reader yet.
+ * The runtime owns discovery plus a minimal best-effort application-data send
+ * and receive path. Incoming samples are delivered to a local subscription
+ * through nb_rtps_participant_set_data_callback().
  */
 
 #include <stddef.h>
@@ -87,6 +88,16 @@ typedef void (*nb_rtps_endpoint_callback_t)(void *user,
                                             nb_rtps_endpoint_kind_t kind,
                                             const nb_rtps_endpoint_info_t *info);
 
+/*
+ * Called once for each local subscription that matches an incoming application
+ * DATA sample. The message payload is a zero-copy view into the receive buffer
+ * and is only valid for the duration of the callback.
+ */
+typedef void (*nb_rtps_data_callback_t)(void *user,
+                                        const nb_rtps_guid_t *reader_guid,
+                                        const nb_rtps_guid_t *writer_guid,
+                                        const nb_rtps_dds_message_t *message);
+
 /* Bind sockets and initialize state. Does not start the discovery thread. */
 nb_rtps_participant_t *nb_rtps_participant_create(const nb_rtps_participant_config_t *config);
 void nb_rtps_participant_destroy(nb_rtps_participant_t *participant);
@@ -104,6 +115,11 @@ void nb_rtps_participant_set_callback(nb_rtps_participant_t *participant,
 void nb_rtps_participant_set_endpoint_callback(nb_rtps_participant_t *participant,
                                                nb_rtps_endpoint_callback_t callback,
                                                void *user);
+
+/* Set before start when possible; safe to change while running. */
+void nb_rtps_participant_set_data_callback(nb_rtps_participant_t *participant,
+                                           nb_rtps_data_callback_t callback,
+                                           void *user);
 
 /* Add a local endpoint. The runtime fills endpoint_guid and, when no unicast
  * locator is supplied, reuses the participant default unicast locator. */

@@ -56,6 +56,11 @@ static void test_cdr_roundtrip(void)
 static void test_dds_message_cdr(void)
 {
     static const uint8_t bytes[] = {0xde, 0xad, 0xbe, 0xef, 0x00, 0x11, 0x22};
+    static const uint8_t cyclone_bytes[] = {
+        0x00, 0x01, 0x00, 0x01,
+        0x07, 0x00, 0x00, 0x00,
+        0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x00
+    };
     nb_rtps_dds_message_t message;
     nb_rtps_dds_message_t parsed;
     uint8_t buf[64];
@@ -75,6 +80,13 @@ static void test_dds_message_cdr(void)
     CHECK(parsed.payload == buf + 8);
     CHECK(parsed.payload_len == sizeof(bytes));
     CHECK(memcmp(parsed.payload, bytes, sizeof(bytes)) == 0);
+
+    /* Cyclone DDS emits option bits 0x0001 after the CDR_LE identifier. */
+    CHECK(nb_rtps_dds_message_deserialize(
+              cyclone_bytes, sizeof(cyclone_bytes), &parsed) == NB_OK);
+    CHECK(parsed.payload == cyclone_bytes + 8);
+    CHECK(parsed.payload_len == sizeof(bytes));
+    CHECK(memcmp(parsed.payload, cyclone_bytes + 8, sizeof(bytes)) == 0);
 
     /* Truncated payload must fail. */
     CHECK(nb_rtps_dds_message_deserialize(buf, len - 1u, &parsed) != NB_OK);
