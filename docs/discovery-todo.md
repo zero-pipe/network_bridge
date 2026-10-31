@@ -378,3 +378,6 @@ a fixed participant index instead.
   partly received sample stays missing for ACKNACK, so retransmits replay the
   whole sample. Tests: wire encode/decode plus nb-to-nb 4 KiB and 60 KiB over
   RELIABLE QoS.
+- 2026-11-01: Linux re-verified after M9 on `192.168.54.14`: fresh build,
+  18 unit/RTPS tests, `e2e.rtps_participant` (including the new fragmented-data
+  case) three times, and Cyclone interop in multicast and unicast-only modes.
