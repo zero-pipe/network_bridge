@@ -5,9 +5,9 @@ framework. It implements the RTPS discovery protocols (SPDP and SEDP) without
 taking a dependency on a DDS implementation. The data plane remains the
 framework's own UDP/TCP/SHM transports.
 
-Status: the wire codec and the SPDP announcement payload are implemented and
-covered by unit tests. The participant runtime (sockets, timers, lease table)
-and the SEDP endpoint exchange are the next milestones.
+Status: the wire codec, the SPDP announcement payload, and the SPDP participant
+runtime are implemented and covered by unit and loopback tests. SEDP endpoint
+exchange is the next milestone.
 
 ## 1. Scope
 
@@ -113,7 +113,7 @@ caps it; there is no `GAP` support until endpoint churn requires it.
 | SPDP announcement | 3 s | jittered per participant |
 | Participant lease | 20 s | remote entry expires after this |
 | SEDP heartbeat | 1 s | per reliable writer while unacknowledged |
-| Lease sweep | 1 s | runtime tick |
+| Lease sweep | 200 ms | runtime tick; leases are checked against wall-clock time |
 
 Defaults are configuration values, not constants in the protocol.
 
@@ -122,8 +122,10 @@ Defaults are configuration values, not constants in the protocol.
 ### 4.1 Nodes and services
 
 One framework node maps to one RTPS participant. The participant GUID prefix is
-12 bytes derived from a vendor prefix, process identity, and a per-process
-participant counter.
+12 bytes derived from the vendor id, wall-clock time, and the participant
+address, so two participants in one process never share a prefix. The
+participant GUID uses the standard `ENTITYID_PARTICIPANT` (`0x000001c1`); the
+SPDP writer remains `0x000100c2`.
 
 Every provided service maps to one SEDP publication endpoint:
 
@@ -158,6 +160,7 @@ Implemented in `src/discovery/rtps/`:
 | `rtps_param.h/.c` | `ParameterList` writer, iterator, typed getters |
 | `rtps_message.h/.c` | RTPS header, submessage framing, `DATA`, `HEARTBEAT`, `ACKNACK`, `INFO_TS`, `INFO_DST` |
 | `rtps_spdp.h/.c` | SPDP announcement payload builder and parser |
+| `rtps_participant.h/.c` | SPDP runtime: sockets, thread, timers, remote participant table |
 
 Encoding rules:
 
@@ -177,22 +180,79 @@ returns `NB_ERR_BAD_MESSAGE` without partial state.
 
 ## 6. Runtime design
 
-The participant runtime will be added in `src/discovery/rtps/participant.c`:
+Implemented in `src/discovery/rtps/rtps_participant.h/.c`. `create()` binds
+sockets and initializes state, so callers can learn ephemeral ports before
+`start()`; `start()` launches one discovery thread; `stop()` joins it;
+`destroy()` releases all resources.
 
-- one multicast receive socket joined to the SPDP group, with address reuse;
-- one unicast receive socket for SEDP and participant messages;
-- one send socket, multicast TTL 1;
-- a dedicated discovery thread with a monotonic-clock timer wheel;
-- bounded tables for remote participants and endpoints;
-- no heap allocation in the packet receive path after warm-up.
+### 6.1 Configuration
+
+| Field | Default | Notes |
+| --- | --- | --- |
+| `bind_host` | `0.0.0.0` | interface used for binds and multicast join |
+| `advertise_host` | bind host, else `127.0.0.1` | address placed in locators |
+| `multicast_group` | `239.255.0.1` | empty string disables multicast |
+| `spdp_port` | 0 | domain port when multicast is enabled, ephemeral otherwise |
+| `unicast_port` | 0 | ephemeral; advertised as the metatraffic unicast locator |
+| `announce_interval_ms` | 3000 | minimum 100 |
+| `lease_ms` | 20000 | range 1000 to 3600000 |
+| `peers` | empty | unicast SPDP destinations in addition to multicast |
+| `max_remote_participants` | 1024 | bounded table; oldest entry is evicted |
+
+### 6.2 Sockets and thread
+
+- The multicast receive socket binds to `bind_host:spdp_port` with address
+  reuse, joins the SPDP group, and sets TTL 1 and multicast loopback on.
+- The unicast receive socket binds to `bind_host:unicast_port`. It is reserved
+  for SEDP and participant messages; SPDP itself is sent from the multicast
+  socket so the source port is the SPDP port.
+- One poller and one thread drive both sockets. The poll timeout is 100 ms and
+  `stop()` wakes the poller before joining.
+- An announcement is sent immediately on start, then every interval with
+  approximately 10% jitter. Lease expiry is checked every 200 ms.
+- Timestamps use `ntk_wall_ms()`, matching RTPS lease semantics. A backwards
+  wall-clock jump can extend a lease until the clock catches up.
+
+### 6.3 Receive path
+
+1. Drain each non-blocking socket until `NTK_ERR_AGAIN`.
+2. Parse the RTPS header, drop self announcements by GUID prefix, and walk
+   submessages.
+3. Accept only `DATA` from the SPDP writer and parse its `ParameterList`.
+   The participant GUID prefix in the payload must match the message header.
+4. Key remotes by GUID prefix. The callback fires on first sight (`ADDED`), on
+   a changed record (`UPDATED`), and when the lease expires (`REMOVED`).
+5. Callbacks run outside the table lock. The table holds 1024 entries by
+   default; when full, the entry with the oldest `last_seen` is replaced.
+
+No packet-path allocation occurs after initialization.
+
+### 6.4 Unicast peers
+
+`nb_rtps_participant_add_peer()` adds a unicast SPDP destination before start.
+Peers are used in addition to multicast. Setting `multicast_group=""` gives a
+pure unicast mode with an ephemeral or explicit SPDP port; this is the mode used
+by the CI test because it does not depend on multicast routing.
+
+Peer lists are not transitive. Scoping for 1000 participants (peer groups,
+superpeer/relay, or a discovery server) is still open; see section 7.
+
+### 6.5 Current limits
+
+- Only the SPDP built-in endpoints are advertised. SEDP is not implemented yet,
+  so endpoints are not exchanged.
+- No RTPS data plane, fragmentation, security, TCP, or IPv6.
+- On multi-host deployments `advertise_host` must be set explicitly. With a
+  wildcard bind and no advertise host, the runtime falls back to `127.0.0.1`.
+- `stop()` clears the local remote table without emitting `REMOVED` callbacks.
 
 State:
 
-| Table | Key | Contents |
+| Table | Key | Status |
 | --- | --- | --- |
-| participants | GUID prefix | locators, lease deadline, endpoint set, name |
-| endpoints | endpoint GUID | participant, topic, type, QoS, locators, vendor record |
-| writers | local writer id | sequence number, small history for retransmit |
+| participants | GUID prefix | implemented, bounded |
+| endpoints | endpoint GUID | M3 |
+| writers | local writer id | M3 |
 
 The registry receives records through the existing
 `nb_registry_backend_ops_t` seam (`start` / `stop` / `tick` / `announce`), so
@@ -224,9 +284,10 @@ unbounded growth.
 
 Discovery-level:
 
-- A DDS tool sees the framework participant and its SEDP endpoints.
-- A framework node sees DDS participants and endpoints, including topic and
-  type names.
+- With M2, a DDS tool sees the framework participant and its SPDP endpoint.
+  Endpoints are not visible until SEDP lands in M3.
+- After M3, a DDS tool sees framework endpoints, and a framework node sees DDS
+  participants and endpoints, including topic and type names.
 
 Data-level:
 
@@ -253,13 +314,16 @@ Current:
 
 - `unit.rtps_wire`: CDR round trips, alignment, `ParameterList` round trips,
   `DATA`/`HEARTBEAT`/`ACKNACK` framing, truncation handling.
+- `e2e.rtps_participant`: two participants discover each other over unicast
+  peers, names and counts are checked, and an abrupt stop expires the lease.
+  The test also covers repeated create/destroy.
+- The multicast path has an opt-in loopback test:
+  `NB_TEST_RTPS_MULTICAST=1 ctest -C Debug -R rtps`.
 
 Planned:
 
-- SPDP loopback: two participants in one process discover each other.
 - Cross-implementation: Cyclone DDS and Fast DDS in Docker; verify participant
   and endpoint visibility with packet capture and a discovery dump.
-- Leases: abrupt process exit expires the participant within the lease window.
 - Scale: 100/500/1000 simulated participants, measuring packets per second,
   memory, and discovery latency.
 - Fuzzing: `ParameterList`, submessage headers, and `DATA` inline QoS.
@@ -269,18 +333,22 @@ Planned:
 | Milestone | Deliverable |
 | --- | --- |
 | M1 (done) | RTPS wire codec and unit tests |
-| M2 | SPDP participant runtime: sockets, announce timer, lease expiry, participant table |
+| M2 (done) | SPDP participant runtime: sockets, announce timer, lease expiry, participant table |
 | M3 | SEDP: reliable built-in writers, heartbeat/acknack, endpoint mapping |
 | M4 | Public discovery API and provider seam; mesh broadcast becomes one provider |
-| M5 | Standalone `libnb_discovery` target, examples, interop and scale tests |
+| M5 | Scale to about 1000 participants: unicast peer scoping, table caps, load tests |
+| M6 | Cyclone DDS interoperability test and vendor-id notes |
+| M7 | Standalone `libnb_discovery` target, examples, packaging |
 
 M2 and M3 are the first point at which two framework processes can discover
 each other over RTPS without changing the data plane.
 
 ## 11. Open decisions
 
-- Register an OMG vendor id, or keep a private placeholder and document it.
-- Native-only deployment, or ROS 2 naming/interop mode from the start.
-- Whether a data-plane gateway is in scope for DDS/ROS 2 payload exchange.
-- Target participant count and whether unicast peers or a discovery server must
-  ship with the first release.
+- Vendor id: use the placeholder `0x01,0x9a` for now; replace it with an
+  OMG-assigned value before claiming conformance.
+- ROS 2 naming, node graph visibility, and `ros_discovery_info` are deferred.
+- A DDS/ROS 2 data-plane gateway is out of scope; discovery alone does not move
+  business payloads.
+- Scale target is about 1000 participants. The scoping model (peer groups,
+  superpeer/relay, or discovery server) is not chosen yet.

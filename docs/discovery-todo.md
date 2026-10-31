@@ -18,7 +18,7 @@ changes state so a later session can resume without reading the whole history.
 
 - M0 design: done (`docs/discovery.md`)
 - M1 wire codec: done
-- M2 SPDP runtime: in progress
+- M2 SPDP runtime: done
 - M3 SEDP: pending
 - M4 integration: pending
 - M5 scale: pending
@@ -35,21 +35,21 @@ changes state so a later session can resume without reading the whole history.
 - [x] SPDP announcement payload build/parse
 - [x] Unit tests for round trips and truncated input
 
-## M2: SPDP runtime
+## M2: SPDP runtime (done)
 
-- [ ] Participant config and GUID prefix generation
-- [ ] UDP sockets: multicast receive, unicast receive, send
-- [ ] Multicast join, loopback and TTL settings
-- [ ] Discovery thread with poller timeout
-- [ ] Announce timer with jitter; immediate announce on start
-- [ ] SPDP send to multicast and configured unicast peers
-- [ ] Receive path: header, submessage walk, DATA decode, SPDP parse
-- [ ] Ignore self by GUID prefix; update remote participant table
-- [ ] Lease expiry sweep and add/update/remove callbacks
-- [ ] Bounded participant table with eviction policy
-- [ ] Loopback test using unicast peers (no multicast dependency)
-- [ ] Optional multicast loopback test
-- [ ] Start/stop without leaks; repeated create/destroy test
+- [x] Participant config and GUID prefix generation
+- [x] UDP sockets: multicast receive, unicast receive, send
+- [x] Multicast join, loopback and TTL settings
+- [x] Discovery thread with poller timeout
+- [x] Announce timer with jitter; immediate announce on start
+- [x] SPDP send to multicast and configured unicast peers
+- [x] Receive path: header, submessage walk, DATA decode, SPDP parse
+- [x] Ignore self by GUID prefix; update remote participant table
+- [x] Lease expiry sweep and add/update/remove callbacks
+- [x] Bounded participant table with eviction policy
+- [x] Loopback test using unicast peers (no multicast dependency)
+- [x] Optional multicast loopback test (`NB_TEST_RTPS_MULTICAST=1`)
+- [x] Start/stop without leaks; repeated create/destroy test
 
 ## M3: SEDP
 
@@ -120,3 +120,5 @@ changes state so a later session can resume without reading the whole history.
 ## Change log
 
 - 2026-10-31: M1 wire codec and SPDP payload codec completed; plan created.
+- 2026-10-31: M2 SPDP runtime, unicast-peer and multicast loopback tests
+  completed.
