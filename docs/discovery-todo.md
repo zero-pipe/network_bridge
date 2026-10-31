@@ -30,7 +30,7 @@ changes state so a later session can resume without reading the whole history.
   and against Cyclone on Windows, in multicast and unicast-only modes; the
   Linux runner pass and the CI job pending)
 - M7 packaging: pending
-- M8 serialization on Micro-CDR: pending (vendored, not yet wired into CMake)
+- M8 serialization on Micro-CDR: done (vendored subset, no submodule)
 - M9 `DATA_FRAG`: pending
 - M10 generic type support: pending
 - M11 QoS semantics: pending
@@ -42,8 +42,8 @@ it. Work is ordered so each step removes a real interop limit.
 
 | Order | Track | Why |
 | --- | --- | --- |
-| P0 | M8: serialization on Micro-CDR | Removes the hand-written CDR surface before more types and fragmentation build on it; byte-level refactor, no protocol change |
-| P1 | M9: `DATA_FRAG` | Samples and SEDP payloads are capped at 1200 bytes today; large IDL values are impossible without it |
+| P0 | M9: `DATA_FRAG` | Samples and SEDP payloads are capped at 1200 bytes today; large IDL values are impossible without it |
+| P1 | M8 follow-ups | Optional Micro-CDR cleanups (typed SPDP/SEDP codecs, shared encapsulation helper); wire format unchanged |
 | P2 | M10: generic type support | The point of "own DDS": arbitrary structs instead of the fixed `dds::Message` |
 | P3 | M11: QoS semantics | Late-joiner durability, keep-all history, partition matching |
 | P4 | M5: scale and scoping | Unicast peer scoping, discovery server, 1000-participant measurements |
@@ -165,9 +165,9 @@ a fixed participant index instead.
 
 ## M8: serialization on Micro-CDR (P0)
 
-- [x] Wire `3rdparty/micro-cdr` into the top-level build with
-      `UCDR_SUPERBUILD=OFF`, `UCDR_BUILD_TESTS=OFF`, `UCDR_BUILD_EXAMPLES=OFF`
-      and `BUILD_SHARED_LIBS=OFF`, then link `microcdr` into the RTPS target
+- [x] Vendor `3rdparty/micro-cdr` as plain files (headers, sources, a minimal
+      `CMakeLists.txt` and `LICENSE`; no submodule, no upstream tests, examples,
+      CI, packaging or docs) and link `microcdr` into the RTPS target
 - [x] Re-implement `rtps_cdr.{c,h}` as a thin wrapper over `ucdrBuffer` without
       changing the `nb_cdr_*` signatures, so codec call sites stay untouched
 - [x] Initialise buffers with an explicit little-endian origin
@@ -326,6 +326,10 @@ a fixed participant index instead.
   alignment padding, zero-copy `nb_cdr_get_bytes`, and a pinned byte-layout
   test (`unit.rtps_cdr`). Cyclone interop stays green in reliable multicast and
   unicast-only modes, so the wire format is unchanged.
+- 2026-10-31: Micro-CDR is vendored as plain in-tree files (headers, sources,
+  a trimmed `CMakeLists.txt` and the Apache-2.0 `LICENSE`); the Git submodule
+  and `.gitmodules` entry are gone, and the upstream tests, examples, CI and
+  packaging directories were removed.
 - 2026-10-31: Completed bidirectional RTPS application DATA. Added the
   subscription data callback, remote publication/local subscription matching,
   nb-to-nb delivery, and Cyclone-to-nb delivery. Fixed CDR_LE option-bit

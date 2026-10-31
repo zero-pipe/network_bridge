@@ -26,12 +26,7 @@ set(NTK_ENABLE_OPENSSL OFF CACHE BOOL "" FORCE)
 add_subdirectory(3rdparty/ntk)
 add_subdirectory(3rdparty/elog)
 
-# Micro-CDR: CDR (de)serialization used by the RTPS codec. The superbuild
-# wrapper is disabled so it compiles as part of this tree.
-set(UCDR_SUPERBUILD OFF CACHE BOOL "" FORCE)
-set(UCDR_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(UCDR_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(UCDR_BUILD_CI_TESTS OFF CACHE BOOL "" FORCE)
+# Micro-CDR: vendored CDR (de)serialization used by the RTPS codec.
 add_subdirectory(3rdparty/micro-cdr)
 
 # Public options use the NB_ prefix so they can be embedded with
