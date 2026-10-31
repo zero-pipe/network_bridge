@@ -19,9 +19,9 @@ int main(void)
 
     nb_node_config_default(&cfg);
     cfg.name = "HelloNode";
-    cfg.transport.kind = NB_TRANSPORT_UDP;
+    cfg.transport.kind = NB_TRANSPORT_KIND_UDP;
     cfg.transport.bind_host = "127.0.0.1";
-    cfg.mode = NB_MODE_STATIC;
+    cfg.mode = NB_NODE_MODE_STATIC;
     cfg.runtime.io_threads = 1;
 
     rc = nb_node_create(&cfg, &node);
@@ -31,7 +31,7 @@ int main(void)
     }
     nb_log_info("node=%s transport=%s data_port=%u bindings=%zu",
                  nb_node_name(node),
-                 nb_node_transport(node) == NB_TRANSPORT_TCP ? "tcp" : "udp",
+                 nb_node_transport(node) == NB_TRANSPORT_KIND_TCP ? "tcp" : "udp",
                  (unsigned)nb_node_data_port(node),
                  nb_node_binding_count(node));
     nb_node_destroy(node);

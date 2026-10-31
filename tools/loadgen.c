@@ -461,7 +461,7 @@ int main(int argc, char **argv)
     char shm_target[128];
     int i;
     int rc;
-    nb_node_mode_t mode = NB_MODE_MESH;
+    nb_node_mode_t mode = NB_NODE_MODE_MESH;
     FILE *out = stdout;
 
     memset(&opt, 0, sizeof(opt));
@@ -473,7 +473,7 @@ int main(int argc, char **argv)
     opt.timeout_ms = 5000;
     opt.connect_timeout_seconds = 20;
     opt.io_threads = 1;
-    opt.shm_channel = "zrpc-shm-bench";
+    opt.shm_channel = "nb-shm-bench";
     opt.bind = "0.0.0.0";
 
     for (i = 1; i < argc; i++) {
@@ -481,7 +481,7 @@ int main(int argc, char **argv)
         if (strcmp(a, "--transport") == 0 && i + 1 < argc) {
             const char *t = argv[++i];
             opt.transport =
-                (strcmp(t, "tcp") == 0 || strcmp(t, "TCP") == 0) ? NB_TRANSPORT_TCP : NB_TRANSPORT_UDP;
+                (strcmp(t, "tcp") == 0 || strcmp(t, "TCP") == 0) ? NB_TRANSPORT_KIND_TCP : NB_TRANSPORT_KIND_UDP;
         } else if (strcmp(a, "--dds") == 0) {
             opt.use_dds = 1;
         } else if (strcmp(a, "--dds-domain") == 0 && i + 1 < argc) {
@@ -495,7 +495,7 @@ int main(int argc, char **argv)
         } else if (strcmp(a, "--service") == 0 && i + 1 < argc) {
             opt.service = argv[++i];
         } else if (strcmp(a, "--mode") == 0 && i + 1 < argc) {
-            mode = (strcmp(argv[++i], "static") == 0) ? NB_MODE_STATIC : NB_MODE_MESH;
+            mode = (strcmp(argv[++i], "static") == 0) ? NB_NODE_MODE_STATIC : NB_NODE_MODE_MESH;
         } else if (strcmp(a, "--method") == 0 && i + 1 < argc) {
             opt.method = argv[++i];
         } else if (strcmp(a, "--worker-id") == 0 && i + 1 < argc) {
@@ -609,10 +609,10 @@ int main(int argc, char **argv)
         memset(&shm_binding, 0, sizeof(shm_binding));
         shm_binding.name = "shm";
         shm_binding.endpoint = shm_endpoint;
-        shm_binding.intra_process = NB_INTRA_OFF;
+        shm_binding.intra_process = NB_INTRA_PROCESS_OFF;
         cfg.transport.bindings = &shm_binding;
         cfg.transport.binding_count = 1;
-        cfg.mode = NB_MODE_STATIC;
+        cfg.mode = NB_NODE_MODE_STATIC;
     } else if (opt.use_dds) {
         if (nb_cyclone_dds_register() != NB_OK) {
             nb_log_error("dds provider register failed");
@@ -622,10 +622,10 @@ int main(int argc, char **argv)
         memset(&dds_binding, 0, sizeof(dds_binding));
         dds_binding.name = "dds";
         dds_binding.endpoint = dds_endpoint;
-        dds_binding.intra_process = NB_INTRA_OFF;
+        dds_binding.intra_process = NB_INTRA_PROCESS_OFF;
         cfg.transport.bindings = &dds_binding;
         cfg.transport.binding_count = 1;
-        cfg.mode = NB_MODE_STATIC;
+        cfg.mode = NB_NODE_MODE_STATIC;
     }
 
     sem = ntk_sem_create(0);

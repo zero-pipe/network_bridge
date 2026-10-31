@@ -112,14 +112,14 @@ int nb_proxy_call_async(nb_proxy_t *proxy,
                         const char *method,
                         const nb_payload_t *payload,
                         const nb_call_options_t *options,
-                        response_fn cb,
+                        nb_response_fn cb,
                         void *user);
 int nb_proxy_call_async_owned(nb_proxy_t *proxy,
                               const char *service,
                               const char *method,
                               nb_owned_payload_t *payload,
                               const nb_call_options_t *options,
-                              response_fn cb,
+                              nb_response_fn cb,
                               void *user);
 
 /*
@@ -159,15 +159,15 @@ void nb_response_release(nb_response_t *response);
 int nb_proxy_cancel(nb_proxy_t *proxy, nb_request_id_t request_id);
 
 /* ---- Streaming calls ---- */
-/* Server streaming: a unary request with a chunked response, until NB_STREAM_LAST.
+/* Server streaming: a unary request with a chunked response, until NB_STREAM_FLAG_LAST.
  * options supplies the timeout and, optionally, out_request_id. */
 int nb_proxy_call_server_stream(nb_proxy_t *proxy,
                                 const char *service,
                                 const char *method,
                                 const nb_payload_t *payload,
                                 const nb_call_options_t *options,
-                                response_chunk_fn on_chunk,
-                                stream_done_fn on_done,
+                                nb_response_chunk_fn on_chunk,
+                                nb_stream_done_fn on_done,
                                 void *user);
 
 /* Client streaming: request chunks are sent via nb_proxy_stream_send and a
@@ -176,7 +176,7 @@ int nb_proxy_open_client_stream(nb_proxy_t *proxy,
                                 const char *service,
                                 const char *method,
                                 const nb_call_options_t *options,
-                                response_fn cb,
+                                nb_response_fn cb,
                                 void *user,
                                 nb_stream_t **out_stream);
 /* Bidirectional streaming: request chunks are sent while response chunks arrive.
@@ -185,13 +185,13 @@ int nb_proxy_open_bidi_stream(nb_proxy_t *proxy,
                               const char *service,
                               const char *method,
                               const nb_call_options_t *options,
-                              response_chunk_fn on_chunk,
-                              stream_done_fn on_done,
+                              nb_response_chunk_fn on_chunk,
+                              nb_stream_done_fn on_done,
                               void *user,
                               nb_stream_t **out_stream);
 
 /*
- * Send one request chunk; the final chunk must carry NB_STREAM_LAST.
+ * Send one request chunk; the final chunk must carry NB_STREAM_FLAG_LAST.
  * The chunk may be released as soon as send returns; the framework copies
  * whatever it needs.
  */

@@ -1,7 +1,7 @@
 /*
  * 15 SHM：服务端。
  *
- * 服务端在 shm://zrpc-example:1 上监听，客户端使用 :2。两个进程必须使用
+ * 服务端在 shm://nb-example:1 上监听，客户端使用 :2。两个进程必须使用
  * 相同的 channel 名，并且先启动服务端。Linux POSIX 共享内存实现。
  */
 #include <nb/server.h>
@@ -34,12 +34,12 @@ int main(void)
 
     memset(&binding, 0, sizeof(binding));
     binding.name = "shm";
-    binding.endpoint = "shm://zrpc-example:1";
-    binding.intra_process = NB_INTRA_OFF;
+    binding.endpoint = "shm://nb-example:1";
+    binding.intra_process = NB_INTRA_PROCESS_OFF;
 
     nb_node_config_default(&cfg);
     cfg.name = "ShmServer";
-    cfg.mode = NB_MODE_STATIC;
+    cfg.mode = NB_NODE_MODE_STATIC;
     cfg.runtime.io_threads = 1;
     cfg.transport.bindings = &binding;
     cfg.transport.binding_count = 1;
@@ -57,7 +57,7 @@ int main(void)
         return 1;
     }
 
-    nb_log_info("shm server ready on shm://zrpc-example:1 (Ctrl+C to stop)");
+    nb_log_info("shm server ready on shm://nb-example:1 (Ctrl+C to stop)");
     (void)nb_node_run(node);
     nb_service_destroy(svc);
     nb_node_destroy(node);

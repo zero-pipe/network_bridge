@@ -20,7 +20,7 @@ extern "C" {
  * provider service id, and uri is the canonical wire/storage form.
  *
  * Two fields are derived rather than independent:
- *   - transport is the built-in kind for udp/tcp, and NB_TRANSPORT_CUSTOM for
+ *   - transport is the built-in kind for udp/tcp, and NB_TRANSPORT_KIND_CUSTOM for
  *     provider schemes (shm, dds, ...). scheme is the source of truth.
  *   - uri is a cached snapshot refreshed by nb_endpoint_refresh() /
  *     nb_endpoint_from_parts(); callers must not assume it stays in sync after
@@ -43,7 +43,7 @@ typedef struct nb_endpoint {
 
 /* ---- Scheme and transport mapping ---- */
 /* Map a provider scheme to a built-in transport kind; provider schemes map to
- * NB_TRANSPORT_CUSTOM. */
+ * NB_TRANSPORT_KIND_CUSTOM. */
 nb_transport_kind_t nb_transport_kind_from_scheme(const char *scheme);
 
 /* ---- Parse and format ---- */
@@ -54,7 +54,7 @@ nb_transport_kind_t nb_transport_kind_from_scheme(const char *scheme);
 int nb_endpoint_parse(const char *uri, nb_endpoint_t *out);
 
 /* Build an endpoint from parts and fill its canonical URI. transport must
- * agree with scheme (NB_TRANSPORT_CUSTOM for provider schemes). */
+ * agree with scheme (NB_TRANSPORT_KIND_CUSTOM for provider schemes). */
 int nb_endpoint_from_parts(nb_endpoint_t *out,
                            const char *scheme,
                            const char *host,

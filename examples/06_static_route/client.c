@@ -21,14 +21,14 @@ int main(void)
 
     nb_node_config_default(&cfg);
     cfg.name = "StaticClient";
-    cfg.transport.kind = NB_TRANSPORT_TCP;
+    cfg.transport.kind = NB_TRANSPORT_KIND_TCP;
     cfg.transport.bind_host = "127.0.0.1";
-    cfg.mode = NB_MODE_STATIC;
+    cfg.mode = NB_NODE_MODE_STATIC;
     cfg.runtime.io_threads = 1;
 
     rc = nb_node_create(&cfg, &node);
     if (rc == NB_OK) {
-        rc = nb_node_add_static_route(node, "OrderService", "127.0.0.1", 42420, NB_TRANSPORT_TCP);
+        rc = nb_node_add_static_route(node, "OrderService", "127.0.0.1", 42420, NB_TRANSPORT_KIND_TCP);
     }
     if (rc == NB_OK) {
         rc = nb_proxy_create(node, NULL, &proxy);

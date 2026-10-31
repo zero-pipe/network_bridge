@@ -45,7 +45,7 @@ void nb_log_write(nb_log_level_t level, const char *tag, const char *format, ...
 #endif
 
 #ifndef NB_LOG_TAG
-#define NB_LOG_TAG "rpc"
+#define NB_LOG_TAG "nb"
 #endif
 
 #define NB_LOG_AT_(level_, ...)                           \

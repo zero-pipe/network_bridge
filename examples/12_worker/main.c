@@ -2,7 +2,7 @@
  * 12 Worker: run a blocking handler on the node worker pool.
  *
  * The server configures handler_threads=2 and registers slow with
- * NB_SERVICE_EXEC_WORKER. The handler sleeps on a worker thread, not on the
+ * NB_SERVICE_EXEC_MODE_WORKER. The handler sleeps on a worker thread, not on the
  * poller thread that owns the transport.
  */
 #include <nb/client.h>
@@ -38,8 +38,8 @@ int main(void)
 
     nb_node_config_default(&scfg);
     scfg.name = "WorkerServer";
-    scfg.mode = NB_MODE_STATIC;
-    scfg.transport.kind = NB_TRANSPORT_TCP;
+    scfg.mode = NB_NODE_MODE_STATIC;
+    scfg.transport.kind = NB_TRANSPORT_KIND_TCP;
     scfg.transport.bind_host = "127.0.0.1";
     scfg.transport.data_port = 0;
     scfg.runtime.io_threads = 1;
@@ -47,13 +47,13 @@ int main(void)
 
     nb_node_config_default(&ccfg);
     ccfg.name = "WorkerClient";
-    ccfg.mode = NB_MODE_STATIC;
-    ccfg.transport.kind = NB_TRANSPORT_TCP;
+    ccfg.mode = NB_NODE_MODE_STATIC;
+    ccfg.transport.kind = NB_TRANSPORT_KIND_TCP;
     ccfg.transport.bind_host = "127.0.0.1";
     ccfg.transport.data_port = 0;
     ccfg.runtime.io_threads = 1;
 
-    options.exec = NB_SERVICE_EXEC_WORKER;
+    options.exec = NB_SERVICE_EXEC_MODE_WORKER;
 
     rc = nb_node_create(&scfg, &server);
     if (rc == NB_OK) {

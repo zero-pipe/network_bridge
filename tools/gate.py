@@ -102,7 +102,7 @@ class Context:
         self.env = child_env()
         self.connect_timeout = int(args.connect_timeout)
         self.dds_domain = args.dds_domain if args.dds_domain is not None else random.randint(0, 232)
-        self.shm_channel = "zrpc-shm-{}-{}".format(os.getpid(), random.randint(0, 1 << 30))
+        self.shm_channel = "nb-shm-{}-{}".format(os.getpid(), random.randint(0, 1 << 30))
         if args.command == "stability" and not args.transports:
             # Soak is intentionally short by default; ask for more transports
             # explicitly with --transports tcp,udp,dds.

@@ -2,7 +2,7 @@
 #define NB_CLIENT_H
 
 /*
- * rpc client API.
+ * Network bridge client API.
  *
  * A proxy is the high-level interface with service discovery and routing; a
  * stub is the transport-independent low-level call primitive. Synchronous

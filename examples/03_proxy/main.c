@@ -19,9 +19,9 @@ int main(void)
 
     nb_node_config_default(&cfg);
     cfg.name = "ProxyExample";
-    cfg.transport.kind = NB_TRANSPORT_TCP;
+    cfg.transport.kind = NB_TRANSPORT_KIND_TCP;
     cfg.transport.bind_host = "127.0.0.1";
-    cfg.mode = NB_MODE_STATIC;
+    cfg.mode = NB_NODE_MODE_STATIC;
     cfg.runtime.io_threads = 1;
     rc = nb_node_create(&cfg, &node);
     if (rc != NB_OK) {

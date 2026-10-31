@@ -1,7 +1,7 @@
 /*
  * 15 SHM：客户端。
  *
- * 通过 shm://zrpc-example:1 直接调用服务端，不启动服务发现。
+ * 通过 shm://nb-example:1 直接调用服务端，不启动服务发现。
  */
 #include <nb/client.h>
 #include <nb/shm.h>
@@ -29,12 +29,12 @@ int main(void)
 
     memset(&binding, 0, sizeof(binding));
     binding.name = "shm";
-    binding.endpoint = "shm://zrpc-example:2";
-    binding.intra_process = NB_INTRA_OFF;
+    binding.endpoint = "shm://nb-example:2";
+    binding.intra_process = NB_INTRA_PROCESS_OFF;
 
     nb_node_config_default(&cfg);
     cfg.name = "ShmClient";
-    cfg.mode = NB_MODE_STATIC;
+    cfg.mode = NB_NODE_MODE_STATIC;
     cfg.runtime.io_threads = 1;
     cfg.transport.bindings = &binding;
     cfg.transport.binding_count = 1;
@@ -44,7 +44,7 @@ int main(void)
         rc = nb_proxy_create(node, NULL, &proxy);
     }
     if (rc == NB_OK) {
-        rc = nb_proxy_set_target_uri(proxy, "shm://zrpc-example:1");
+        rc = nb_proxy_set_target_uri(proxy, "shm://nb-example:1");
     }
     if (rc != NB_OK) {
         nb_log_error("shm client setup failed: %d (%s)", rc, nb_error_name(rc));

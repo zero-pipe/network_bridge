@@ -24,6 +24,20 @@
 extern "C" {
 #endif
 
+/*
+ * Deprecation marker. Deprecated names keep compiling (unless
+ * NB_NO_DEPRECATED_API is defined) but emit a diagnostic on GCC/Clang/MSVC.
+ */
+#ifndef NB_DEPRECATED
+#if defined(__GNUC__) || defined(__clang__)
+#define NB_DEPRECATED(msg) __attribute__((deprecated(msg)))
+#elif defined(_MSC_VER)
+#define NB_DEPRECATED(msg) __declspec(deprecated(msg))
+#else
+#define NB_DEPRECATED(msg)
+#endif
+#endif
+
 /* ---- Message flags ---- */
 /*
  * When set, a response carries a framework error code in its status field
@@ -85,11 +99,11 @@ typedef struct nb_call nb_call_t;
 typedef struct nb_stream nb_stream_t;
 
 /* ---- Stream flags and chunks ---- */
-#define NB_STREAM_FIRST 0x01u
-#define NB_STREAM_LAST 0x02u
+#define NB_STREAM_FLAG_FIRST 0x01u
+#define NB_STREAM_FLAG_LAST 0x02u
 /* Internal control flag sent by nb_proxy_stream_cancel; applications do not
  * set it on chunks. */
-#define NB_STREAM_CANCEL 0x04u
+#define NB_STREAM_FLAG_CANCEL 0x04u
 
 /* One-way data chunk. data is valid only for the duration of the callback or
  * send call that receives it. */
@@ -99,14 +113,14 @@ typedef struct nb_chunk {
     uint64_t offset;
     const nb_metadata_t *metadata; /* may be NULL; callback scope only */
     const char *status_msg;        /* may be NULL */
-    uint32_t flags;                /* NB_STREAM_FIRST / NB_STREAM_LAST / NB_STREAM_CANCEL */
+    uint32_t flags;                /* NB_STREAM_FLAG_FIRST / NB_STREAM_FLAG_LAST / NB_STREAM_FLAG_CANCEL */
     uint8_t encoding;
 } nb_chunk_t;
 
 /* Stream metadata carried end-to-end by transports; NULL/absent on unary
  * messages. */
 typedef struct nb_stream_meta {
-    uint32_t flags; /* NB_STREAM_FIRST / NB_STREAM_LAST */
+    uint32_t flags; /* NB_STREAM_FLAG_FIRST / NB_STREAM_FLAG_LAST */
     uint32_t stream_id;
     uint64_t offset;
     uint64_t total_size;
@@ -115,25 +129,25 @@ typedef struct nb_stream_meta {
 /* ---- Transport and node mode ---- */
 /* Built-in transport kinds. The default binding uses UDP; explicit bindings
  * may select a different built-in transport by scheme. Provider-backed schemes
- * (shm, dds, ...) map to NB_TRANSPORT_CUSTOM. */
+ * (shm, dds, ...) map to NB_TRANSPORT_KIND_CUSTOM. */
 typedef enum nb_transport_kind {
-    NB_TRANSPORT_UDP = 0,
-    NB_TRANSPORT_TCP = 1,
-    NB_TRANSPORT_CUSTOM = 255
+    NB_TRANSPORT_KIND_UDP = 0,
+    NB_TRANSPORT_KIND_TCP = 1,
+    NB_TRANSPORT_KIND_CUSTOM = 255
 } nb_transport_kind_t;
 
 /* Optional transport-local fast path for event/pub-sub delivery. */
 typedef enum nb_intra_process {
-    NB_INTRA_OFF = 0,
-    NB_INTRA_AUTO = 1,
-    NB_INTRA_ONLY = 2
+    NB_INTRA_PROCESS_OFF = 0,
+    NB_INTRA_PROCESS_AUTO = 1,
+    NB_INTRA_PROCESS_ONLY = 2
 } nb_intra_process_t;
 
 /* Node discovery mode: MESH uses broadcast discovery; STATIC uses only the
  * static route table and starts no discovery. */
 typedef enum nb_node_mode {
-    NB_MODE_MESH = 0,
-    NB_MODE_STATIC = 1
+    NB_NODE_MODE_MESH = 0,
+    NB_NODE_MODE_STATIC = 1
 } nb_node_mode_t;
 
 /* Log severity; monotonically increasing (0=assert .. 5=verbose). */
@@ -245,9 +259,11 @@ typedef void (*nb_stream_done_fn)(int status, void *user);
 
 /* Deprecated spellings kept for source compatibility. New code should use the
  * nb_-prefixed typedefs above. */
+#ifndef NB_NO_DEPRECATED_API
 typedef nb_response_fn response_fn;
 typedef nb_response_chunk_fn response_chunk_fn;
 typedef nb_stream_done_fn stream_done_fn;
+#endif
 
 /* ---- Version ---- */
 /*
@@ -288,5 +304,25 @@ typedef nb_stream_done_fn stream_done_fn;
 #ifdef __cplusplus
 }
 #endif
+
+/* ---- Deprecated enum spellings ---------------------------------------- */
+/*
+ * These aliases keep older sources compiling after the 0.2 naming cleanup:
+ * enum constants now follow NB_<TYPE>_<VALUE>. Define NB_NO_DEPRECATED_API to
+ * hide them and catch stale names at compile time.
+ */
+#ifndef NB_NO_DEPRECATED_API
+#define NB_MODE_MESH          NB_NODE_MODE_MESH
+#define NB_MODE_STATIC        NB_NODE_MODE_STATIC
+#define NB_INTRA_OFF          NB_INTRA_PROCESS_OFF
+#define NB_INTRA_AUTO         NB_INTRA_PROCESS_AUTO
+#define NB_INTRA_ONLY         NB_INTRA_PROCESS_ONLY
+#define NB_TRANSPORT_UDP      NB_TRANSPORT_KIND_UDP
+#define NB_TRANSPORT_TCP      NB_TRANSPORT_KIND_TCP
+#define NB_TRANSPORT_CUSTOM   NB_TRANSPORT_KIND_CUSTOM
+#define NB_STREAM_FIRST       NB_STREAM_FLAG_FIRST
+#define NB_STREAM_LAST        NB_STREAM_FLAG_LAST
+#define NB_STREAM_CANCEL      NB_STREAM_FLAG_CANCEL
+#endif /* NB_NO_DEPRECATED_API */
 
 #endif /* NB_TYPES_H */

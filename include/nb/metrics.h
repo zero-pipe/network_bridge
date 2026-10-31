@@ -91,9 +91,9 @@ typedef struct nb_peer_stats {
  * NB_METRIC_INC call sites. offset is the field offset inside nb_metrics_t.
  */
 typedef enum nb_metric_type {
-    NB_METRIC_COUNTER = 0,
-    NB_METRIC_GAUGE,
-    NB_METRIC_HISTOGRAM
+    NB_METRIC_TYPE_COUNTER = 0,
+    NB_METRIC_TYPE_GAUGE,
+    NB_METRIC_TYPE_HISTOGRAM
 } nb_metric_type_t;
 
 /*
@@ -128,5 +128,12 @@ size_t nb_metric_latency_bounds(const uint32_t **bounds);
 #ifdef __cplusplus
 }
 #endif
+
+/* ---- Deprecated enum spellings ---------------------------------------- */
+#ifndef NB_NO_DEPRECATED_API
+#define NB_METRIC_COUNTER    NB_METRIC_TYPE_COUNTER
+#define NB_METRIC_GAUGE      NB_METRIC_TYPE_GAUGE
+#define NB_METRIC_HISTOGRAM  NB_METRIC_TYPE_HISTOGRAM
+#endif /* NB_NO_DEPRECATED_API */
 
 #endif /* NB_METRICS_H */

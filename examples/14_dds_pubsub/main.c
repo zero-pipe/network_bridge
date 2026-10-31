@@ -61,11 +61,11 @@ int main(void)
     memset(&binding, 0, sizeof(binding));
     binding.name = "dds";
     binding.endpoint = "dds://0";
-    binding.intra_process = NB_INTRA_ONLY;
+    binding.intra_process = NB_INTRA_PROCESS_ONLY;
 
     nb_node_config_default(&cfg);
     cfg.name = "DdsPubSub";
-    cfg.mode = NB_MODE_STATIC;
+    cfg.mode = NB_NODE_MODE_STATIC;
     cfg.runtime.io_threads = 1;
     cfg.transport.bindings = &binding;
     cfg.transport.binding_count = 1;

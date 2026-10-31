@@ -2,7 +2,7 @@
 #define NB_SERVER_H
 
 /*
- * rpc server API.
+ * Network bridge server API.
  *
  * Includes the node runtime and service registration/reply interfaces.
  * Client-only programs may include client.h instead, keeping server-side types

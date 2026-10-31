@@ -1,5 +1,5 @@
 /*
- * 11 Streaming: upload chunks from a client and reply after NB_STREAM_LAST.
+ * 11 Streaming: upload chunks from a client and reply after NB_STREAM_FLAG_LAST.
  *
  * Both nodes live in one process. The server binds TCP port 0 and the client
  * queries the assigned port, so no external process or fixed port is needed.
@@ -36,7 +36,7 @@ static void on_upload(nb_call_t *call, const nb_request_t *req, const nb_chunk_t
         memcpy(st->buf + st->len, chunk->data, chunk->len);
         st->len += chunk->len;
     }
-    if (chunk->flags & NB_STREAM_LAST) {
+    if (chunk->flags & NB_STREAM_FLAG_LAST) {
         nb_log_info("server received %d chunks, %zu bytes", st->chunks, st->len);
         nb_reply_bytes(call, NB_OK, st->buf, st->len);
     }
@@ -84,16 +84,16 @@ int main(void)
 
     nb_node_config_default(&scfg);
     scfg.name = "StreamServer";
-    scfg.mode = NB_MODE_STATIC;
-    scfg.transport.kind = NB_TRANSPORT_TCP;
+    scfg.mode = NB_NODE_MODE_STATIC;
+    scfg.transport.kind = NB_TRANSPORT_KIND_TCP;
     scfg.transport.bind_host = "127.0.0.1";
     scfg.transport.data_port = 0;
     scfg.runtime.io_threads = 1;
 
     nb_node_config_default(&ccfg);
     ccfg.name = "StreamClient";
-    ccfg.mode = NB_MODE_STATIC;
-    ccfg.transport.kind = NB_TRANSPORT_TCP;
+    ccfg.mode = NB_NODE_MODE_STATIC;
+    ccfg.transport.kind = NB_TRANSPORT_KIND_TCP;
     ccfg.transport.bind_host = "127.0.0.1";
     ccfg.transport.data_port = 0;
     ccfg.runtime.io_threads = 1;
@@ -132,7 +132,7 @@ int main(void)
     chunk.data = "hello ";
     chunk.len = 6;
     chunk.offset = 0;
-    chunk.flags = NB_STREAM_FIRST;
+    chunk.flags = NB_STREAM_FLAG_FIRST;
     rc = nb_proxy_stream_send(stream, &chunk);
 
     if (rc == NB_OK) {
@@ -146,7 +146,7 @@ int main(void)
         chunk.data = "world";
         chunk.len = 5;
         chunk.offset = 16;
-        chunk.flags = NB_STREAM_LAST;
+        chunk.flags = NB_STREAM_FLAG_LAST;
         rc = nb_proxy_stream_send(stream, &chunk);
     }
     if (rc == NB_OK) {

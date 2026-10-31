@@ -30,9 +30,9 @@ typedef struct nb_stub nb_stub_t;
 typedef nb_endpoint_t nb_stub_target_t;
 
 typedef enum nb_stub_kind {
-    NB_STUB_REQUEST = 0, /* expects a response */
-    NB_STUB_EVENT = 1,   /* one-way; does not wait for a response */
-    NB_STUB_CANCEL = 2   /* control-plane cancel; does not wait for a response */
+    NB_STUB_KIND_REQUEST = 0, /* expects a response */
+    NB_STUB_KIND_EVENT = 1,   /* one-way; does not wait for a response */
+    NB_STUB_KIND_CANCEL = 2   /* control-plane cancel; does not wait for a response */
 } nb_stub_kind_t;
 
 /* Immutable description of one call plus a fill-in target endpoint.
@@ -124,7 +124,7 @@ int nb_stub_call_async(nb_stub_t *stub,
                        const char *service,
                        const char *method,
                        const nb_payload_t *payload,
-                       response_fn cb,
+                       nb_response_fn cb,
                        void *user,
                        uint64_t timeout_ms,
                        nb_request_id_t *out_request_id);
@@ -135,7 +135,7 @@ int nb_stub_call_async_with_metadata(nb_stub_t *stub,
                                      const char *method,
                                      const nb_payload_t *payload,
                                      const nb_metadata_t *metadata,
-                                     response_fn cb,
+                                     nb_response_fn cb,
                                      void *user,
                                      uint64_t timeout_ms,
                                      nb_request_id_t *out_request_id);
@@ -151,9 +151,9 @@ int nb_stub_call_owned(nb_stub_t *stub,
                        const char *method,
                        nb_owned_payload_t *payload,
                        const nb_metadata_t *metadata,
-                       response_fn cb,
-                       response_chunk_fn chunk_cb,
-                       stream_done_fn done_cb,
+                       nb_response_fn cb,
+                       nb_response_chunk_fn chunk_cb,
+                       nb_stream_done_fn done_cb,
                        bool streaming,
                        void *user,
                        uint64_t timeout_ms,
@@ -169,5 +169,12 @@ int nb_stub_call_owned_ex(nb_stub_t *stub,
 #ifdef __cplusplus
 }
 #endif
+
+/* ---- Deprecated enum spellings ---------------------------------------- */
+#ifndef NB_NO_DEPRECATED_API
+#define NB_STUB_REQUEST  NB_STUB_KIND_REQUEST
+#define NB_STUB_EVENT    NB_STUB_KIND_EVENT
+#define NB_STUB_CANCEL   NB_STUB_KIND_CANCEL
+#endif /* NB_NO_DEPRECATED_API */
 
 #endif /* NB_STUB_H */

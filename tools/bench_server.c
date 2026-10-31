@@ -111,7 +111,7 @@ int main(int argc, char **argv)
     int use_dds = 0;
     int use_shm = 0;
     int dds_domain = 0;
-    const char *shm_channel = "zrpc-shm-bench";
+    const char *shm_channel = "nb-shm-bench";
     char dds_endpoint[32];
     char shm_endpoint[128];
     nb_binding_config_t dds_binding;
@@ -120,7 +120,7 @@ int main(int argc, char **argv)
     int block_worker = 0;
     size_t block_delay_ms = 0;
     unsigned block_executor_threads = 0;
-    nb_node_mode_t mode = NB_MODE_MESH;
+    nb_node_mode_t mode = NB_NODE_MODE_MESH;
     ntk_thread_pool *main_executor_pool = NULL;
     nb_service_executor_t main_executor;
     ntk_thread_pool *block_executor_pool = NULL;
@@ -142,11 +142,11 @@ int main(int argc, char **argv)
         if (strcmp(argv[index], "--transport") == 0 && index + 1 < argc) {
             const char *t = argv[++index];
             node_cfg.transport.kind =
-                (strcmp(t, "tcp") == 0 || strcmp(t, "TCP") == 0) ? NB_TRANSPORT_TCP : NB_TRANSPORT_UDP;
+                (strcmp(t, "tcp") == 0 || strcmp(t, "TCP") == 0) ? NB_TRANSPORT_KIND_TCP : NB_TRANSPORT_KIND_UDP;
         } else if (strcmp(argv[index], "--io-threads") == 0 && index + 1 < argc) {
             node_cfg.runtime.io_threads = (unsigned)atoi(argv[++index]);
         } else if (strcmp(argv[index], "--mode") == 0 && index + 1 < argc) {
-            mode = (strcmp(argv[++index], "static") == 0) ? NB_MODE_STATIC : NB_MODE_MESH;
+            mode = (strcmp(argv[++index], "static") == 0) ? NB_NODE_MODE_STATIC : NB_NODE_MODE_MESH;
         } else if (strcmp(argv[index], "--handler-threads") == 0 && index + 1 < argc) {
             node_cfg.runtime.handler_threads = (unsigned)atoi(argv[++index]);
         } else if (strcmp(argv[index], "--handler-max-concurrency") == 0 && index + 1 < argc) {
@@ -241,10 +241,10 @@ int main(int argc, char **argv)
         memset(&shm_binding, 0, sizeof(shm_binding));
         shm_binding.name = "shm";
         shm_binding.endpoint = shm_endpoint;
-        shm_binding.intra_process = NB_INTRA_OFF;
+        shm_binding.intra_process = NB_INTRA_PROCESS_OFF;
         node_cfg.transport.bindings = &shm_binding;
         node_cfg.transport.binding_count = 1;
-        mode = NB_MODE_STATIC;
+        mode = NB_NODE_MODE_STATIC;
     } else if (use_dds) {
         if (nb_cyclone_dds_register() != NB_OK) {
             nb_log_error("dds provider register failed");
@@ -254,10 +254,10 @@ int main(int argc, char **argv)
         memset(&dds_binding, 0, sizeof(dds_binding));
         dds_binding.name = "dds";
         dds_binding.endpoint = dds_endpoint;
-        dds_binding.intra_process = NB_INTRA_OFF;
+        dds_binding.intra_process = NB_INTRA_PROCESS_OFF;
         node_cfg.transport.bindings = &dds_binding;
         node_cfg.transport.binding_count = 1;
-        mode = NB_MODE_STATIC;
+        mode = NB_NODE_MODE_STATIC;
     }
     node_cfg.mode = mode;
     rc = nb_node_create(&node_cfg, &node);
@@ -283,7 +283,7 @@ int main(int argc, char **argv)
             } else {
                 main_executor.user = main_executor_pool;
                 main_executor.submit = executor_submit;
-                mopts.exec = NB_SERVICE_EXEC_EXECUTOR;
+                mopts.exec = NB_SERVICE_EXEC_MODE_EXECUTOR;
                 mopts.executor = &main_executor;
                 rc = nb_service_add_method_with_options(service, method_name, order_get, &fast_options, &mopts);
             }
@@ -308,7 +308,7 @@ int main(int argc, char **argv)
             } else {
                 block_executor.user = block_executor_pool;
                 block_executor.submit = executor_submit;
-                mopts.exec = NB_SERVICE_EXEC_EXECUTOR;
+                mopts.exec = NB_SERVICE_EXEC_MODE_EXECUTOR;
                 mopts.executor = &block_executor;
                 rc = nb_service_add_method_with_options(
                     service, block_method_name, order_get, &block_options, &mopts);
@@ -331,7 +331,7 @@ int main(int argc, char **argv)
                  method_name,
                  block_method_name ? block_method_name : "-",
                  use_shm ? "shm" : (use_dds ? "dds" :
-                     (nb_node_transport(node) == NB_TRANSPORT_TCP ? "tcp" : "udp")),
+                     (nb_node_transport(node) == NB_TRANSPORT_KIND_TCP ? "tcp" : "udp")),
                  (unsigned)nb_node_data_port(node),
                  (unsigned)nb_node_discovery_port(node),
                  node_cfg.runtime.handler_threads,
