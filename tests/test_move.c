@@ -73,8 +73,8 @@ int main(void)
 
     nb_node_config_default(&scfg);
     scfg.name = "move_srv";
-    scfg.mode = NB_MODE_STATIC;
-    scfg.transport.kind = NB_TRANSPORT_UDP;
+    scfg.mode = NB_NODE_MODE_STATIC;
+    scfg.transport.kind = NB_TRANSPORT_KIND_UDP;
     scfg.transport.bind_host = "127.0.0.1";
     scfg.transport.data_port = 42511;
     scfg.runtime.io_threads = 1;
@@ -82,8 +82,8 @@ int main(void)
 
     nb_node_config_default(&ccfg);
     ccfg.name = "move_cli";
-    ccfg.mode = NB_MODE_STATIC;
-    ccfg.transport.kind = NB_TRANSPORT_UDP;
+    ccfg.mode = NB_NODE_MODE_STATIC;
+    ccfg.transport.kind = NB_TRANSPORT_KIND_UDP;
     ccfg.transport.bind_host = "127.0.0.1";
     ccfg.runtime.io_threads = 1;
 
@@ -92,7 +92,7 @@ int main(void)
         rc = nb_service_create(server, "MoveService", &svc);
     }
     if (rc == NB_OK) {
-        worker_opts.exec = NB_SERVICE_EXEC_WORKER;
+        worker_opts.exec = NB_SERVICE_EXEC_MODE_WORKER;
         worker_opts.executor = NULL;
         rc = nb_service_add_method_with_options(svc, "work", on_worker_request, NULL, &worker_opts);
     }

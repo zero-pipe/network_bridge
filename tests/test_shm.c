@@ -148,11 +148,11 @@ int main(void)
     memset(&server_binding, 0, sizeof(server_binding));
     server_binding.name = "shm";
     server_binding.endpoint = server_endpoint;
-    server_binding.intra_process = NB_INTRA_OFF;
+    server_binding.intra_process = NB_INTRA_PROCESS_OFF;
 
     nb_node_config_default(&server_cfg);
     server_cfg.name = "shm-server";
-    server_cfg.mode = NB_MODE_STATIC;
+    server_cfg.mode = NB_NODE_MODE_STATIC;
     server_cfg.runtime.io_threads = 1;
     server_cfg.transport.bindings = &server_binding;
     server_cfg.transport.binding_count = 1;
@@ -161,11 +161,11 @@ int main(void)
         memset(&client_binding[c], 0, sizeof(client_binding[c]));
         client_binding[c].name = "shm";
         client_binding[c].endpoint = client_endpoint[c];
-        client_binding[c].intra_process = NB_INTRA_OFF;
+        client_binding[c].intra_process = NB_INTRA_PROCESS_OFF;
 
         nb_node_config_default(&client_cfg[c]);
         client_cfg[c].name = "shm-client";
-        client_cfg[c].mode = NB_MODE_STATIC;
+        client_cfg[c].mode = NB_NODE_MODE_STATIC;
         client_cfg[c].runtime.io_threads = 1;
         client_cfg[c].transport.bindings = &client_binding[c];
         client_cfg[c].transport.binding_count = 1;

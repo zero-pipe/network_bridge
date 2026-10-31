@@ -23,14 +23,14 @@ static void on_upload(nb_call_t *call, const nb_request_t *req, const nb_chunk_t
     upload_state_t *st = (upload_state_t *)user;
     (void)req;
     st->chunks++;
-    if (chunk->flags & NB_STREAM_FIRST) {
+    if (chunk->flags & NB_STREAM_FLAG_FIRST) {
         st->first_seen++;
     }
     if (chunk->len > 0 && st->bytes + chunk->len <= sizeof(st->buf)) {
         memcpy(st->buf + st->bytes, chunk->data, chunk->len);
         st->bytes += chunk->len;
     }
-    if (chunk->flags & NB_STREAM_LAST) {
+    if (chunk->flags & NB_STREAM_FLAG_LAST) {
         st->last_seen++;
         nb_reply_bytes(call, 0, st->buf, st->bytes);
     }
@@ -75,7 +75,7 @@ static void on_download(nb_call_t *call, const nb_request_t *req, void *user)
         chunk.data = k_download + i * 4;
         chunk.len = 4;
         chunk.offset = i * 4;
-        chunk.flags = (i == 0 ? NB_STREAM_FIRST : 0) | (i == 3 ? NB_STREAM_LAST : 0);
+        chunk.flags = (i == 0 ? NB_STREAM_FLAG_FIRST : 0) | (i == 3 ? NB_STREAM_FLAG_LAST : 0);
         (void)nb_reply_stream(call, 0, &chunk);
     }
 }
@@ -97,7 +97,7 @@ static void on_download_chunk(int status, const nb_chunk_t *chunk, void *user)
         return;
     }
     c->chunks++;
-    if (chunk->flags & NB_STREAM_LAST) {
+    if (chunk->flags & NB_STREAM_FLAG_LAST) {
         c->last++;
     }
     if (chunk->len > 0 && c->len + chunk->len <= sizeof(c->buf)) {
@@ -123,7 +123,7 @@ static void on_bidi_chunk(int status, const nb_chunk_t *chunk, void *user)
         return;
     }
     c->chunks++;
-    if (chunk->flags & NB_STREAM_LAST) {
+    if (chunk->flags & NB_STREAM_FLAG_LAST) {
         c->last++;
     }
     if (c->len + chunk->len <= sizeof(c->buf)) {
@@ -208,7 +208,7 @@ static int run_case(nb_transport_kind_t transport, const char *label, uint16_t s
         chunk.data = "hello ";
         chunk.len = 6;
         chunk.offset = 0;
-        chunk.flags = NB_STREAM_FIRST;
+        chunk.flags = NB_STREAM_FLAG_FIRST;
         if (nb_proxy_stream_send(stream, &chunk) != NB_OK) {
             failed = 1;
         }
@@ -222,7 +222,7 @@ static int run_case(nb_transport_kind_t transport, const char *label, uint16_t s
         chunk.data = "!";
         chunk.len = 1;
         chunk.offset = 11;
-        chunk.flags = NB_STREAM_LAST;
+        chunk.flags = NB_STREAM_FLAG_LAST;
         if (nb_proxy_stream_send(stream, &chunk) != NB_OK) {
             failed = 1;
         }
@@ -305,7 +305,7 @@ static int run_case(nb_transport_kind_t transport, const char *label, uint16_t s
             ck.data = "x";
             ck.len = 1;
             ck.offset = 0;
-            ck.flags = NB_STREAM_FIRST;
+            ck.flags = NB_STREAM_FLAG_FIRST;
             (void)nb_proxy_stream_send(s2, &ck);
             (void)nb_proxy_stream_cancel(s2);
             if (ntk_sem_timedwait(cc.sem, 3000) != NTK_OK) {
@@ -339,12 +339,12 @@ static int run_case(nb_transport_kind_t transport, const char *label, uint16_t s
             ck.data = "ping";
             ck.len = 4;
             ck.offset = 0;
-            ck.flags = NB_STREAM_FIRST;
+            ck.flags = NB_STREAM_FLAG_FIRST;
             (void)nb_proxy_stream_send(bidi, &ck);
             ck.data = "pong";
             ck.len = 4;
             ck.offset = 4;
-            ck.flags = NB_STREAM_LAST;
+            ck.flags = NB_STREAM_FLAG_LAST;
             (void)nb_proxy_stream_send(bidi, &ck);
             if (ntk_sem_timedwait(bc.sem, 3000) != NTK_OK || bc.status != NB_OK || bc.len != 8 ||
                 memcmp(bc.buf, "pingpong", 8) != 0 || bc.chunks != 2 || bc.last != 1) {
@@ -376,8 +376,8 @@ static int run_case(nb_transport_kind_t transport, const char *label, uint16_t s
 int main(void)
 {
     int failed = 0;
-    failed += run_case(NB_TRANSPORT_UDP, "udp", 43111, 43112);
-    failed += run_case(NB_TRANSPORT_TCP, "tcp", 43113, 43114);
+    failed += run_case(NB_TRANSPORT_KIND_UDP, "udp", 43111, 43112);
+    failed += run_case(NB_TRANSPORT_KIND_TCP, "tcp", 43113, 43114);
     if (failed) {
         nb_log_error("stream: FAIL");
         return 1;

@@ -58,7 +58,7 @@ static void test_metric_registry(void)
     CHECK(nb_metric_table_count > 0);
     desc = nb_metric_find("requests_sent_total");
     CHECK(desc != NULL);
-    CHECK(desc->type == NB_METRIC_COUNTER);
+    CHECK(desc->type == NB_METRIC_TYPE_COUNTER);
     CHECK(strcmp(desc->unit, "requests") == 0);
     CHECK(desc->offset == offsetof(nb_metrics_t, requests_sent));
     CHECK(desc->scope == NB_METRIC_SCOPE_NODE);
@@ -73,19 +73,19 @@ static void test_metric_registry(void)
 
     for (i = 0; i < nb_metric_table_count; i++) {
         CHECK(nb_metric_table[i].name != NULL);
-        CHECK(nb_metric_table[i].type >= NB_METRIC_COUNTER &&
-              nb_metric_table[i].type <= NB_METRIC_HISTOGRAM);
+        CHECK(nb_metric_table[i].type >= NB_METRIC_TYPE_COUNTER &&
+              nb_metric_table[i].type <= NB_METRIC_TYPE_HISTOGRAM);
         CHECK(nb_metric_table[i].scope >= NB_METRIC_SCOPE_NODE &&
               nb_metric_table[i].scope <= NB_METRIC_SCOPE_UDP_RTCP);
     }
 
     desc = nb_metric_find("connections");
     CHECK(desc != NULL);
-    CHECK(desc->type == NB_METRIC_GAUGE);
+    CHECK(desc->type == NB_METRIC_TYPE_GAUGE);
 
     desc = nb_metric_find("latency_ms");
     CHECK(desc != NULL);
-    CHECK(desc->type == NB_METRIC_HISTOGRAM);
+    CHECK(desc->type == NB_METRIC_TYPE_HISTOGRAM);
     CHECK(desc->offset == offsetof(nb_metrics_t, latency_hist));
 
     CHECK(nb_metric_find("does_not_exist") == NULL);

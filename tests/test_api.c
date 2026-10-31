@@ -141,7 +141,7 @@ static int test_stub_and_sync(void)
 
     memset(&scfg, 0, sizeof(scfg));
     scfg.name = "api_srv";
-    scfg.transport.kind = NB_TRANSPORT_UDP;
+    scfg.transport.kind = NB_TRANSPORT_KIND_UDP;
     scfg.transport.bind_host = "127.0.0.1";
     scfg.discovery.broadcast_host = "127.0.0.1";
     scfg.discovery.port = sport;
@@ -152,7 +152,7 @@ static int test_stub_and_sync(void)
 
     memset(&ccfg, 0, sizeof(ccfg));
     ccfg.name = "api_cli";
-    ccfg.transport.kind = NB_TRANSPORT_UDP;
+    ccfg.transport.kind = NB_TRANSPORT_KIND_UDP;
     ccfg.transport.bind_host = "127.0.0.1";
     ccfg.discovery.broadcast_host = "127.0.0.1";
     ccfg.discovery.port = cport;

@@ -2,7 +2,7 @@
 
 `include/` contains the vendored GoogleTest headers. `lib/<os>_<arch>/`
 contains the matching prebuilt GoogleTest and GoogleMock static archives used
-only when `BUILD_TESTS=ON`.
+only when `NB_BUILD_TESTS=ON`.
 
 The test CMake configuration resolves `gtest` and `gtest_main` exclusively
 from this directory and fails during configuration when the selected platform

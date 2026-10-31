@@ -46,8 +46,8 @@ static void test_nested(void)
         return;
     }
     CHECK(strcmp(n->name, "nested") == 0);
-    CHECK(n->transport.kind == NB_TRANSPORT_TCP);
-    CHECK(n->mode == NB_MODE_STATIC);
+    CHECK(n->transport.kind == NB_TRANSPORT_KIND_TCP);
+    CHECK(n->mode == NB_NODE_MODE_STATIC);
     CHECK(strcmp(n->transport.bind_host, "127.0.0.1") == 0);
     CHECK(n->transport.data_port == 9000);
     CHECK(n->transport.frag_bytes == 1024);
@@ -93,11 +93,11 @@ static void test_defaults(void)
         nb_config_doc_destroy(cfg);
         return;
     }
-    CHECK(n->transport.kind == NB_TRANSPORT_UDP);
+    CHECK(n->transport.kind == NB_TRANSPORT_KIND_UDP);
     CHECK(n->transport.frag_bytes == 1440);
-    CHECK(n->mode == NB_MODE_MESH);
+    CHECK(n->mode == NB_NODE_MODE_MESH);
     CHECK(n->discovery.disable == 0);
-    CHECK(strcmp(n->name, "rpc") == 0);
+    CHECK(strcmp(n->name, "nb") == 0);
     CHECK(strcmp(n->transport.bind_host, "0.0.0.0") == 0);
     CHECK(strcmp(n->discovery.broadcast_host, "255.255.255.255") == 0);
     CHECK(n->discovery.port == NB_DISCOVERY_PORT);
@@ -192,7 +192,7 @@ static void test_unknown_keys_ignored(void)
     nb_config_doc_destroy(cfg);
 
     cfg = NULL;
-    CHECK(nb_config_parse("{\"log\":{\"file\":\"rpc.log\"}}", &cfg, NULL) == NB_OK);
+    CHECK(nb_config_parse("{\"log\":{\"file\":\"nb.log\"}}", &cfg, NULL) == NB_OK);
     nb_config_doc_destroy(cfg);
 }
 
@@ -203,32 +203,32 @@ static void test_discovery_mode(void)
 
     CHECK(nb_config_parse("{\"mode\":\"static\"}", &cfg, NULL) == NB_OK);
     n = nb_config_node(cfg);
-    CHECK(n != NULL && n->mode == NB_MODE_STATIC && n->discovery.disable == 1);
+    CHECK(n != NULL && n->mode == NB_NODE_MODE_STATIC && n->discovery.disable == 1);
     nb_config_doc_destroy(cfg);
 
     cfg = NULL;
     CHECK(nb_config_parse("{\"discovery\":{\"mode\":\"off\"}}", &cfg, NULL) == NB_OK);
     n = nb_config_node(cfg);
-    CHECK(n != NULL && n->mode == NB_MODE_STATIC && n->discovery.disable == 1);
+    CHECK(n != NULL && n->mode == NB_NODE_MODE_STATIC && n->discovery.disable == 1);
     nb_config_doc_destroy(cfg);
 
     cfg = NULL;
     CHECK(nb_config_parse("{\"discovery\":{\"mode\":\"none\"}}", &cfg, NULL) == NB_OK);
     n = nb_config_node(cfg);
-    CHECK(n != NULL && n->mode == NB_MODE_STATIC);
+    CHECK(n != NULL && n->mode == NB_NODE_MODE_STATIC);
     nb_config_doc_destroy(cfg);
 
     cfg = NULL;
     CHECK(nb_config_parse("{\"discovery\":{\"mode\":\"mesh\"}}", &cfg, NULL) == NB_OK);
     n = nb_config_node(cfg);
-    CHECK(n != NULL && n->mode == NB_MODE_MESH && n->discovery.disable == 0);
+    CHECK(n != NULL && n->mode == NB_NODE_MODE_MESH && n->discovery.disable == 0);
     nb_config_doc_destroy(cfg);
 
     cfg = NULL;
     CHECK(nb_config_parse("{\"mode\":\"static\",\"discovery\":{\"mode\":\"mesh\"}}", &cfg, NULL) ==
           NB_OK);
     n = nb_config_node(cfg);
-    CHECK(n != NULL && n->mode == NB_MODE_STATIC && n->discovery.disable == 1);
+    CHECK(n != NULL && n->mode == NB_NODE_MODE_STATIC && n->discovery.disable == 1);
     nb_config_doc_destroy(cfg);
 }
 
@@ -238,12 +238,12 @@ static void test_endpoint_model(void)
     char text[128];
 
     CHECK(nb_endpoint_parse("tcp://127.0.0.1:8080", &endpoint) == NB_OK);
-    CHECK(endpoint.transport == NB_TRANSPORT_TCP);
+    CHECK(endpoint.transport == NB_TRANSPORT_KIND_TCP);
     CHECK(endpoint.port == 8080);
     CHECK(nb_endpoint_format(&endpoint, text, sizeof(text)) == NB_OK);
     CHECK(strcmp(text, "tcp://127.0.0.1:8080") == 0);
     CHECK(nb_endpoint_parse("dds://127.0.0.1:7400", &endpoint) == NB_OK);
-    CHECK(endpoint.transport == NB_TRANSPORT_CUSTOM);
+    CHECK(endpoint.transport == NB_TRANSPORT_KIND_CUSTOM);
     CHECK(nb_endpoint_parse("shm://orders:3/control", &endpoint) == NB_OK);
     CHECK(strcmp(endpoint.scheme, "shm") == 0);
     CHECK(strcmp(endpoint.host, "orders") == 0);
@@ -252,7 +252,7 @@ static void test_endpoint_model(void)
     CHECK(nb_endpoint_is_network(&endpoint) == 0);
     CHECK(nb_endpoint_parse("tcp://127.0.0.1:8080", &endpoint) == NB_OK);
     CHECK(nb_endpoint_is_network(&endpoint) == 1);
-    CHECK(nb_endpoint_from_parts(&endpoint, "dds", "0", 1, NB_TRANSPORT_UDP) == NB_ERR_INVALID);
+    CHECK(nb_endpoint_from_parts(&endpoint, "dds", "0", 1, NB_TRANSPORT_KIND_UDP) == NB_ERR_INVALID);
 }
 
 static void test_qos_config(void)
@@ -424,9 +424,9 @@ static void test_defaults_api(void)
 {
     nb_node_config_t cfg;
     nb_node_config_default(&cfg);
-    CHECK(strcmp(cfg.name, "rpc") == 0);
-    CHECK(cfg.mode == NB_MODE_MESH);
-    CHECK(cfg.transport.kind == NB_TRANSPORT_UDP);
+    CHECK(strcmp(cfg.name, "nb") == 0);
+    CHECK(cfg.mode == NB_NODE_MODE_MESH);
+    CHECK(cfg.transport.kind == NB_TRANSPORT_KIND_UDP);
     CHECK(strcmp(cfg.transport.bind_host, "0.0.0.0") == 0);
     CHECK(strcmp(cfg.discovery.broadcast_host, "255.255.255.255") == 0);
     CHECK(cfg.metrics.sample_every == 1);
@@ -456,10 +456,10 @@ static void test_normalize(void)
     nb_node_config_default(&cfg);
     cfg.discovery.disable = true;
     nb_node_config_normalize(&cfg);
-    CHECK(cfg.mode == NB_MODE_STATIC);
+    CHECK(cfg.mode == NB_NODE_MODE_STATIC);
 
     nb_node_config_default(&cfg);
-    cfg.mode = NB_MODE_STATIC;
+    cfg.mode = NB_NODE_MODE_STATIC;
     nb_node_config_normalize(&cfg);
     CHECK(cfg.discovery.disable == 1);
 

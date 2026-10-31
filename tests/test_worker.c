@@ -238,8 +238,8 @@ static int run_case(nb_transport_kind_t kind, const char *label)
     memset(&slow, 0, sizeof(slow));
     memset(&fast, 0, sizeof(fast));
 
-    sport = kind == NB_TRANSPORT_TCP ? 44211 : 44111;
-    cport = kind == NB_TRANSPORT_TCP ? 44212 : 44112;
+    sport = kind == NB_TRANSPORT_KIND_TCP ? 44211 : 44111;
+    cport = kind == NB_TRANSPORT_KIND_TCP ? 44212 : 44112;
 
     memset(&scfg, 0, sizeof(scfg));
     scfg.name = "worker-srv";
@@ -277,7 +277,7 @@ static int run_case(nb_transport_kind_t kind, const char *label)
 
     {
         nb_service_method_options_t worker = NB_SERVICE_METHOD_OPTIONS_INIT;
-        worker.exec = NB_SERVICE_EXEC_WORKER;
+        worker.exec = NB_SERVICE_EXEC_MODE_WORKER;
         if (nb_service_create(server, "pool", &svc) != NB_OK ||
             nb_service_add_method_with_options(svc, "slow", slow_handler, NULL, &worker) != NB_OK ||
             nb_service_add_method(svc, "fast", fast_handler, NULL) != NB_OK) {
@@ -395,8 +395,8 @@ static int run_fallback_case(nb_transport_kind_t kind, const char *label)
     int failed = 0;
 
     memset(&state, 0, sizeof(state));
-    sport = kind == NB_TRANSPORT_TCP ? 44411 : 44311;
-    cport = kind == NB_TRANSPORT_TCP ? 44412 : 44312;
+    sport = kind == NB_TRANSPORT_KIND_TCP ? 44411 : 44311;
+    cport = kind == NB_TRANSPORT_KIND_TCP ? 44412 : 44312;
 
     memset(&scfg, 0, sizeof(scfg));
     scfg.name = "fallback-srv";
@@ -498,12 +498,12 @@ static int run_api_checks(void)
 
     memset(&cfg, 0, sizeof(cfg));
     cfg.name = "worker-api";
-    cfg.transport.kind = NB_TRANSPORT_UDP;
+    cfg.transport.kind = NB_TRANSPORT_KIND_UDP;
     cfg.transport.bind_host = "127.0.0.1";
     cfg.transport.data_port = 0;
     cfg.runtime.io_threads = 1;
     cfg.runtime.handler_threads = 1;
-    cfg.mode = NB_MODE_STATIC;
+    cfg.mode = NB_NODE_MODE_STATIC;
 
     memset(&direct, 0, sizeof(direct));
     good_exec.user = &direct;
@@ -523,37 +523,37 @@ static int run_api_checks(void)
         failed = 1;
     }
 
-    opts = method_opts(NB_SERVICE_EXEC_WORKER, NULL);
+    opts = method_opts(NB_SERVICE_EXEC_MODE_WORKER, NULL);
     if (nb_service_add_stream_method_with_options(svc, "workerstream", dummy_chunk_handler, NULL, &opts) != NB_OK) {
         nb_log_error("[api] stream worker registration failed");
         failed = 1;
     }
 
-    opts = method_opts(NB_SERVICE_EXEC_EXECUTOR, &good_exec);
+    opts = method_opts(NB_SERVICE_EXEC_MODE_EXECUTOR, &good_exec);
     if (nb_service_add_stream_method_with_options(svc, "execstream", dummy_chunk_handler, NULL, &opts) != NB_OK) {
         nb_log_error("[api] stream executor registration failed");
         failed = 1;
     }
 
-    opts = method_opts(NB_SERVICE_EXEC_EXECUTOR, NULL);
+    opts = method_opts(NB_SERVICE_EXEC_MODE_EXECUTOR, NULL);
     if (nb_service_add_method_with_options(svc, "noexec", fast_handler, NULL, &opts) != NB_ERR_INVALID) {
         nb_log_error("[api] executor without impl accepted");
         failed = 1;
     }
 
-    opts = method_opts(NB_SERVICE_EXEC_EXECUTOR, &bad_exec);
+    opts = method_opts(NB_SERVICE_EXEC_MODE_EXECUTOR, &bad_exec);
     if (nb_service_add_method_with_options(svc, "badsubmit", fast_handler, NULL, &opts) != NB_ERR_INVALID) {
         nb_log_error("[api] executor without submit accepted");
         failed = 1;
     }
 
-    opts = method_opts(NB_SERVICE_EXEC_INLINE, &good_exec);
+    opts = method_opts(NB_SERVICE_EXEC_MODE_INLINE, &good_exec);
     if (nb_service_add_method_with_options(svc, "inlineexec", fast_handler, NULL, &opts) != NB_ERR_INVALID) {
         nb_log_error("[api] inline with executor accepted");
         failed = 1;
     }
 
-    opts = method_opts(NB_SERVICE_EXEC_WORKER, &good_exec);
+    opts = method_opts(NB_SERVICE_EXEC_MODE_WORKER, &good_exec);
     if (nb_service_add_method_with_options(svc, "workerexec", fast_handler, NULL, &opts) != NB_ERR_INVALID) {
         nb_log_error("[api] worker with executor accepted");
         failed = 1;
@@ -564,14 +564,14 @@ static int run_api_checks(void)
         failed = 1;
     }
 
-    opts = method_opts(NB_SERVICE_EXEC_WORKER, NULL);
+    opts = method_opts(NB_SERVICE_EXEC_MODE_WORKER, NULL);
     if (nb_service_add_method_with_options(svc, "worker", fast_handler, NULL, &opts) != NB_OK ||
         nb_service_add_sync_method_with_options(svc, "syncworker", sync_echo_handler, NULL, &opts) != NB_OK) {
         nb_log_error("[api] worker registration failed");
         failed = 1;
     }
 
-    opts = method_opts(NB_SERVICE_EXEC_EXECUTOR, &good_exec);
+    opts = method_opts(NB_SERVICE_EXEC_MODE_EXECUTOR, &good_exec);
     if (nb_service_add_method_with_options(svc, "executor", fast_handler, NULL, &opts) != NB_OK ||
         nb_service_add_sync_method_with_options(svc, "syncexecutor", sync_echo_handler, NULL, &opts) != NB_OK) {
         nb_log_error("[api] executor registration failed");
@@ -610,9 +610,9 @@ static int run_overload_case(nb_transport_kind_t kind, const char *label)
     memset(&block, 0, sizeof(block));
     memset(&first, 0, sizeof(first));
     memset(&second, 0, sizeof(second));
-    worker.exec = NB_SERVICE_EXEC_WORKER;
-    sport = kind == NB_TRANSPORT_TCP ? 44611 : 44511;
-    cport = kind == NB_TRANSPORT_TCP ? 44612 : 44512;
+    worker.exec = NB_SERVICE_EXEC_MODE_WORKER;
+    sport = kind == NB_TRANSPORT_KIND_TCP ? 44611 : 44511;
+    cport = kind == NB_TRANSPORT_KIND_TCP ? 44612 : 44512;
 
     memset(&scfg, 0, sizeof(scfg));
     scfg.name = "overload-srv";
@@ -768,8 +768,8 @@ static int run_executor_case(nb_transport_kind_t kind, const char *label)
     client_state_t custom;
     client_state_t rejected;
     nb_payload_t pl;
-    uint16_t sport = kind == NB_TRANSPORT_TCP ? 44811 : 44711;
-    uint16_t cport = kind == NB_TRANSPORT_TCP ? 44812 : 44712;
+    uint16_t sport = kind == NB_TRANSPORT_KIND_TCP ? 44811 : 44711;
+    uint16_t cport = kind == NB_TRANSPORT_KIND_TCP ? 44812 : 44712;
     int te_started = 0;
     int failed = 0;
 
@@ -821,13 +821,13 @@ static int run_executor_case(nb_transport_kind_t kind, const char *label)
         failed = 1;
         goto cleanup;
     }
-    opts = method_opts(NB_SERVICE_EXEC_EXECUTOR, &texec);
+    opts = method_opts(NB_SERVICE_EXEC_MODE_EXECUTOR, &texec);
     if (nb_service_add_method_with_options(svc, "custom", fast_handler, NULL, &opts) != NB_OK) {
         nb_log_error("[%s] custom registration failed", label);
         failed = 1;
         goto cleanup;
     }
-    opts = method_opts(NB_SERVICE_EXEC_EXECUTOR, &rexec);
+    opts = method_opts(NB_SERVICE_EXEC_MODE_EXECUTOR, &rexec);
     if (nb_service_add_method_with_options(svc, "reject", fast_handler, NULL, &opts) != NB_OK) {
         nb_log_error("[%s] reject registration failed", label);
         failed = 1;
@@ -977,11 +977,11 @@ static int run_deadline_case(const char *label)
     memset(&probe_resp, 0, sizeof(probe_resp));
     memset(&block_resp, 0, sizeof(block_resp));
     memset(&queued_resp, 0, sizeof(queued_resp));
-    worker.exec = NB_SERVICE_EXEC_WORKER;
+    worker.exec = NB_SERVICE_EXEC_MODE_WORKER;
 
     memset(&scfg, 0, sizeof(scfg));
     scfg.name = "deadline-srv";
-    scfg.transport.kind = NB_TRANSPORT_TCP;
+    scfg.transport.kind = NB_TRANSPORT_KIND_TCP;
     scfg.transport.bind_host = "127.0.0.1";
     scfg.discovery.broadcast_host = "127.0.0.1";
     scfg.discovery.port = sport;
@@ -992,7 +992,7 @@ static int run_deadline_case(const char *label)
 
     memset(&ccfg, 0, sizeof(ccfg));
     ccfg.name = "deadline-cli";
-    ccfg.transport.kind = NB_TRANSPORT_TCP;
+    ccfg.transport.kind = NB_TRANSPORT_KIND_TCP;
     ccfg.transport.bind_host = "127.0.0.1";
     ccfg.discovery.broadcast_host = "127.0.0.1";
     ccfg.discovery.port = cport;
@@ -1172,11 +1172,11 @@ static int run_cancel_case(const char *label)
     memset(&block_resp, 0, sizeof(block_resp));
     memset(&queued_resp, 0, sizeof(queued_resp));
     memset(&ping_resp, 0, sizeof(ping_resp));
-    worker.exec = NB_SERVICE_EXEC_WORKER;
+    worker.exec = NB_SERVICE_EXEC_MODE_WORKER;
 
     memset(&scfg, 0, sizeof(scfg));
     scfg.name = "cancel-srv";
-    scfg.transport.kind = NB_TRANSPORT_TCP;
+    scfg.transport.kind = NB_TRANSPORT_KIND_TCP;
     scfg.transport.bind_host = "127.0.0.1";
     scfg.discovery.broadcast_host = "127.0.0.1";
     scfg.discovery.port = sport;
@@ -1187,7 +1187,7 @@ static int run_cancel_case(const char *label)
 
     memset(&ccfg, 0, sizeof(ccfg));
     ccfg.name = "cancel-cli";
-    ccfg.transport.kind = NB_TRANSPORT_TCP;
+    ccfg.transport.kind = NB_TRANSPORT_KIND_TCP;
     ccfg.transport.bind_host = "127.0.0.1";
     ccfg.discovery.broadcast_host = "127.0.0.1";
     ccfg.discovery.port = cport;
@@ -1355,13 +1355,13 @@ cleanup:
 int main(void)
 {
     int failed = 0;
-    failed += run_case(NB_TRANSPORT_UDP, "udp");
-    failed += run_case(NB_TRANSPORT_TCP, "tcp");
-    failed += run_fallback_case(NB_TRANSPORT_UDP, "udp-fallback");
-    failed += run_fallback_case(NB_TRANSPORT_TCP, "tcp-fallback");
-    failed += run_overload_case(NB_TRANSPORT_UDP, "udp-overload");
-    failed += run_overload_case(NB_TRANSPORT_TCP, "tcp-overload");
-    failed += run_executor_case(NB_TRANSPORT_TCP, "tcp-executor");
+    failed += run_case(NB_TRANSPORT_KIND_UDP, "udp");
+    failed += run_case(NB_TRANSPORT_KIND_TCP, "tcp");
+    failed += run_fallback_case(NB_TRANSPORT_KIND_UDP, "udp-fallback");
+    failed += run_fallback_case(NB_TRANSPORT_KIND_TCP, "tcp-fallback");
+    failed += run_overload_case(NB_TRANSPORT_KIND_UDP, "udp-overload");
+    failed += run_overload_case(NB_TRANSPORT_KIND_TCP, "tcp-overload");
+    failed += run_executor_case(NB_TRANSPORT_KIND_TCP, "tcp-executor");
     failed += run_deadline_case("tcp-deadline");
     failed += run_cancel_case("tcp-cancel");
     failed += run_api_checks();

@@ -89,8 +89,8 @@ static int run_case(nb_transport_kind_t kind, const char *label)
     int rc;
     int failed = 0;
 
-    sport = kind == NB_TRANSPORT_TCP ? 42211 : 42111;
-    cport = kind == NB_TRANSPORT_TCP ? 42212 : 42112;
+    sport = kind == NB_TRANSPORT_KIND_TCP ? 42211 : 42111;
+    cport = kind == NB_TRANSPORT_KIND_TCP ? 42212 : 42112;
 
     memset(&scfg, 0, sizeof(scfg));
     scfg.name = "srv";
@@ -193,7 +193,7 @@ static int run_case(nb_transport_kind_t kind, const char *label)
                           (unsigned long long)metrics.responses_received);
             failed = 1;
         }
-        if (kind == NB_TRANSPORT_UDP && metrics.udp_packets_sent == 0) {
+        if (kind == NB_TRANSPORT_KIND_UDP && metrics.udp_packets_sent == 0) {
             nb_log_error("[%s] udp metrics missing", label);
             failed = 1;
         }
@@ -213,7 +213,7 @@ static int run_case(nb_transport_kind_t kind, const char *label)
     }
 
     /* RTCP：UDP 会话应在周期内双向交换 SR（本端发送方，故发 SR；对端也发 SR）。 */
-    if (kind == NB_TRANSPORT_UDP) {
+    if (kind == NB_TRANSPORT_KIND_UDP) {
         nb_metrics_t m;
         int waited = 0;
         int ok = 0;
@@ -267,8 +267,8 @@ cleanup:
 int main(void)
 {
     int failed = 0;
-    failed += run_case(NB_TRANSPORT_UDP, "udp");
-    failed += run_case(NB_TRANSPORT_TCP, "tcp");
+    failed += run_case(NB_TRANSPORT_KIND_UDP, "udp");
+    failed += run_case(NB_TRANSPORT_KIND_TCP, "tcp");
 
     if (failed) {
         nb_log_error("nb_loopback: FAIL");

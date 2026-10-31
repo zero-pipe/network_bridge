@@ -128,11 +128,11 @@ int main(void)
     memset(&binding, 0, sizeof(binding));
     binding.name = "dds";
     binding.endpoint = endpoint;
-    binding.intra_process = NB_INTRA_OFF;
+    binding.intra_process = NB_INTRA_PROCESS_OFF;
 
     nb_node_config_default(&cfg);
     cfg.name = "DdsLoan";
-    cfg.mode = NB_MODE_STATIC;
+    cfg.mode = NB_NODE_MODE_STATIC;
     cfg.runtime.io_threads = 1;
     cfg.runtime.handler_threads = 1;
     cfg.transport.bindings = &binding;
@@ -143,7 +143,7 @@ int main(void)
         failed = 1;
         goto done;
     }
-    worker_opts.exec = NB_SERVICE_EXEC_WORKER;
+    worker_opts.exec = NB_SERVICE_EXEC_MODE_WORKER;
     worker_opts.executor = NULL;
     if (nb_service_add_method(svc, "inline", inline_handler, &loan) != NB_OK ||
         nb_service_add_method_with_options(svc, "worker", worker_handler, &loan, &worker_opts) != NB_OK) {

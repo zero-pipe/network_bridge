@@ -159,7 +159,7 @@ static int test_rpc_semantics(void)
 
     memset(&scfg, 0, sizeof(scfg));
     scfg.name = "sem-srv";
-    scfg.transport.kind = NB_TRANSPORT_TCP;
+    scfg.transport.kind = NB_TRANSPORT_KIND_TCP;
     scfg.transport.bind_host = "127.0.0.1";
     scfg.discovery.broadcast_host = "127.0.0.1";
     scfg.discovery.port = sport;
@@ -169,7 +169,7 @@ static int test_rpc_semantics(void)
 
     memset(&ccfg, 0, sizeof(ccfg));
     ccfg.name = "sem-cli";
-    ccfg.transport.kind = NB_TRANSPORT_TCP;
+    ccfg.transport.kind = NB_TRANSPORT_KIND_TCP;
     ccfg.transport.bind_host = "127.0.0.1";
     ccfg.discovery.broadcast_host = "127.0.0.1";
     ccfg.discovery.port = cport;

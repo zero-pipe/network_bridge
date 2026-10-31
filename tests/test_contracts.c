@@ -91,11 +91,11 @@ static void test_endpoint(void)
     CHECK(nb_endpoint_parse("no-scheme", &ep) == NB_ERR_INVALID);
 
     /* scheme is authoritative: dds must not be labelled UDP. */
-    CHECK(nb_endpoint_from_parts(&ep, "dds", "0", 0, NB_TRANSPORT_CUSTOM) == NB_OK);
+    CHECK(nb_endpoint_from_parts(&ep, "dds", "0", 0, NB_TRANSPORT_KIND_CUSTOM) == NB_OK);
     CHECK(!ep.has_port && strcmp(ep.uri, "dds://0") == 0);
     CHECK(nb_endpoint_format(&ep, small, sizeof small) == NB_ERR_TOOBIG);
-    CHECK(nb_endpoint_from_parts(&ep, "dds", "0", 0, NB_TRANSPORT_UDP) == NB_ERR_INVALID);
-    CHECK(nb_endpoint_from_parts(&ep, "tcp", "127.0.0.1", 0, NB_TRANSPORT_TCP) == NB_OK);
+    CHECK(nb_endpoint_from_parts(&ep, "dds", "0", 0, NB_TRANSPORT_KIND_UDP) == NB_ERR_INVALID);
+    CHECK(nb_endpoint_from_parts(&ep, "tcp", "127.0.0.1", 0, NB_TRANSPORT_KIND_TCP) == NB_OK);
     CHECK(ep.has_port && ep.port == 0);
 }
 
@@ -132,7 +132,7 @@ static void test_node_and_service(void)
 
     nb_node_config_default(&cfg);
     cfg.name = "contracts";
-    cfg.mode = NB_MODE_STATIC;
+    cfg.mode = NB_NODE_MODE_STATIC;
     memset(&binding, 0, sizeof binding);
     binding.name = "udp";
     binding.endpoint = "udp://127.0.0.1:0";
@@ -165,10 +165,10 @@ static void test_node_and_service(void)
 
     memset(methods, 0, sizeof methods);
     methods[0].name = "a";
-    methods[0].kind = NB_METHOD_SYNC;
+    methods[0].kind = NB_METHOD_KIND_SYNC;
     methods[0].handler.sync = dummy_sync;
     methods[1].name = "b";
-    methods[1].kind = NB_METHOD_SYNC;
+    methods[1].kind = NB_METHOD_KIND_SYNC;
     methods[1].handler.sync = dummy_sync;
     CHECK(nb_service_add_methods(svc, methods, 2) == NB_OK);
 
@@ -183,7 +183,7 @@ static void test_route_failure(void)
     nb_node_t *node = NULL;
 
     nb_node_config_default(&cfg);
-    cfg.mode = NB_MODE_STATIC;
+    cfg.mode = NB_NODE_MODE_STATIC;
     memset(&route, 0, sizeof route);
     snprintf(route.service, sizeof route.service, "%s", "Svc");
     snprintf(route.endpoint, sizeof route.endpoint, "%s", "not-a-uri");
