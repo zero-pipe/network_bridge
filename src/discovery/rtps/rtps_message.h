@@ -98,6 +98,21 @@ typedef struct nb_rtps_acknack {
     uint32_t count;
 } nb_rtps_acknack_t;
 
+/*
+ * GAP announces samples that the writer will never send to a reader. gap_start
+ * is always part of the gap; the sequence-number set (base + bitmap) lists
+ * additional gap samples. As in ACKNACK, bit 0 of a word is the most
+ * significant bit.
+ */
+typedef struct nb_rtps_gap {
+    nb_rtps_entity_id_t reader_id;
+    nb_rtps_entity_id_t writer_id;
+    nb_rtps_sequence_number_t gap_start;
+    nb_rtps_sequence_number_t base;
+    uint32_t num_bits;
+    uint32_t bitmap[NB_RTPS_ACKNACK_MAX_WORDS];
+} nb_rtps_gap_t;
+
 int nb_rtps_header_encode(uint8_t *buf,
                           size_t cap,
                           size_t *out_len,
@@ -129,6 +144,9 @@ int nb_rtps_heartbeat_decode(const uint8_t *body, size_t body_len, nb_rtps_heart
 
 int nb_rtps_acknack(nb_cdr_writer_t *writer, const nb_rtps_acknack_t *acknack);
 int nb_rtps_acknack_decode(const uint8_t *body, size_t body_len, nb_rtps_acknack_t *out);
+
+int nb_rtps_gap(nb_cdr_writer_t *writer, const nb_rtps_gap_t *gap);
+int nb_rtps_gap_decode(const uint8_t *body, size_t body_len, nb_rtps_gap_t *out);
 
 int nb_rtps_message_begin(const uint8_t *buf, size_t len, nb_rtps_header_t *header,
                           size_t *offset);

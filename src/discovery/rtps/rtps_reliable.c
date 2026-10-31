@@ -230,3 +230,112 @@ int nb_rtps_reliable_process_acknack(nb_rtps_reliable_writer_t *writer,
     }
     return rc;
 }
+
+void nb_rtps_reader_state_reset(nb_rtps_reader_state_t *state, uint32_t first_sn)
+{
+    if (!state) {
+        return;
+    }
+    state->next_expected = first_sn ? first_sn : 1u;
+    memset(state->received, 0, sizeof(state->received));
+    state->ack_count = 0;
+}
+
+static void reader_mark_received(nb_rtps_reader_state_t *state, uint32_t sn)
+{
+    uint32_t offset;
+    uint32_t i;
+
+    if (sn < state->next_expected) {
+        return;
+    }
+    offset = sn - state->next_expected;
+    if (offset >= NB_RTPS_ACKNACK_MAX_BITS) {
+        return;
+    }
+    state->received[offset / 32u] |= 1u << (offset % 32u);
+    while ((state->received[0] & 1u) != 0) {
+        for (i = 0; i + 1u < NB_RTPS_ACKNACK_MAX_WORDS; i++) {
+            state->received[i] =
+                (state->received[i] >> 1) | (state->received[i + 1u] << 31);
+        }
+        state->received[NB_RTPS_ACKNACK_MAX_WORDS - 1u] >>= 1;
+        state->next_expected++;
+    }
+}
+
+int nb_rtps_reader_on_sample(nb_rtps_reader_state_t *state, uint32_t sn)
+{
+    uint32_t offset;
+
+    if (!state) {
+        return 0;
+    }
+    if (sn < state->next_expected) {
+        return 0;
+    }
+    offset = sn - state->next_expected;
+    if (offset >= NB_RTPS_ACKNACK_MAX_BITS) {
+        /* Too far ahead to track: deliver, but ask again on the next ACKNACK. */
+        return 1;
+    }
+    if ((state->received[offset / 32u] & (1u << (offset % 32u))) != 0) {
+        return 0;
+    }
+    reader_mark_received(state, sn);
+    return 1;
+}
+
+void nb_rtps_reader_on_gap(nb_rtps_reader_state_t *state, const nb_rtps_gap_t *gap)
+{
+    uint32_t i;
+
+    if (!state || !gap) {
+        return;
+    }
+    if (gap->gap_start.high != 0 || gap->base.high != 0) {
+        return;
+    }
+    reader_mark_received(state, gap->gap_start.low);
+    for (i = 0; i < gap->num_bits; i++) {
+        if ((gap->bitmap[i / 32u] & (1u << (31u - (i % 32u)))) == 0) {
+            continue;
+        }
+        reader_mark_received(state, gap->base.low + i);
+    }
+}
+
+uint32_t nb_rtps_reader_build_acknack(nb_rtps_reader_state_t *state,
+                                      uint32_t last_sn,
+                                      nb_rtps_acknack_t *acknack)
+{
+    uint32_t missing = 0;
+    uint32_t base;
+    uint32_t num_bits = 0;
+    uint32_t i;
+
+    if (!state || !acknack) {
+        return 0;
+    }
+    memset(acknack, 0, sizeof(*acknack));
+    base = state->next_expected;
+    acknack->base.high = 0;
+    acknack->base.low = base;
+    if (last_sn >= base) {
+        uint64_t span = (uint64_t)last_sn - (uint64_t)base + 1u;
+
+        num_bits = span > NB_RTPS_ACKNACK_MAX_BITS
+                       ? NB_RTPS_ACKNACK_MAX_BITS
+                       : (uint32_t)span;
+        for (i = 0; i < num_bits; i++) {
+            if ((state->received[i / 32u] & (1u << (i % 32u))) != 0) {
+                continue;
+            }
+            acknack->bitmap[i / 32u] |= 1u << (31u - (i % 32u));
+            missing++;
+        }
+    }
+    acknack->num_bits = num_bits;
+    acknack->count = ++state->ack_count;
+    return missing;
+}

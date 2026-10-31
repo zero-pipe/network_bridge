@@ -60,4 +60,41 @@ int nb_rtps_reliable_process_acknack(nb_rtps_reliable_writer_t *writer,
                                      void *user,
                                      size_t *resent);
 
+/*
+ * Reader-side receive window.
+ *
+ * Tracks the next expected sequence number plus a 256-sample bitmap of
+ * samples already seen. The window advances over contiguous received
+ * samples, so a HEARTBEAT can be answered with an ACKNACK that requests only
+ * the samples that are still missing.
+ */
+typedef struct nb_rtps_reader_state {
+    uint32_t next_expected;
+    uint32_t received[NB_RTPS_ACKNACK_MAX_WORDS];
+    uint32_t ack_count;
+} nb_rtps_reader_state_t;
+
+/* Restart the window at first_sn (normally 1). */
+void nb_rtps_reader_state_reset(nb_rtps_reader_state_t *state, uint32_t first_sn);
+
+/*
+ * Record a received sample. Returns 1 when the caller should deliver it, and 0
+ * for duplicates, samples older than the window, and samples too far ahead to
+ * track. A sample too far ahead is reported as new but is not recorded; the
+ * reader falls back to asking for it again through the next ACKNACK.
+ */
+int nb_rtps_reader_on_sample(nb_rtps_reader_state_t *state, uint32_t sn);
+
+/* Mark the samples announced by a GAP as received without delivering them. */
+void nb_rtps_reader_on_gap(nb_rtps_reader_state_t *state, const nb_rtps_gap_t *gap);
+
+/*
+ * Fill base, bitmap and count for an ACKNACK covering up to last_sn. Bits are
+ * set for samples that are still missing. Returns the number of missing
+ * samples; a zero return still carries a valid, empty ACKNACK.
+ */
+uint32_t nb_rtps_reader_build_acknack(nb_rtps_reader_state_t *state,
+                                      uint32_t last_sn,
+                                      nb_rtps_acknack_t *acknack);
+
 #endif /* NB_RTPS_RELIABLE_H */

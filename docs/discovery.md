@@ -2,19 +2,20 @@
 
 This document describes the standards-based discovery layer used by the
 framework. It implements the RTPS discovery protocols (SPDP and SEDP) without
-taking a dependency on a DDS implementation. The RTPS path also has a
-best-effort application `DATA` path for the standard `dds::Message` type;
-native traffic remains on the framework's UDP/TCP/SHM transports. The separate
-Cyclone-backed `dds` transport provider is a normal data-plane transport and is
-not part of the self-developed RTPS stack.
+taking a dependency on a DDS implementation. The RTPS path also has an
+application `DATA` path for the standard `dds::Message` type in both
+best-effort and reliable modes; native traffic remains on the framework's
+UDP/TCP/SHM transports. The separate Cyclone-backed `dds` transport provider is
+a normal data-plane transport and is not part of the self-developed RTPS stack.
 
 Status: the wire codec, SPDP announcement payload, SPDP participant runtime,
-reliable SEDP endpoint exchange, and best-effort `dds::Message` application
-`DATA` are implemented and covered by unit and interop tests. Bidirectional
-`dds::Message` delivery with Cyclone DDS and between two nb RTPS participants is
-verified on Linux. Cyclone sees nb SEDP endpoints and receives nb samples; nb
-also receives and dispatches Cyclone samples. Mapping remote endpoints into the
-framework registry remains M4 work.
+reliable SEDP endpoint exchange, and best-effort plus reliable `dds::Message`
+application `DATA` are implemented and covered by unit and end-to-end tests.
+Bidirectional `dds::Message` delivery with Cyclone DDS and between two nb RTPS
+participants is verified on Linux; reliable application data between two nb
+participants is verified on Windows. Cyclone sees nb SEDP endpoints and
+receives nb samples; nb also receives and dispatches Cyclone samples. Mapping
+remote endpoints into the framework registry remains M4 work.
 
 ## 1. Scope
 
@@ -24,15 +25,15 @@ In scope:
 - Little-endian CDR and RTPS `ParameterList` encoding.
 - SPDP: periodic participant announcement on the well-known multicast group.
 - SEDP: reliable built-in endpoint exchange for publications and subscriptions.
-- Best-effort application `DATA` carrying standard CDR_LE `dds::Message`
-  (`sequence<octet> payload`) samples.
+- Application `DATA` carrying standard CDR_LE `dds::Message`
+  (`sequence<octet> payload`) samples, best-effort or reliable.
 - Lease-based participant expiry.
 - Mapping between RTPS endpoints and framework service records.
 
 Out of scope (for now):
 
-- RTPS fragmentation (`DATA_FRAG`), batching, reliable user-data delivery, and
-  arbitrary IDL types. Business traffic does not use RTPS by default.
+- RTPS fragmentation (`DATA_FRAG`), batching, and arbitrary IDL types.
+  Business traffic does not use RTPS by default.
 - DDS Security, TCP transport, IPv6, shared-memory locators.
 - Full DDS QoS semantics. Only the QoS needed to describe framework endpoints
   is published.
@@ -113,7 +114,9 @@ payload is a `ParameterList` with `PID_ENDPOINT_GUID`, `PID_TOPIC_NAME`,
 `SEDP` is reliable: the writer keeps a small history, sends `HEARTBEAT`, and
 retransmits samples requested by `ACKNACK`. Endpoint removal uses `DATA` with
 the dispose flag. The initial implementation keeps the history in memory and
-caps it; there is no `GAP` support until endpoint churn requires it.
+caps it; SEDP itself does not emit `GAP` yet, because endpoint churn is covered
+by dispose samples. A peer `GAP` on a built-in writer is still applied to the
+endpoint receive window. Application writers do emit `GAP` (section 6.3).
 
 Endpoint locators use one `PID_UNICAST_LOCATOR` or `PID_MULTICAST_LOCATOR`
 parameter per locator, each carrying exactly 24 bytes. They are not encoded as
@@ -131,6 +134,7 @@ HEARTBEAT.
 | SPDP announcement | 3 s | jittered per participant |
 | Participant lease | 20 s | remote entry expires after this |
 | SEDP heartbeat | 1 s | per reliable writer while unacknowledged |
+| Application data heartbeat | 1 s | per reliable publication with retained samples |
 | Lease sweep | 200 ms | runtime tick; leases are checked against wall-clock time |
 
 Defaults are configuration values, not constants in the protocol.
@@ -243,8 +247,9 @@ sockets and initializes state, so callers can learn ephemeral ports before
 - The multicast receive socket binds to `bind_host:spdp_port` with address
   reuse, joins the SPDP group, and sets TTL 1 and multicast loopback on.
 - The unicast receive socket binds to `bind_host:unicast_port`. It carries
-  SEDP, participant messages, and best-effort application `DATA`; SPDP itself is
-  sent from the multicast socket so the source port is the SPDP port.
+  SEDP, participant messages, `HEARTBEAT`/`ACKNACK`/`GAP`, and application
+  `DATA`; SPDP itself is sent from the multicast socket so the source port is
+  the SPDP port.
 - One poller and one thread drive both sockets. The poll timeout is 100 ms and
   `stop()` wakes the poller before joining.
 - An announcement is sent immediately on start, then every interval with
@@ -267,12 +272,23 @@ sockets and initializes state, so callers can learn ephemeral ports before
    subscription whose topic, type, partition, reliability, and durability
    match. Reader-directed samples are filtered by reader entity id; the
    best-effort unknown reader id is accepted.
-6. Key remotes by GUID prefix. The callback fires on first sight (`ADDED`), on
+6. Reliable pairs keep a per-(writer, reader) window: `next_expected` plus a
+   256-sample bitmap. Duplicates and samples below the window are dropped, and
+   the window advances over contiguous samples. `GAP` marks samples as
+   received without delivery, so an ACKNACK loop cannot spin on samples the
+   writer has already evicted.
+7. A reliable writer keeps a bounded history per publication, sends
+   `HEARTBEAT`, retransmits samples requested by an ACKNACK, and announces
+   samples dropped by history trimming with `GAP`. A reliable reader answers
+   `HEARTBEAT` with the missing subset as `ACKNACK`.
+8. Key remotes by GUID prefix. The callback fires on first sight (`ADDED`), on
    a changed record (`UPDATED`), and when the lease expires (`REMOVED`).
-7. Callbacks run outside the table lock. The table holds 1024 entries by
+9. Callbacks run outside the table lock. The table holds 1024 entries by
    default; when full, the entry with the oldest `last_seen` is replaced.
 
-No packet-path allocation occurs after initialization.
+The receive path itself does not allocate per packet. Reliable writer history
+and the lazily created reader windows allocate on first use and are bounded by
+the configured endpoint and history limits.
 
 ### 6.4 Unicast peers
 
@@ -288,10 +304,12 @@ superpeer/relay, or a discovery server) is still open; see section 7.
 
 - SPDP and SEDP endpoints are exchanged, but remote endpoints are not yet
   mapped into framework service records (M4).
-- Application `DATA` is best-effort and limited to `dds::Message`; no
-  fragmentation, reliable user data, security, TCP, or IPv6. A single global
-  callback is invoked once per matching local subscription, and its payload is
-  a zero-copy view valid only for the callback.
+- Application `DATA` is limited to `dds::Message`; no fragmentation, security,
+  TCP, or IPv6. Reliable delivery covers HEARTBEAT/ACKNACK/GAP and a bounded
+  keep-last history, but not blocking writes, per-reader durability or
+  `DATA_FRAG`. A single global callback is invoked once per matching local
+  subscription, and its payload is a zero-copy view valid only for the
+  callback.
 - On multi-host deployments `advertise_host` must be set explicitly. With a
   wildcard bind and no advertise host, the runtime falls back to `127.0.0.1`.
 - `stop()` clears the local remote table without emitting `REMOVED` callbacks.
@@ -303,6 +321,7 @@ State:
 | participants | GUID prefix | implemented, bounded |
 | endpoints | endpoint GUID | implemented, bounded |
 | writers | local writer id | implemented, bounded |
+| reader windows | writer GUID + reader entity | implemented, lazily allocated, bounded |
 
 The registry receives records through the existing
 `nb_registry_backend_ops_t` seam (`start` / `stop` / `tick` / `announce`), so
@@ -354,7 +373,9 @@ Data-level:
   and deserialization in both directions.
 - `e2e.rtps_participant` creates two self-developed RTPS participants and
   verifies that a publication on one is received by a subscription on the
-  other with matching reader/writer GUIDs.
+  other with matching reader/writer GUIDs. Reliable publications additionally
+  cover late-join replay through writer history and reader-side `GAP`
+  handling.
 - The built-in Cyclone-backed `dds` transport provider is a separate data plane
   and does carry application frames over DDS. `e2e.dds_remote` starts an
   independent Cyclone reader and verifies that it receives an nb event sample
@@ -382,16 +403,21 @@ Current:
 - `unit.rtps_wire`: CDR round trips, alignment, `dds::Message` serialization
   (header + length + raw octets, zero-copy parse, Cyclone option bits and
   trailing padding), `ParameterList` round trips,
-  `DATA`/`HEARTBEAT`/`ACKNACK` framing, truncation handling.
+  `DATA`/`HEARTBEAT`/`ACKNACK`/`GAP` framing, truncation handling.
 - `unit.rtps_sedp`: endpoint payload round trips, defaults, repeated
   24-byte locator parameters, 12-byte reliability, partition, user data, and
   missing-field rejection.
 - `unit.rtps_reliable`: history trimming, sequence-number state, ACKNACK bitmap
-  retransmit, and dispose samples.
+  retransmit, dispose samples, and the reader window (dedupe, gap advance,
+  missing-sample bitmap). `unit.rtps_sedp` and the SEDP runtime share the same
+  reader window helpers.
 - `e2e.rtps_participant`: two participants discover each other over unicast
   peers, exchange SEDP publications/subscriptions, deliver `dds::Message` data
   between a local publication and subscription, dispose endpoints, and expire
-  leases. The test also covers repeated create/destroy.
+  leases. Reliable coverage includes a late-joining subscriber that recovers
+  three samples from the writer history through HEARTBEAT/ACKNACK, and a GAP
+  test in which injected gap announcements suppress the reused sequence
+  numbers. The test also covers repeated create/destroy.
 - The multicast path has an opt-in loopback test:
   `NB_TEST_RTPS_MULTICAST=1 ctest -C Debug -R rtps`.
 - Cyclone SPDP/SEDP interop is opt-in:
@@ -422,7 +448,7 @@ Planned:
 | M3 (done) | SEDP: reliable built-in writers, heartbeat/acknack, endpoint callbacks |
 | M4 | Public discovery API and provider seam; mesh broadcast becomes one provider |
 | M5 | Scale to about 1000 participants: unicast peer scoping, table caps, load tests |
-| M6 (partial) | Cyclone SPDP/SEDP and bidirectional best-effort `dds::Message` DATA verified; CI automation pending |
+| M6 (partial) | Cyclone SPDP/SEDP and bidirectional `dds::Message` DATA verified; reliable application DATA verified nb-to-nb, Cyclone reliable interop and CI automation pending |
 | M7 | Standalone `libnb_discovery` target, examples, packaging |
 
 M2 and M3 are the first point at which two framework processes can discover

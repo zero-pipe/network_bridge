@@ -75,6 +75,12 @@ typedef struct nb_rtps_participant_config {
     uint32_t max_local_endpoints;    /* 0 = 1024 */
     uint32_t max_remote_endpoints;   /* 0 = 4096 */
     uint32_t sedp_heartbeat_ms;      /* 0 = 1000, minimum 100 */
+    /* HEARTBEAT interval for reliable application writers. 0 = 1000, minimum
+     * 100. */
+    uint32_t data_heartbeat_ms;
+    /* Default writer history depth for reliable publications. 0 = 8. The
+     * endpoint's history_depth wins when it is non-zero. */
+    uint32_t data_history_depth;
 } nb_rtps_participant_config_t;
 
 typedef struct nb_rtps_participant nb_rtps_participant_t;
@@ -133,8 +139,13 @@ int nb_rtps_participant_remove_endpoint(nb_rtps_participant_t *participant,
 
 /* Send an already CDR-encapsulated payload as application DATA to every
  * matching remote subscription. writer_guid must identify a local publication
- * endpoint added with nb_rtps_participant_add_endpoint(). The send path is
- * best-effort: it does not keep history or process user-data ACKNACKs. */
+ * endpoint added with nb_rtps_participant_add_endpoint().
+ *
+ * Best-effort publications are sent once and not retained. Reliable
+ * publications keep a bounded history, emit HEARTBEATs, retransmit samples
+ * requested by ACKNACK, and announce evicted samples with GAP. The local
+ * subscription side mirrors that: it deduplicates by writer sequence number,
+ * answers HEARTBEATs with ACKNACK, and honours GAP. */
 int nb_rtps_participant_publish(nb_rtps_participant_t *participant,
                                 const nb_rtps_guid_t *writer_guid,
                                 const void *payload,

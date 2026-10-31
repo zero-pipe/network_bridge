@@ -347,6 +347,58 @@ static void test_heartbeat_acknack(void)
     CHECK(count == 2);
 }
 
+static void test_gap(void)
+{
+    uint8_t buf[256];
+    nb_cdr_writer_t writer;
+    nb_rtps_header_t header;
+    nb_rtps_gap_t gap;
+    nb_rtps_gap_t parsed;
+    nb_rtps_submessage_view_t view;
+    uint8_t truncated[36];
+    size_t offset;
+    int rc;
+    int count = 0;
+
+    memset(&header, 0, sizeof(header));
+    header.version_major = NB_RTPS_PROTOCOL_VERSION_MAJOR;
+    header.version_minor = NB_RTPS_PROTOCOL_VERSION_MINOR;
+    header.vendor_id[0] = NB_RTPS_VENDOR_ID_0;
+    header.vendor_id[1] = NB_RTPS_VENDOR_ID_1;
+
+    memset(&gap, 0, sizeof(gap));
+    gap.reader_id = nb_rtps_eid_unknown;
+    gap.writer_id = nb_rtps_eid_sedp_publications_writer;
+    gap.gap_start.low = 2;
+    gap.base.low = 5;
+    gap.num_bits = 3;
+    gap.bitmap[0] = 0xa0000000u; /* gaps 5 and 7 */
+
+    CHECK(nb_rtps_message_init(&writer, buf, sizeof(buf), &header) == NB_OK);
+    CHECK(nb_rtps_gap(&writer, &gap) == NB_OK);
+    CHECK(nb_rtps_message_begin(buf, nb_cdr_writer_len(&writer), &header, &offset) == NB_OK);
+    while ((rc = nb_rtps_message_next(buf, nb_cdr_writer_len(&writer), &offset, &view)) == 1) {
+        count++;
+        CHECK(view.id == NB_RTPS_SUBMSG_GAP);
+        CHECK(nb_rtps_gap_decode(view.body, view.body_len, &parsed) == NB_OK);
+        CHECK(nb_rtps_entity_id_equal(&parsed.writer_id,
+                                      &nb_rtps_eid_sedp_publications_writer));
+        CHECK(nb_rtps_entity_id_equal(&parsed.reader_id, &nb_rtps_eid_unknown));
+        CHECK(parsed.gap_start.low == 2);
+        CHECK(parsed.base.low == 5);
+        CHECK(parsed.num_bits == 3);
+        CHECK(parsed.bitmap[0] == 0xa0000000u);
+    }
+    CHECK(rc == 0);
+    CHECK(count == 1);
+
+    /* A submessage header plus a body shorter than the fixed fields must fail
+     * without reading past the buffer. */
+    memcpy(truncated, buf + NB_RTPS_HEADER_SIZE, sizeof(truncated));
+    CHECK(nb_rtps_gap_decode(truncated, 27, &parsed) == NB_ERR_BAD_MESSAGE);
+    CHECK(nb_rtps_gap_decode(truncated, 4, &parsed) == NB_ERR_BAD_MESSAGE);
+}
+
 static void test_spdp_roundtrip(void)
 {
     uint8_t buf[512];
@@ -420,6 +472,7 @@ int main(void)
     test_param_roundtrip();
     test_message_data();
     test_heartbeat_acknack();
+    test_gap();
     test_spdp_roundtrip();
     if (g_fail) {
         nb_log_error("rtps wire tests failed");

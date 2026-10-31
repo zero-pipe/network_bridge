@@ -111,9 +111,75 @@ static void test_history_and_acknack(void)
     nb_rtps_reliable_writer_destroy(writer);
 }
 
+static void test_reader_window(void)
+{
+    nb_rtps_reader_state_t state;
+    nb_rtps_acknack_t ack;
+    nb_rtps_gap_t gap;
+    uint32_t missing;
+
+    nb_rtps_reader_state_reset(&state, 1);
+    CHECK(state.next_expected == 1);
+
+    /* Out-of-order sample: tracked but the window does not advance yet. */
+    CHECK(nb_rtps_reader_on_sample(&state, 2) == 1);
+    CHECK(state.next_expected == 1);
+    /* The duplicate must not be delivered twice. */
+    CHECK(nb_rtps_reader_on_sample(&state, 2) == 0);
+    /* Filling the hole advances the window over both samples. */
+    CHECK(nb_rtps_reader_on_sample(&state, 1) == 1);
+    CHECK(state.next_expected == 3);
+    CHECK(nb_rtps_reader_on_sample(&state, 1) == 0);
+
+    /* Nothing missing: the ACKNACK has an empty bitmap. */
+    missing = nb_rtps_reader_build_acknack(&state, 2, &ack);
+    CHECK(missing == 0);
+    CHECK(ack.base.low == 3);
+    CHECK(ack.num_bits == 0);
+    CHECK(ack.count == 1);
+
+    /* 3..6 are outstanding; mark 4 and 6 through two gaps, then 3 and 5
+     * arrive. The window must advance to 7. */
+    memset(&gap, 0, sizeof(gap));
+    gap.gap_start.low = 3;
+    nb_rtps_reader_on_gap(&state, &gap);
+    CHECK(state.next_expected == 4);
+    CHECK(nb_rtps_reader_on_sample(&state, 4) == 1);
+    CHECK(state.next_expected == 5);
+    gap.gap_start.low = 5;
+    nb_rtps_reader_on_gap(&state, &gap);
+    CHECK(nb_rtps_reader_on_sample(&state, 6) == 1);
+    CHECK(state.next_expected == 7);
+
+    /* Sequence-number sets use MSB-first bits. */
+    CHECK(nb_rtps_reader_on_sample(&state, 9) == 1);
+    missing = nb_rtps_reader_build_acknack(&state, 9, &ack);
+    CHECK(missing == 2);
+    CHECK(ack.base.low == 7);
+    CHECK(ack.num_bits == 3);
+    CHECK(ack.bitmap[0] == 0xc0000000u);
+    CHECK(ack.count == 2);
+
+    /* A gap announced through the set form advances over members only. */
+    memset(&gap, 0, sizeof(gap));
+    gap.gap_start.low = 7;
+    gap.base.low = 8;
+    gap.num_bits = 1;
+    gap.bitmap[0] = 0x80000000u; /* gap 8 */
+    nb_rtps_reader_on_gap(&state, &gap);
+    /* Sample 9 was already received, so closing 7 and 8 advances past it. */
+    CHECK(state.next_expected == 10);
+
+    /* Samples beyond the 256-entry window are delivered but not tracked, so a
+     * later ACKNACK still covers them. */
+    CHECK(nb_rtps_reader_on_sample(&state, 10 + NB_RTPS_ACKNACK_MAX_BITS + 1u) == 1);
+    CHECK(state.next_expected == 10);
+}
+
 int main(void)
 {
     test_history_and_acknack();
+    test_reader_window();
     if (g_fail) {
         nb_log_error("rtps reliable tests failed");
         return 1;

@@ -8,7 +8,7 @@ changes state so a later session can resume without reading the whole history.
 | Topic | Decision |
 | --- | --- |
 | Architecture | Route A: implement RTPS discovery ourselves; no DDS dependency in the discovery path |
-| Data plane | RTPS adds a best-effort `dds::Message` interoperability path; native traffic uses UDP/TCP/SHM, and the separate Cyclone-backed `dds` provider remains the general DDS transport |
+| Data plane | RTPS adds best-effort and reliable `dds::Message` interoperability paths; native traffic uses UDP/TCP/SHM, and the separate Cyclone-backed `dds` provider remains the general DDS transport |
 | Vendor id | Placeholder `0x01,0x9a` until an OMG-assigned value exists |
 | First interop target | Bundled Cyclone DDS; ROS 2 is out of scope for now |
 | Scale target | About 1000 participants, which requires unicast peers/scoping; plain multicast is not enough |
@@ -22,9 +22,9 @@ changes state so a later session can resume without reading the whole history.
 - M3 SEDP: done (runtime, reliable exchange, endpoint callbacks and tests)
 - M4 integration: pending
 - M5 scale: pending
-- M6 Cyclone interop: partial (SPDP/SEDP and bidirectional best-effort
-  `dds::Message` delivery verified on Linux; CI job and reliable user data
-  pending)
+- M6 Cyclone interop: partial (SPDP/SEDP and bidirectional `dds::Message`
+  delivery verified on Linux; reliable application DATA verified nb-to-nb on
+  Windows; Cyclone reliable interop and the CI job pending)
 - M7 packaging: pending
 
 ## M1: wire codec (done)
@@ -98,7 +98,8 @@ changes state so a later session can resume without reading the whole history.
 - [x] Verify nb-to-nb `dds::Message` DATA through the self-developed RTPS stack
 - [x] Verify an independent Cyclone reader receives data from the separate
       Cyclone-backed `dds` provider (`e2e.dds_remote`)
-- [ ] Reliable user data and `DATA_FRAG`
+- [x] Reliable application `DATA`: writer history, HEARTBEAT/ACKNACK, GAP
+- [ ] `DATA_FRAG`
 - [x] Vendor id note for `0x01,0x10` quirks
 - [x] Interop test in `tests/` or `tools/`
 
@@ -116,9 +117,17 @@ set passed 5/5 with `NB_TEST_RTPS_ADVERTISE_HOST=192.168.54.14`. Cyclone emits
 CDR_LE encapsulation option bits `00 01`; the reader now ignores option bits
 and accepts trailing submessage padding.
 
+Reliable application `DATA` was verified locally on Windows on 2026-10-31:
+`-L rtps` passed with the new late-join replay and injected-GAP cases, and
+`e2e.rtps_participant` passed 10 repeated runs. Cyclone could not be exercised
+in that environment (`e2e.rtps_cyclone` fails the same way on the parent
+commit because the Cyclone participant never discovers the nb participant), so
+reliable Cyclone interop still needs the Linux runner.
+
 ## Follow-ups after bidirectional DATA
 
-- [ ] Reliable application `DATA`: writer history, HEARTBEAT/ACKNACK, GAP
+- [x] Reliable application `DATA`: writer history, HEARTBEAT/ACKNACK, GAP
+- [ ] Verify reliable `dds::Message` against Cyclone on the Linux runner
 - [ ] `DATA_FRAG` for samples larger than the MTU
 - [ ] Generic IDL/topic-type support; the RTPS path is fixed to `dds::Message`
 - [ ] Per-endpoint subscription callbacks; the current callback is global and
@@ -140,9 +149,9 @@ and accepts trailing submessage padding.
   participants need peers/scoping or a server; do not assume plain multicast.
 - Windows multicast binding and firewall behavior differ from Linux.
 - Cyclone DDS vendor-specific behavior must be verified, not assumed.
-- The RTPS data plane currently covers only best-effort `dds::Message`.
-  Arbitrary IDL and ROS 2 topic/service exchange still need a gateway or a
-  generic RTPS data plane.
+- The RTPS data plane covers best-effort and reliable `dds::Message`, without
+  fragmentation. Arbitrary IDL and ROS 2 topic/service exchange still need a
+  gateway or a generic RTPS data plane.
 - `ros_discovery_info` and ROS 2 node graph visibility are explicitly deferred.
 
 ## Resume notes
@@ -160,8 +169,8 @@ and accepts trailing submessage padding.
 - Commit identity: `OldChen <825988516@qq.com>` (repository-local config).
 - Next task: M4 framework integration: map RTPS endpoints to registry service
   records and add the discovery provider selection seam. The bidirectional
-  `dds::Message` interoperability path is functional; reliable/generic DATA is
-  a separate follow-up.
+  `dds::Message` path is functional in both best-effort and reliable modes;
+  `DATA_FRAG` and generic DATA remain separate follow-ups.
 
 ## Change log
 
@@ -189,3 +198,10 @@ and accepts trailing submessage padding.
   subscription data callback, remote publication/local subscription matching,
   nb-to-nb delivery, and Cyclone-to-nb delivery. Fixed CDR_LE option-bit
   handling (`00 01 00 01` from Cyclone) and accepted trailing padding.
+- 2026-10-31: Added reliable application DATA. Reliable publications keep a
+  bounded writer history, emit HEARTBEATs, retransmit ACKNACK requests, and
+  emit GAP for evicted samples; readers keep a per-(writer, reader) window,
+  deduplicate by sequence number, answer HEARTBEATs, and honour GAP. Added
+  `GAP` codec, `data_heartbeat_ms`/`data_history_depth` config, unit tests and
+  nb-to-nb late-join/GAP end-to-end tests. SEDP now shares the reader-window
+  helpers. Cyclone reliable interop is still to be run on Linux.

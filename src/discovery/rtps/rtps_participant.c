@@ -29,12 +29,12 @@
 #define NB_RTPS_MAX_DATA_TARGETS 16u
 #define NB_RTPS_DEFAULT_SEDP_HEARTBEAT_MS 1000u
 #define NB_RTPS_MIN_SEDP_HEARTBEAT_MS 100u
+#define NB_RTPS_DEFAULT_DATA_HEARTBEAT_MS 1000u
+#define NB_RTPS_MIN_DATA_HEARTBEAT_MS 100u
+#define NB_RTPS_DEFAULT_DATA_HISTORY 8u
+#define NB_RTPS_MAX_DATA_HISTORY 1024u
 
-typedef struct nb_rtps_sedp_reader_state {
-    uint32_t next_expected;
-    uint32_t received[NB_RTPS_ACKNACK_MAX_WORDS];
-    uint32_t ack_count;
-} nb_rtps_sedp_reader_state_t;
+typedef nb_rtps_reader_state_t nb_rtps_sedp_reader_state_t;
 
 typedef struct nb_rtps_local_endpoint {
     int used;
@@ -42,6 +42,8 @@ typedef struct nb_rtps_local_endpoint {
     nb_rtps_endpoint_info_t info;
     uint32_t sn;
     uint32_t data_sn;
+    nb_rtps_reliable_writer_t *history; /* reliable publications only */
+    uint32_t heartbeat_count;
 } nb_rtps_local_endpoint_t;
 
 typedef struct nb_rtps_remote_endpoint {
@@ -61,6 +63,20 @@ typedef struct nb_rtps_remote_participant {
     nb_rtps_sedp_reader_state_t publications_reader;
     nb_rtps_sedp_reader_state_t subscriptions_reader;
 } nb_rtps_remote_participant_t;
+
+/*
+ * Receive window for one (remote writer, local reader) pair. Reliable user
+ * data needs this per pair because a writer can address several local
+ * subscriptions with independent ACKNACK state.
+ */
+typedef struct nb_rtps_data_reader_state {
+    int used;
+    nb_rtps_guid_t writer;
+    nb_rtps_entity_id_t reader;
+    nb_rtps_reader_state_t state;
+    uint32_t last_heartbeat_count;
+    int heartbeat_seen;
+} nb_rtps_data_reader_state_t;
 
 struct nb_rtps_participant {
     char bind_host[NB_RTPS_PEER_HOST_MAX];
@@ -107,6 +123,11 @@ struct nb_rtps_participant {
     uint32_t publications_hb_count;
     uint32_t subscriptions_hb_count;
     uint32_t sedp_heartbeat_ms;
+    uint32_t data_heartbeat_ms;
+    uint32_t data_history_depth;
+    nb_rtps_data_reader_state_t *data_readers;
+    size_t max_data_readers;
+    size_t data_reader_count;
     volatile int stop;
     int started;
     uint32_t rng;
@@ -114,7 +135,11 @@ struct nb_rtps_participant {
     uint64_t next_announce_ms;
     uint64_t next_sweep_ms;
     uint64_t next_sedp_heartbeat_ms;
+    uint64_t next_data_heartbeat_ms;
 };
+
+static void drop_data_readers_for_writer(nb_rtps_participant_t *participant,
+                                         const nb_rtps_guid_t *writer);
 
 static void copy_str(char *dst, size_t cap, const char *src)
 {
@@ -294,37 +319,6 @@ static int remote_target(const nb_rtps_remote_participant_t *remote,
     copy_str(host, cap, remote->source_host);
     *port = remote->source_port;
     return NB_OK;
-}
-
-static void sedp_reader_reset(nb_rtps_sedp_reader_state_t *state, uint32_t first_sn)
-{
-    state->next_expected = first_sn;
-    memset(state->received, 0, sizeof(state->received));
-    state->ack_count = 0;
-}
-
-static int sedp_reader_mark_received(nb_rtps_sedp_reader_state_t *state, uint32_t sn)
-{
-    uint32_t offset;
-    uint32_t i;
-
-    if (sn < state->next_expected) {
-        return 0;
-    }
-    offset = sn - state->next_expected;
-    if (offset >= NB_RTPS_ACKNACK_MAX_BITS) {
-        return 0;
-    }
-    state->received[offset / 32u] |= 1u << (offset % 32u);
-    while ((state->received[0] & 1u) != 0) {
-        for (i = 0; i + 1u < NB_RTPS_ACKNACK_MAX_WORDS; i++) {
-            state->received[i] =
-                (state->received[i] >> 1) | (state->received[i + 1u] << 31);
-        }
-        state->received[NB_RTPS_ACKNACK_MAX_WORDS - 1u] >>= 1;
-        state->next_expected++;
-    }
-    return 1;
 }
 
 static void init_header(const nb_rtps_participant_t *participant, nb_rtps_header_t *header)
@@ -879,6 +873,9 @@ static int remove_remote_endpoint(nb_rtps_participant_t *participant,
             *info = slot->info;
         }
         slot->used = 0;
+        if (slot->kind == NB_RTPS_ENDPOINT_PUBLICATION) {
+            drop_data_readers_for_writer(participant, &slot->info.endpoint_guid);
+        }
         found = 1;
     }
     ntk_mutex_unlock(participant->lock);
@@ -900,6 +897,9 @@ static void remove_remote_endpoints_for_prefix(nb_rtps_participant_t *participan
                 nb_rtps_guid_prefix_equal(&endpoint->info.endpoint_guid.prefix, prefix)) {
                 copy = *endpoint;
                 endpoint->used = 0;
+                if (copy.kind == NB_RTPS_ENDPOINT_PUBLICATION) {
+                    drop_data_readers_for_writer(participant, &copy.info.endpoint_guid);
+                }
                 found = 1;
                 break;
             }
@@ -957,8 +957,8 @@ static void update_remote(nb_rtps_participant_t *participant,
         }
         memset(slot, 0, sizeof(*slot));
         slot->used = 1;
-        sedp_reader_reset(&slot->publications_reader, 1);
-        sedp_reader_reset(&slot->subscriptions_reader, 1);
+        nb_rtps_reader_state_reset(&slot->publications_reader, 1);
+        nb_rtps_reader_state_reset(&slot->subscriptions_reader, 1);
         event = NB_RTPS_PARTICIPANT_ADDED;
         notify_event = 1;
         send_endpoints = 1;
@@ -998,6 +998,23 @@ static nb_rtps_sedp_reader_state_t *sedp_reader_state(nb_rtps_remote_participant
                                                 : &remote->subscriptions_reader;
 }
 
+/* Peers may GAP built-in SEDP writers when their endpoint history is trimmed.
+ * Mark those samples received so the SEDP reader stops asking for them. */
+static void handle_sedp_gap(nb_rtps_participant_t *participant,
+                            nb_rtps_endpoint_kind_t kind,
+                            const nb_rtps_gap_t *gap,
+                            const nb_rtps_guid_prefix_t *source_prefix)
+{
+    nb_rtps_remote_participant_t *remote;
+
+    ntk_mutex_lock(participant->lock);
+    remote = find_remote(participant, source_prefix);
+    if (remote) {
+        nb_rtps_reader_on_gap(sedp_reader_state(remote, kind), gap);
+    }
+    ntk_mutex_unlock(participant->lock);
+}
+
 static void handle_sedp_data(nb_rtps_participant_t *participant,
                              nb_rtps_endpoint_kind_t kind,
                              const nb_rtps_data_view_t *data,
@@ -1020,7 +1037,7 @@ static void handle_sedp_data(nb_rtps_participant_t *participant,
         remote = find_remote(participant, source_prefix);
         if (remote) {
             state = sedp_reader_state(remote, kind);
-            (void)sedp_reader_mark_received(state, data->writer_sn.low);
+            (void)nb_rtps_reader_on_sample(state, data->writer_sn.low);
         }
         ntk_mutex_unlock(participant->lock);
         if (remote) {
@@ -1040,7 +1057,7 @@ static void handle_sedp_data(nb_rtps_participant_t *participant,
     remote = find_remote(participant, source_prefix);
     if (remote) {
         state = sedp_reader_state(remote, kind);
-        (void)sedp_reader_mark_received(state, data->writer_sn.low);
+        (void)nb_rtps_reader_on_sample(state, data->writer_sn.low);
     }
     ntk_mutex_unlock(participant->lock);
     if (remote) {
@@ -1086,10 +1103,10 @@ static void handle_sedp_heartbeat(nb_rtps_participant_t *participant,
     }
     state = sedp_reader_state(remote, kind);
     if (first_sn > state->next_expected) {
-        sedp_reader_reset(state, first_sn);
+        nb_rtps_reader_state_reset(state, first_sn);
     } else if (last_sn + 1u < state->next_expected) {
         /* The writer restarted and reused sequence numbers. */
-        sedp_reader_reset(state, first_sn);
+        nb_rtps_reader_state_reset(state, first_sn);
     }
     base = state->next_expected;
     if (last_sn >= base) {
@@ -1178,33 +1195,335 @@ static void handle_sedp_acknack(nb_rtps_participant_t *participant,
         history, acknack, sedp_resend_callback, &context, NULL);
 }
 
+/* QoS compatibility between an offered publication and a requested
+ * subscription: matching topic, type and partition; a reliable reader
+ * requires a reliable writer; the writer must offer at least the requested
+ * durability. */
+static int endpoint_qos_compatible(const nb_rtps_endpoint_info_t *publication,
+                                   const nb_rtps_endpoint_info_t *subscription)
+{
+    uint32_t pub_reliability;
+    uint32_t sub_reliability;
+
+    if (strcmp(publication->topic_name, subscription->topic_name) != 0 ||
+        strcmp(publication->type_name, subscription->type_name) != 0 ||
+        strcmp(publication->partition, subscription->partition) != 0) {
+        return 0;
+    }
+    pub_reliability = publication->reliability ? publication->reliability
+                                               : NB_RTPS_RELIABILITY_BEST_EFFORT;
+    sub_reliability = subscription->reliability ? subscription->reliability
+                                                : NB_RTPS_RELIABILITY_BEST_EFFORT;
+    if (sub_reliability == NB_RTPS_RELIABILITY_RELIABLE &&
+        pub_reliability != NB_RTPS_RELIABILITY_RELIABLE) {
+        return 0;
+    }
+    if (publication->durability < subscription->durability) {
+        return 0;
+    }
+    return 1;
+}
+
 static int data_endpoint_matches(const nb_rtps_local_endpoint_t *local,
                                  const nb_rtps_remote_endpoint_t *remote)
 {
-    uint32_t local_reliability;
-    uint32_t remote_reliability;
-
     if (!local || !remote || local->kind != NB_RTPS_ENDPOINT_SUBSCRIPTION ||
         remote->kind != NB_RTPS_ENDPOINT_PUBLICATION) {
         return 0;
     }
-    if (strcmp(local->info.topic_name, remote->info.topic_name) != 0 ||
-        strcmp(local->info.type_name, remote->info.type_name) != 0 ||
-        strcmp(local->info.partition, remote->info.partition) != 0) {
-        return 0;
+    return endpoint_qos_compatible(&remote->info, &local->info);
+}
+
+/* All data_reader helpers are called with participant->lock held. */
+static int ensure_data_readers(nb_rtps_participant_t *participant)
+{
+    if (participant->data_readers) {
+        return NB_OK;
     }
-    local_reliability =
-        local->info.reliability ? local->info.reliability : NB_RTPS_RELIABILITY_BEST_EFFORT;
-    remote_reliability =
-        remote->info.reliability ? remote->info.reliability : NB_RTPS_RELIABILITY_BEST_EFFORT;
-    if (local_reliability == NB_RTPS_RELIABILITY_RELIABLE &&
-        remote_reliability != NB_RTPS_RELIABILITY_RELIABLE) {
-        return 0;
+    participant->max_data_readers = participant->max_remote_endpoints;
+    if (participant->max_data_readers == 0) {
+        return NB_ERR_NOMEM;
     }
-    if (remote->info.durability > local->info.durability) {
-        return 0;
+    participant->data_readers = (nb_rtps_data_reader_state_t *)calloc(
+        participant->max_data_readers, sizeof(*participant->data_readers));
+    if (!participant->data_readers) {
+        participant->max_data_readers = 0;
+        return NB_ERR_NOMEM;
     }
-    return 1;
+    return NB_OK;
+}
+
+static nb_rtps_data_reader_state_t *find_data_reader(nb_rtps_participant_t *participant,
+                                                     const nb_rtps_guid_t *writer,
+                                                     const nb_rtps_entity_id_t *reader)
+{
+    size_t i;
+
+    if (!participant->data_readers) {
+        return NULL;
+    }
+    for (i = 0; i < participant->max_data_readers; i++) {
+        nb_rtps_data_reader_state_t *state = &participant->data_readers[i];
+
+        if (state->used && nb_rtps_guid_equal(&state->writer, writer) &&
+            nb_rtps_entity_id_equal(&state->reader, reader)) {
+            return state;
+        }
+    }
+    return NULL;
+}
+
+static nb_rtps_data_reader_state_t *get_data_reader(nb_rtps_participant_t *participant,
+                                                    const nb_rtps_guid_t *writer,
+                                                    const nb_rtps_entity_id_t *reader)
+{
+    nb_rtps_data_reader_state_t *state = find_data_reader(participant, writer, reader);
+    size_t i;
+
+    if (state) {
+        return state;
+    }
+    if (ensure_data_readers(participant) != NB_OK) {
+        return NULL;
+    }
+    for (i = 0; i < participant->max_data_readers; i++) {
+        if (!participant->data_readers[i].used) {
+            state = &participant->data_readers[i];
+            break;
+        }
+    }
+    if (!state) {
+        return NULL;
+    }
+    memset(state, 0, sizeof(*state));
+    state->used = 1;
+    state->writer = *writer;
+    state->reader = *reader;
+    nb_rtps_reader_state_reset(&state->state, 1);
+    participant->data_reader_count++;
+    return state;
+}
+
+static void drop_data_readers_for_writer(nb_rtps_participant_t *participant,
+                                         const nb_rtps_guid_t *writer)
+{
+    size_t i;
+
+    if (!participant->data_readers) {
+        return;
+    }
+    for (i = 0; i < participant->max_data_readers; i++) {
+        nb_rtps_data_reader_state_t *state = &participant->data_readers[i];
+
+        if (state->used && nb_rtps_guid_equal(&state->writer, writer)) {
+            state->used = 0;
+            if (participant->data_reader_count > 0) {
+                participant->data_reader_count--;
+            }
+        }
+    }
+}
+
+static void drop_data_readers_for_reader(nb_rtps_participant_t *participant,
+                                         const nb_rtps_entity_id_t *reader)
+{
+    size_t i;
+
+    if (!participant->data_readers) {
+        return;
+    }
+    for (i = 0; i < participant->max_data_readers; i++) {
+        nb_rtps_data_reader_state_t *state = &participant->data_readers[i];
+
+        if (state->used && nb_rtps_entity_id_equal(&state->reader, reader)) {
+            state->used = 0;
+            if (participant->data_reader_count > 0) {
+                participant->data_reader_count--;
+            }
+        }
+    }
+}
+
+/* Announce that the writer will not send [first_sn, last_sn]. */
+static int send_user_gap(nb_rtps_participant_t *participant,
+                         const nb_rtps_guid_t *writer_guid,
+                         const nb_rtps_guid_t *reader_guid,
+                         uint32_t first_sn,
+                         uint32_t last_sn,
+                         const char *host,
+                         uint16_t port)
+{
+    uint8_t message[NB_RTPS_PACKET_MAX];
+    nb_rtps_header_t header;
+    nb_rtps_time_t timestamp;
+    nb_rtps_gap_t gap;
+    nb_cdr_writer_t writer;
+    uint64_t now;
+    uint32_t span;
+    uint32_t i;
+    size_t message_len;
+
+    if (!participant || !writer_guid || !reader_guid || first_sn == 0 ||
+        last_sn < first_sn || !host || host[0] == '\0' || port == 0) {
+        return NB_ERR_INVALID;
+    }
+    init_header(participant, &header);
+    now = ntk_wall_ms();
+    timestamp.seconds = (int32_t)(now / 1000u);
+    timestamp.fraction = (uint32_t)(((now % 1000u) << 32) / 1000u);
+    memset(&gap, 0, sizeof(gap));
+    gap.reader_id = reader_guid->entity;
+    gap.writer_id = writer_guid->entity;
+    gap.gap_start.high = 0;
+    gap.gap_start.low = first_sn;
+    if (last_sn > first_sn) {
+        span = last_sn - first_sn;
+        if (span > NB_RTPS_ACKNACK_MAX_BITS) {
+            span = NB_RTPS_ACKNACK_MAX_BITS;
+        }
+        gap.base.high = 0;
+        gap.base.low = first_sn + 1u;
+        gap.num_bits = span;
+        for (i = 0; i < span; i++) {
+            gap.bitmap[i / 32u] |= 1u << (31u - (i % 32u));
+        }
+    }
+    if (nb_rtps_message_init(&writer, message, sizeof(message), &header) != NB_OK ||
+        nb_rtps_info_ts(&writer, &timestamp, false) != NB_OK ||
+        nb_rtps_info_dst(&writer, &reader_guid->prefix) != NB_OK ||
+        nb_rtps_gap(&writer, &gap) != NB_OK ||
+        !nb_cdr_writer_ok(&writer)) {
+        return NB_ERR_BAD_MESSAGE;
+    }
+    message_len = nb_cdr_writer_len(&writer);
+    if (ntk_socket_sendto(participant->unicast_sock, message, message_len, host, port) < 0) {
+        return NB_ERR_IO;
+    }
+    return NB_OK;
+}
+
+static int send_user_acknack(nb_rtps_participant_t *participant,
+                             const nb_rtps_guid_t *writer_guid,
+                             const nb_rtps_guid_t *reader_guid,
+                             const nb_rtps_acknack_t *acknack,
+                             const char *host,
+                             uint16_t port)
+{
+    uint8_t message[NB_RTPS_PACKET_MAX];
+    nb_rtps_header_t header;
+    nb_rtps_time_t timestamp;
+    nb_cdr_writer_t writer;
+    uint64_t now;
+    size_t message_len;
+
+    if (!participant || !writer_guid || !reader_guid || !acknack ||
+        !host || host[0] == '\0' || port == 0) {
+        return NB_ERR_INVALID;
+    }
+    init_header(participant, &header);
+    now = ntk_wall_ms();
+    timestamp.seconds = (int32_t)(now / 1000u);
+    timestamp.fraction = (uint32_t)(((now % 1000u) << 32) / 1000u);
+    if (nb_rtps_message_init(&writer, message, sizeof(message), &header) != NB_OK ||
+        nb_rtps_info_ts(&writer, &timestamp, false) != NB_OK ||
+        nb_rtps_info_dst(&writer, &writer_guid->prefix) != NB_OK ||
+        nb_rtps_acknack(&writer, acknack) != NB_OK ||
+        !nb_cdr_writer_ok(&writer)) {
+        return NB_ERR_BAD_MESSAGE;
+    }
+    message_len = nb_cdr_writer_len(&writer);
+    if (ntk_socket_sendto(participant->unicast_sock, message, message_len, host, port) < 0) {
+        return NB_ERR_IO;
+    }
+    return NB_OK;
+}
+
+static int send_user_heartbeat(nb_rtps_participant_t *participant,
+                               nb_rtps_local_endpoint_t *local,
+                               const nb_rtps_endpoint_info_t *remote,
+                               uint32_t first_sn,
+                               uint32_t last_sn,
+                               const char *host,
+                               uint16_t port)
+{
+    uint8_t message[NB_RTPS_PACKET_MAX];
+    nb_rtps_header_t header;
+    nb_rtps_time_t timestamp;
+    nb_rtps_heartbeat_t heartbeat;
+    nb_cdr_writer_t writer;
+    uint64_t now;
+    size_t message_len;
+
+    init_header(participant, &header);
+    now = ntk_wall_ms();
+    timestamp.seconds = (int32_t)(now / 1000u);
+    timestamp.fraction = (uint32_t)(((now % 1000u) << 32) / 1000u);
+    memset(&heartbeat, 0, sizeof(heartbeat));
+    heartbeat.reader_id = remote->endpoint_guid.entity;
+    heartbeat.writer_id = local->info.endpoint_guid.entity;
+    heartbeat.first_sn.high = 0;
+    heartbeat.first_sn.low = first_sn;
+    heartbeat.last_sn.high = 0;
+    heartbeat.last_sn.low = last_sn;
+    heartbeat.count = ++local->heartbeat_count;
+    if (nb_rtps_message_init(&writer, message, sizeof(message), &header) != NB_OK ||
+        nb_rtps_info_ts(&writer, &timestamp, false) != NB_OK ||
+        nb_rtps_info_dst(&writer, &remote->endpoint_guid.prefix) != NB_OK ||
+        nb_rtps_heartbeat(&writer, &heartbeat) != NB_OK ||
+        !nb_cdr_writer_ok(&writer)) {
+        return NB_ERR_BAD_MESSAGE;
+    }
+    message_len = nb_cdr_writer_len(&writer);
+    if (ntk_socket_sendto(participant->unicast_sock, message, message_len, host, port) < 0) {
+        return NB_ERR_IO;
+    }
+    return NB_OK;
+}
+
+/* HEARTBEAT timer for reliable application writers. */
+static void send_data_heartbeats(nb_rtps_participant_t *participant)
+{
+    size_t i;
+    size_t j;
+
+    ntk_mutex_lock(participant->lock);
+    for (i = 0; i < participant->max_local_endpoints; i++) {
+        nb_rtps_local_endpoint_t *local = &participant->local_endpoints[i];
+        uint32_t first_sn = 0;
+        uint32_t last_sn = 0;
+        size_t sample_count = 0;
+
+        if (!local->used || local->kind != NB_RTPS_ENDPOINT_PUBLICATION ||
+            !local->history) {
+            continue;
+        }
+        nb_rtps_reliable_state(local->history, &first_sn, &last_sn, &sample_count);
+        if (sample_count == 0) {
+            continue;
+        }
+        for (j = 0; j < participant->max_remote_endpoints; j++) {
+            nb_rtps_remote_endpoint_t *remote = &participant->remote_endpoints[j];
+            char host[NB_RTPS_PEER_HOST_MAX];
+            uint16_t port = 0;
+
+            if (!remote->used || remote->kind != NB_RTPS_ENDPOINT_SUBSCRIPTION ||
+                remote->info.reliability != NB_RTPS_RELIABILITY_RELIABLE ||
+                !endpoint_qos_compatible(&local->info, &remote->info)) {
+                continue;
+            }
+            if (endpoint_data_target(participant, remote, host, sizeof(host), &port) != NB_OK) {
+                continue;
+            }
+            (void)send_user_heartbeat(participant,
+                                      local,
+                                      &remote->info,
+                                      first_sn,
+                                      last_sn,
+                                      host,
+                                      port);
+        }
+    }
+    ntk_mutex_unlock(participant->lock);
 }
 
 static void handle_user_data(nb_rtps_participant_t *participant,
@@ -1223,6 +1542,9 @@ static void handle_user_data(nb_rtps_participant_t *participant,
     if (!participant || !data || !source_prefix || data->dispose || data->key) {
         return;
     }
+    if (data->writer_sn.high != 0) {
+        return;
+    }
     if (nb_rtps_dds_message_deserialize(
             data->payload, data->payload_len, &message) != NB_OK) {
         return;
@@ -1233,31 +1555,265 @@ static void handle_user_data(nb_rtps_participant_t *participant,
     ntk_mutex_lock(participant->lock);
     callback = participant->data_callback;
     user = participant->data_user;
-    if (callback) {
-        remote = find_remote_endpoint(participant, &writer_guid);
-        if (remote) {
-            for (i = 0; i < participant->max_local_endpoints; i++) {
-                nb_rtps_local_endpoint_t *local = &participant->local_endpoints[i];
+    remote = find_remote_endpoint(participant, &writer_guid);
+    if (remote) {
+        for (i = 0; i < participant->max_local_endpoints; i++) {
+            nb_rtps_local_endpoint_t *local = &participant->local_endpoints[i];
+            nb_rtps_data_reader_state_t *reader_state;
+            int reliable;
 
-                if (!local->used ||
-                    !data_endpoint_matches(local, remote) ||
-                    (!nb_rtps_entity_id_equal(&data->reader_id, &nb_rtps_eid_unknown) &&
-                     !nb_rtps_entity_id_equal(&data->reader_id,
-                                              &local->info.endpoint_guid.entity))) {
+            if (!local->used ||
+                !data_endpoint_matches(local, remote) ||
+                (!nb_rtps_entity_id_equal(&data->reader_id, &nb_rtps_eid_unknown) &&
+                 !nb_rtps_entity_id_equal(&data->reader_id,
+                                          &local->info.endpoint_guid.entity))) {
+                continue;
+            }
+            if (reader_count == NB_RTPS_MAX_DATA_TARGETS) {
+                break;
+            }
+            /* Reliable pairs are deduplicated by writer sequence number. A
+             * duplicate DATA submessage, or one that arrives after a
+             * retransmit was already handled, must not reach the application
+             * twice. The receive window advances even without a callback so
+             * the reader does not request the same samples forever. */
+            reliable = local->info.reliability == NB_RTPS_RELIABILITY_RELIABLE;
+            if (reliable) {
+                reader_state = get_data_reader(participant,
+                                               &writer_guid,
+                                               &local->info.endpoint_guid.entity);
+                if (reader_state &&
+                    !nb_rtps_reader_on_sample(&reader_state->state,
+                                              data->writer_sn.low)) {
                     continue;
                 }
-                if (reader_count == NB_RTPS_MAX_DATA_TARGETS) {
-                    break;
-                }
-                readers[reader_count++] = local->info.endpoint_guid;
             }
+            readers[reader_count++] = local->info.endpoint_guid;
         }
     }
     ntk_mutex_unlock(participant->lock);
 
+    if (!callback) {
+        return;
+    }
     for (i = 0; i < reader_count; i++) {
         callback(user, &readers[i], &writer_guid, &message);
     }
+}
+
+/*
+ * A GAP tells the reader that some writer sequence numbers will never arrive.
+ * Advancing the receive window prevents an endless ACKNACK loop for samples
+ * that were evicted from the writer history.
+ */
+static void handle_user_gap(nb_rtps_participant_t *participant,
+                            const nb_rtps_gap_t *gap,
+                            const nb_rtps_guid_prefix_t *source_prefix)
+{
+    nb_rtps_guid_t writer_guid;
+    nb_rtps_remote_endpoint_t *remote;
+    size_t i;
+
+    if (!participant || !gap || !source_prefix) {
+        return;
+    }
+    writer_guid.prefix = *source_prefix;
+    writer_guid.entity = gap->writer_id;
+
+    ntk_mutex_lock(participant->lock);
+    remote = find_remote_endpoint(participant, &writer_guid);
+    if (remote) {
+        for (i = 0; i < participant->max_local_endpoints; i++) {
+            nb_rtps_local_endpoint_t *local = &participant->local_endpoints[i];
+            nb_rtps_data_reader_state_t *state;
+
+            if (!local->used || !data_endpoint_matches(local, remote)) {
+                continue;
+            }
+            if (local->info.reliability != NB_RTPS_RELIABILITY_RELIABLE) {
+                continue;
+            }
+            if (!nb_rtps_entity_id_equal(&gap->reader_id, &nb_rtps_eid_unknown) &&
+                !nb_rtps_entity_id_equal(&gap->reader_id,
+                                         &local->info.endpoint_guid.entity)) {
+                continue;
+            }
+            state = get_data_reader(
+                participant, &writer_guid, &local->info.endpoint_guid.entity);
+            if (state) {
+                nb_rtps_reader_on_gap(&state->state, gap);
+            }
+        }
+    }
+    ntk_mutex_unlock(participant->lock);
+}
+
+/* Answer a writer HEARTBEAT with the set of samples still missing. */
+static void handle_user_heartbeat(nb_rtps_participant_t *participant,
+                                  const nb_rtps_heartbeat_t *heartbeat,
+                                  const nb_rtps_guid_prefix_t *source_prefix,
+                                  const char *source_host,
+                                  uint16_t source_port)
+{
+    nb_rtps_guid_t writer_guid;
+    nb_rtps_remote_endpoint_t *remote;
+    char target_host[NB_RTPS_PEER_HOST_MAX];
+    uint16_t target_port = source_port;
+    uint32_t first_sn;
+    uint32_t last_sn;
+    size_t i;
+
+    if (!participant || !heartbeat || !source_prefix ||
+        heartbeat->first_sn.high != 0 || heartbeat->last_sn.high != 0) {
+        return;
+    }
+    writer_guid.prefix = *source_prefix;
+    writer_guid.entity = heartbeat->writer_id;
+    first_sn = heartbeat->first_sn.low ? heartbeat->first_sn.low : 1u;
+    last_sn = heartbeat->last_sn.low;
+    copy_str(target_host, sizeof(target_host), source_host);
+
+    ntk_mutex_lock(participant->lock);
+    remote = find_remote_endpoint(participant, &writer_guid);
+    if (remote) {
+        if (endpoint_data_target(participant, remote, target_host,
+                                 sizeof(target_host), &target_port) != NB_OK) {
+            copy_str(target_host, sizeof(target_host), source_host);
+            target_port = source_port;
+        }
+        for (i = 0; i < participant->max_local_endpoints; i++) {
+            nb_rtps_local_endpoint_t *local = &participant->local_endpoints[i];
+            nb_rtps_data_reader_state_t *state;
+            nb_rtps_acknack_t acknack;
+
+            if (!local->used || !data_endpoint_matches(local, remote)) {
+                continue;
+            }
+            if (local->info.reliability != NB_RTPS_RELIABILITY_RELIABLE) {
+                continue;
+            }
+            if (!nb_rtps_entity_id_equal(&heartbeat->reader_id, &nb_rtps_eid_unknown) &&
+                !nb_rtps_entity_id_equal(&heartbeat->reader_id,
+                                         &local->info.endpoint_guid.entity)) {
+                continue;
+            }
+            state = get_data_reader(
+                participant, &writer_guid, &local->info.endpoint_guid.entity);
+            if (!state) {
+                continue;
+            }
+            if (first_sn > state->state.next_expected) {
+                nb_rtps_reader_state_reset(&state->state, first_sn);
+            }
+            /* Repeated heartbeats with the same count carry no new
+             * information; do not answer them again. */
+            if (state->heartbeat_seen &&
+                state->last_heartbeat_count == heartbeat->count) {
+                continue;
+            }
+            state->heartbeat_seen = 1;
+            state->last_heartbeat_count = heartbeat->count;
+            (void)nb_rtps_reader_build_acknack(&state->state, last_sn, &acknack);
+            acknack.reader_id = local->info.endpoint_guid.entity;
+            acknack.writer_id = heartbeat->writer_id;
+            (void)send_user_acknack(participant,
+                                    &local->info.endpoint_guid,
+                                    &writer_guid,
+                                    &acknack,
+                                    target_host,
+                                    target_port);
+        }
+    }
+    ntk_mutex_unlock(participant->lock);
+}
+
+/*
+ * A reliable reader asks for specific samples. Resume from the writer history
+ * when possible; samples that were already evicted are announced with GAP.
+ */
+static void handle_user_acknack(nb_rtps_participant_t *participant,
+                                const nb_rtps_acknack_t *acknack,
+                                const nb_rtps_guid_prefix_t *source_prefix,
+                                const char *source_host,
+                                uint16_t source_port)
+{
+    nb_rtps_guid_t writer_guid;
+    nb_rtps_guid_t reader_guid;
+    nb_rtps_local_endpoint_t *local;
+    nb_rtps_remote_endpoint_t *remote;
+    char target_host[NB_RTPS_PEER_HOST_MAX];
+    uint16_t target_port = source_port;
+    uint32_t first_sn = 0;
+    uint32_t last_sn = 0;
+    size_t sample_count = 0;
+    size_t i;
+    uint32_t gap_start = 0;
+    uint32_t gap_last = 0;
+
+    if (!participant || !acknack || !source_prefix ||
+        acknack->base.high != 0 || acknack->base.low == 0 ||
+        acknack->num_bits > NB_RTPS_ACKNACK_MAX_BITS) {
+        return;
+    }
+    writer_guid.prefix = participant->local_guid.prefix;
+    writer_guid.entity = acknack->writer_id;
+    reader_guid.prefix = *source_prefix;
+    reader_guid.entity = acknack->reader_id;
+    copy_str(target_host, sizeof(target_host), source_host);
+
+    ntk_mutex_lock(participant->lock);
+    local = find_local_endpoint(participant, &writer_guid);
+    remote = find_remote_endpoint(participant, &reader_guid);
+    if (!local || local->kind != NB_RTPS_ENDPOINT_PUBLICATION || !local->history) {
+        ntk_mutex_unlock(participant->lock);
+        return;
+    }
+    if (remote &&
+        endpoint_data_target(participant, remote, target_host,
+                             sizeof(target_host), &target_port) != NB_OK) {
+        copy_str(target_host, sizeof(target_host), source_host);
+        target_port = source_port;
+    }
+    nb_rtps_reliable_state(local->history, &first_sn, &last_sn, &sample_count);
+    for (i = 0; i < acknack->num_bits; i++) {
+        const uint8_t *payload = NULL;
+        size_t payload_len = 0;
+        int dispose = 0;
+        uint32_t sn;
+        int rc;
+
+        if ((acknack->bitmap[i / 32u] & (1u << (31u - (i % 32u)))) == 0) {
+            continue;
+        }
+        sn = acknack->base.low + (uint32_t)i;
+        rc = nb_rtps_reliable_get(
+            local->history, sn, &payload, &payload_len, &dispose);
+        if (rc == NB_OK && payload && payload_len > 0) {
+            (void)send_user_data(participant,
+                                 &local->info.endpoint_guid,
+                                 &reader_guid,
+                                 sn,
+                                 payload,
+                                 payload_len,
+                                 target_host,
+                                 target_port);
+        } else if (sample_count > 0 && sn < first_sn) {
+            if (!gap_start) {
+                gap_start = sn;
+            }
+            gap_last = sn;
+        }
+    }
+    if (gap_start != 0 && gap_last >= gap_start) {
+        (void)send_user_gap(participant,
+                            &local->info.endpoint_guid,
+                            &reader_guid,
+                            gap_start,
+                            gap_last,
+                            target_host,
+                            target_port);
+    }
+    ntk_mutex_unlock(participant->lock);
 }
 
 static void handle_datagram(nb_rtps_participant_t *participant,
@@ -1323,6 +1879,12 @@ static void handle_datagram(nb_rtps_participant_t *participant,
                                       &header.guid_prefix,
                                       source_host,
                                       source_port);
+            } else {
+                handle_user_heartbeat(participant,
+                                      &heartbeat,
+                                      &header.guid_prefix,
+                                      source_host,
+                                      source_port);
             }
         } else if (view.id == NB_RTPS_SUBMSG_ACKNACK) {
             nb_rtps_acknack_t acknack;
@@ -1346,6 +1908,33 @@ static void handle_datagram(nb_rtps_participant_t *participant,
                                     &header.guid_prefix,
                                     source_host,
                                     source_port);
+            } else {
+                handle_user_acknack(participant,
+                                    &acknack,
+                                    &header.guid_prefix,
+                                    source_host,
+                                    source_port);
+            }
+        } else if (view.id == NB_RTPS_SUBMSG_GAP) {
+            nb_rtps_gap_t gap;
+
+            if (nb_rtps_gap_decode(view.body, view.body_len, &gap) == NB_OK) {
+                if (nb_rtps_entity_id_equal(&gap.writer_id,
+                                            &nb_rtps_eid_sedp_publications_writer)) {
+                    handle_sedp_gap(participant,
+                                    NB_RTPS_ENDPOINT_PUBLICATION,
+                                    &gap,
+                                    &header.guid_prefix);
+                } else if (nb_rtps_entity_id_equal(
+                               &gap.writer_id,
+                               &nb_rtps_eid_sedp_subscriptions_writer)) {
+                    handle_sedp_gap(participant,
+                                    NB_RTPS_ENDPOINT_SUBSCRIPTION,
+                                    &gap,
+                                    &header.guid_prefix);
+                } else {
+                    handle_user_gap(participant, &gap, &header.guid_prefix);
+                }
             }
         }
     }
@@ -1440,6 +2029,10 @@ static void thread_main(void *user)
             send_sedp_heartbeats(participant);
             participant->next_sedp_heartbeat_ms = now + participant->sedp_heartbeat_ms;
         }
+        if (now >= participant->next_data_heartbeat_ms) {
+            send_data_heartbeats(participant);
+            participant->next_data_heartbeat_ms = now + participant->data_heartbeat_ms;
+        }
     }
 }
 
@@ -1465,6 +2058,14 @@ static void free_participant(nb_rtps_participant_t *participant)
     }
     nb_rtps_reliable_writer_destroy(participant->publications_writer);
     nb_rtps_reliable_writer_destroy(participant->subscriptions_writer);
+    if (participant->local_endpoints) {
+        uint32_t i;
+
+        for (i = 0; i < participant->max_local_endpoints; i++) {
+            nb_rtps_reliable_writer_destroy(participant->local_endpoints[i].history);
+        }
+    }
+    free(participant->data_readers);
     free(participant->local_endpoints);
     free(participant->remote_endpoints);
     free(participant->remotes);
@@ -1529,6 +2130,18 @@ nb_rtps_participant_t *nb_rtps_participant_create(const nb_rtps_participant_conf
                                   : NB_RTPS_DEFAULT_SEDP_HEARTBEAT_MS;
     if (participant->sedp_heartbeat_ms < NB_RTPS_MIN_SEDP_HEARTBEAT_MS) {
         participant->sedp_heartbeat_ms = NB_RTPS_MIN_SEDP_HEARTBEAT_MS;
+    }
+    participant->data_heartbeat_ms =
+        config->data_heartbeat_ms ? config->data_heartbeat_ms
+                                  : NB_RTPS_DEFAULT_DATA_HEARTBEAT_MS;
+    if (participant->data_heartbeat_ms < NB_RTPS_MIN_DATA_HEARTBEAT_MS) {
+        participant->data_heartbeat_ms = NB_RTPS_MIN_DATA_HEARTBEAT_MS;
+    }
+    participant->data_history_depth =
+        config->data_history_depth ? config->data_history_depth
+                                   : NB_RTPS_DEFAULT_DATA_HISTORY;
+    if (participant->data_history_depth > NB_RTPS_MAX_DATA_HISTORY) {
+        participant->data_history_depth = NB_RTPS_MAX_DATA_HISTORY;
     }
     participant->default_unicast = config->default_unicast;
     if (config->peer_count > 0 && !config->peers) {
@@ -1735,6 +2348,7 @@ int nb_rtps_participant_start(nb_rtps_participant_t *participant)
     participant->next_announce_ms = 0;
     participant->next_sweep_ms = 0;
     participant->next_sedp_heartbeat_ms = 0;
+    participant->next_data_heartbeat_ms = 0;
     participant->thread = ntk_thread_create(thread_main, participant);
     if (!participant->thread) {
         ntk_poller_destroy(participant->poller);
@@ -1875,10 +2489,26 @@ int nb_rtps_participant_add_endpoint(nb_rtps_participant_t *participant,
         ntk_mutex_unlock(participant->lock);
         return NB_ERR_BAD_MESSAGE;
     }
+    if (kind == NB_RTPS_ENDPOINT_PUBLICATION &&
+        local.info.reliability == NB_RTPS_RELIABILITY_RELIABLE) {
+        uint32_t depth = local.info.history_depth
+                             ? local.info.history_depth
+                             : participant->data_history_depth;
+
+        if (local.info.history_kind == NB_RTPS_HISTORY_KEEP_ALL) {
+            depth = participant->data_history_depth;
+        }
+        local.history = nb_rtps_reliable_writer_create(depth);
+        if (!local.history) {
+            ntk_mutex_unlock(participant->lock);
+            return NB_ERR_NOMEM;
+        }
+    }
     history = kind == NB_RTPS_ENDPOINT_PUBLICATION ? participant->publications_writer
                                                    : participant->subscriptions_writer;
     rc = nb_rtps_reliable_add(history, payload, payload_len, 0, &sn);
     if (rc != NB_OK) {
+        nb_rtps_reliable_writer_destroy(local.history);
         ntk_mutex_unlock(participant->lock);
         return rc;
     }
@@ -1914,14 +2544,22 @@ int nb_rtps_participant_remove_endpoint(nb_rtps_participant_t *participant,
     }
     local = *slot;
     slot->used = 0;
+    /* Ownership of the history moves to the local copy; clearing the slot
+     * keeps participant destruction from freeing it twice. */
+    slot->history = NULL;
     if (participant->local_endpoint_count > 0) {
         participant->local_endpoint_count--;
+    }
+    if (local.kind == NB_RTPS_ENDPOINT_SUBSCRIPTION) {
+        drop_data_readers_for_reader(participant, &local.info.endpoint_guid.entity);
     }
     ntk_mutex_unlock(participant->lock);
 
     if (nb_rtps_sedp_build(&local.info, payload, sizeof(payload), &payload_len) != NB_OK) {
+        nb_rtps_reliable_writer_destroy(local.history);
         return NB_ERR_BAD_MESSAGE;
     }
+    nb_rtps_reliable_writer_destroy(local.history);
     history = local.kind == NB_RTPS_ENDPOINT_PUBLICATION ? participant->publications_writer
                                                          : participant->subscriptions_writer;
     rc = nb_rtps_reliable_add(history, payload, payload_len, 1, &sn);
@@ -1939,8 +2577,12 @@ int nb_rtps_participant_publish(nb_rtps_participant_t *participant,
                                 size_t payload_len)
 {
     nb_rtps_local_endpoint_t *local;
-    uint32_t sn;
-    uint32_t local_reliability;
+    uint32_t sn = 0;
+    uint32_t evicted_first = 0;
+    uint32_t evicted_last = 0;
+    uint32_t first_sn = 0;
+    uint32_t last_sn = 0;
+    size_t sample_count = 0;
     size_t i;
     int targets = 0;
     int sent = 0;
@@ -1957,43 +2599,61 @@ int nb_rtps_participant_publish(nb_rtps_participant_t *participant,
         ntk_mutex_unlock(participant->lock);
         return NB_ERR_NOTFOUND;
     }
-    sn = local->data_sn + 1u;
-    if (sn == 0) {
-        sn = 1;
+
+    if (local->history) {
+        uint32_t old_first = 0;
+        uint32_t old_last = 0;
+        size_t old_count = 0;
+        int rc;
+
+        nb_rtps_reliable_state(local->history, &old_first, &old_last, &old_count);
+        rc = nb_rtps_reliable_add(local->history, payload, payload_len, 0, &sn);
+        if (rc != NB_OK) {
+            ntk_mutex_unlock(participant->lock);
+            return rc;
+        }
+        nb_rtps_reliable_state(local->history, &first_sn, &last_sn, &sample_count);
+        /* nb_rtps_reliable_add drops the oldest sample when the history is
+         * full; the reader must learn that it will never arrive. */
+        if (old_count > 0 && first_sn > old_first) {
+            evicted_first = old_first;
+            evicted_last = first_sn - 1u;
+        }
+    } else {
+        sn = local->data_sn + 1u;
+        if (sn == 0) {
+            sn = 1;
+        }
+        local->data_sn = sn;
+        first_sn = sn;
+        last_sn = sn;
+        sample_count = 1;
     }
-    local->data_sn = sn;
-    local_reliability = local->info.reliability
-                            ? local->info.reliability
-                            : NB_RTPS_RELIABILITY_BEST_EFFORT;
 
     for (i = 0; i < participant->max_remote_endpoints; i++) {
         nb_rtps_remote_endpoint_t *remote = &participant->remote_endpoints[i];
         char host[NB_RTPS_PEER_HOST_MAX];
         uint16_t port = 0;
-        uint32_t remote_reliability;
 
         if (!remote->used || remote->kind != NB_RTPS_ENDPOINT_SUBSCRIPTION) {
             continue;
         }
-        if (strcmp(remote->info.topic_name, local->info.topic_name) != 0 ||
-            strcmp(remote->info.type_name, local->info.type_name) != 0 ||
-            strcmp(remote->info.partition, local->info.partition) != 0) {
-            continue;
-        }
-        remote_reliability = remote->info.reliability
-                                 ? remote->info.reliability
-                                 : NB_RTPS_RELIABILITY_BEST_EFFORT;
-        if (remote_reliability == NB_RTPS_RELIABILITY_RELIABLE &&
-            local_reliability != NB_RTPS_RELIABILITY_RELIABLE) {
-            continue;
-        }
-        if (remote->info.durability > local->info.durability) {
+        if (!endpoint_qos_compatible(&local->info, &remote->info)) {
             continue;
         }
         if (endpoint_data_target(participant, remote, host, sizeof(host), &port) != NB_OK) {
             continue;
         }
         targets++;
+        if (evicted_first) {
+            (void)send_user_gap(participant,
+                                &local->info.endpoint_guid,
+                                &remote->info.endpoint_guid,
+                                evicted_first,
+                                evicted_last,
+                                host,
+                                port);
+        }
         last_rc = send_user_data(participant,
                                  &local->info.endpoint_guid,
                                  &remote->info.endpoint_guid,
@@ -2004,6 +2664,18 @@ int nb_rtps_participant_publish(nb_rtps_participant_t *participant,
                                  port);
         if (last_rc == NB_OK) {
             sent++;
+        }
+        /* A reliable writer advertises the new high-water mark right away;
+         * the periodic timer only repeats it while the reader lags. */
+        if (local->history && sample_count > 0 &&
+            remote->info.reliability == NB_RTPS_RELIABILITY_RELIABLE) {
+            (void)send_user_heartbeat(participant,
+                                      local,
+                                      &remote->info,
+                                      first_sn,
+                                      last_sn,
+                                      host,
+                                      port);
         }
     }
     ntk_mutex_unlock(participant->lock);

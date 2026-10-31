@@ -382,6 +382,68 @@ int nb_rtps_acknack_decode(const uint8_t *body, size_t body_len, nb_rtps_acknack
     return NB_OK;
 }
 
+int nb_rtps_gap(nb_cdr_writer_t *writer, const nb_rtps_gap_t *gap)
+{
+    size_t start;
+    uint32_t word_count;
+    uint32_t i;
+
+    if (!writer || !gap || gap->num_bits > NB_RTPS_ACKNACK_MAX_BITS) {
+        return NB_ERR_INVALID;
+    }
+    word_count = (gap->num_bits + 31u) / 32u;
+    start = nb_rtps_submessage_begin(writer, NB_RTPS_SUBMSG_GAP,
+                                     NB_RTPS_FLAG_ENDIAN_LITTLE);
+    if (start == SIZE_MAX) {
+        return NB_ERR_TOOBIG;
+    }
+    nb_cdr_put_bytes(writer, gap->reader_id.bytes, NB_RTPS_ENTITY_ID_SIZE);
+    nb_cdr_put_bytes(writer, gap->writer_id.bytes, NB_RTPS_ENTITY_ID_SIZE);
+    nb_cdr_put_i32(writer, gap->gap_start.high);
+    nb_cdr_put_u32(writer, gap->gap_start.low);
+    nb_cdr_put_i32(writer, gap->base.high);
+    nb_cdr_put_u32(writer, gap->base.low);
+    nb_cdr_put_u32(writer, gap->num_bits);
+    for (i = 0; i < word_count; i++) {
+        nb_cdr_put_u32(writer, gap->bitmap[i]);
+    }
+    return nb_rtps_submessage_end(writer, start);
+}
+
+int nb_rtps_gap_decode(const uint8_t *body, size_t body_len, nb_rtps_gap_t *out)
+{
+    uint32_t num_bits;
+    uint32_t word_count;
+    uint32_t i;
+    size_t offset;
+
+    if (!body || !out || body_len < 28) {
+        return NB_ERR_BAD_MESSAGE;
+    }
+    memset(out, 0, sizeof(*out));
+    memcpy(out->reader_id.bytes, body, NB_RTPS_ENTITY_ID_SIZE);
+    memcpy(out->writer_id.bytes, body + 4, NB_RTPS_ENTITY_ID_SIZE);
+    out->gap_start.high = (int32_t)rd_u32(body + 8);
+    out->gap_start.low = rd_u32(body + 12);
+    out->base.high = (int32_t)rd_u32(body + 16);
+    out->base.low = rd_u32(body + 20);
+    num_bits = rd_u32(body + 24);
+    if (num_bits > NB_RTPS_ACKNACK_MAX_BITS) {
+        return NB_ERR_TOOBIG;
+    }
+    word_count = (num_bits + 31u) / 32u;
+    offset = 28;
+    if (word_count > (body_len - offset) / 4u) {
+        return NB_ERR_BAD_MESSAGE;
+    }
+    for (i = 0; i < word_count; i++) {
+        out->bitmap[i] = rd_u32(body + offset);
+        offset += 4;
+    }
+    out->num_bits = num_bits;
+    return NB_OK;
+}
+
 int nb_rtps_message_begin(const uint8_t *buf,
                           size_t len,
                           nb_rtps_header_t *header,
