@@ -21,3 +21,8 @@ payload pointer.
 
 The program publishes repeatedly until the subscriber receives a message, so the
 first event is not lost before DDS discovery completes.
+
+This example is intentionally single-process: `intra_process = "only"` verifies
+the local fast path, not DDS network delivery. For a real independent Cyclone
+subscriber, see `e2e.dds_remote`, which sets `intra_process = "off"` and runs the
+publisher and subscriber in separate processes.

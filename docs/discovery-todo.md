@@ -8,7 +8,7 @@ changes state so a later session can resume without reading the whole history.
 | Topic | Decision |
 | --- | --- |
 | Architecture | Route A: implement RTPS discovery ourselves; no DDS dependency in the discovery path |
-| Data plane | Unchanged: framework UDP/TCP/SHM transports; RTPS is discovery-only |
+| Data plane | RTPS is discovery-only; native traffic uses UDP/TCP/SHM, and the separate Cyclone-backed `dds` provider carries DDS data |
 | Vendor id | Placeholder `0x01,0x9a` until an OMG-assigned value exists |
 | First interop target | Bundled Cyclone DDS; ROS 2 is out of scope for now |
 | Scale target | About 1000 participants, which requires unicast peers/scoping; plain multicast is not enough |
@@ -90,6 +90,8 @@ changes state so a later session can resume without reading the whole history.
 - [x] Verify we see Cyclone participants (SPDP)
 - [ ] Verify we see Cyclone SEDP endpoints (explicit bidirectional assertion)
 - [x] Verify Cyclone sees our SEDP publication endpoint
+- [x] Verify an independent Cyclone reader receives data from the separate
+      Cyclone-backed `dds` provider (`e2e.dds_remote`)
 - [x] Vendor id note for `0x01,0x10` quirks
 - [x] Interop test in `tests/` or `tools/`
 
@@ -124,6 +126,7 @@ instead of the earlier ACKNACK/HEARTBEAT storm.
 - Build: `cmake --build build-review --config Debug`
 - Unit tests: `cd build-review; ctest -C Debug -L unit`
 - Single RTPS test: `ctest -C Debug -R rtps`
+- DDS cross-process test: `ctest -C Debug -R dds_remote`
 - Linux build: `build-linux` (Ninja); Cyclone test needs
   `NB_TEST_RTPS_CYCLONE=1` and usually
   `NB_TEST_RTPS_ADVERTISE_HOST=<local-ip>`. Run `ctest` from inside
@@ -151,3 +154,7 @@ instead of the earlier ACKNACK/HEARTBEAT storm.
   `PID_RELIABILITY`, repeated single 24-byte locator PIDs, MSB-first ACKNACK
   bitmaps, the ACKNACK FINAL flag, and ACK/retransmit addressing to the
   metatraffic locator.
+- 2026-10-31: Added `e2e.dds_remote`, a two-process test in which an independent
+  Cyclone DDS reader receives an event from the `dds` transport provider with
+  `intra_process=off`. This verifies the provider data plane; self-developed
+  RTPS discovery still carries no application `DATA`.

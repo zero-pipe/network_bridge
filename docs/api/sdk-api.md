@@ -446,11 +446,11 @@ binding.qos.history = NB_QOS_HISTORY_KEEP_LAST;
 binding.qos.depth = 8;
 ```
 
-Topics are derived from the method name:
+Topics are derived from the full `Service.method` route:
 
-- request: `<method>_req`
-- response: `<method>_res`
-- event/pub-sub: `<method>_evt`
+- request: `<Service>_<method>_req`
+- response: `<Service>_<method>_res`
+- event/pub-sub: `<Service>_<method>_evt`
 
 Publish with `nb_publisher_publish` (equivalent to `nb_proxy_call_event`) and
 subscribe with `nb_subscriber_subscribe` (equivalent to
@@ -463,6 +463,12 @@ delivers events in-process first and then publishes to DDS as usual; `only`
 skips DDS event writers/readers and `dds_write` entirely and only delivers to
 local subscribers of the same provider, with zero-copy payloads during
 delivery.
+
+The provider uses the Cyclone DDS data plane itself, so an independent Cyclone
+reader on the same domain can receive its samples. The sample type is
+`dds::Message`, an opaque octet sequence containing the framework frame, and
+event topics are `<Service>_<method>_evt`. Use `intra_process=off` or separate
+processes when verifying network delivery; `only` intentionally bypasses DDS.
 
 ## Metrics and logging
 

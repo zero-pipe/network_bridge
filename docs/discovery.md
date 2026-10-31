@@ -2,8 +2,10 @@
 
 This document describes the standards-based discovery layer used by the
 framework. It implements the RTPS discovery protocols (SPDP and SEDP) without
-taking a dependency on a DDS implementation. The data plane remains the
-framework's own UDP/TCP/SHM transports.
+taking a dependency on a DDS implementation. The RTPS path carries discovery
+only; native traffic remains on the framework's UDP/TCP/SHM transports. The
+separate Cyclone-backed `dds` transport provider is a normal data-plane
+transport and is not part of the self-developed RTPS stack.
 
 Status: the wire codec, SPDP announcement payload, SPDP participant runtime,
 and reliable SEDP endpoint exchange are implemented and covered by unit and
@@ -329,6 +331,11 @@ Data-level:
 - A DDS participant that matches a framework endpoint will try to send RTPS
   `DATA` to the advertised locator. The framework data plane does not speak
   RTPS, so payloads do not flow unless a gateway translates them.
+- The built-in Cyclone-backed `dds` transport provider is a separate data plane
+  and does carry application frames over DDS. `e2e.dds_remote` starts an
+  independent Cyclone reader and verifies that it receives an nb event sample
+  when `intra_process` is `off`; this does not exercise the self-developed RTPS
+  discovery endpoints.
 - ROS 2 topic/service data exchange therefore needs either an RTPS data-plane
   implementation for those endpoints or a bridge. This document does not
   promise direct ROS 2 RPC.
@@ -364,6 +371,9 @@ Current:
   ctest -C Debug -R rtps_cyclone`. Without the environment variable the test
   skips successfully. The test checks participant visibility and nb publication
   visibility through Cyclone's built-in publication reader.
+- `e2e.dds_remote` covers the separate Cyclone-backed DDS provider: the parent
+  publishes through `dds://61` with the local fast path disabled, and a spawned
+  Cyclone reader must receive the encoded event sample.
 
 Planned:
 

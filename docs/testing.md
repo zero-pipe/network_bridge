@@ -9,7 +9,7 @@ scenarios and writes every result under `artifacts/gate/`.
 | Gate | CTest label | Coverage | Command |
 | --- | --- | --- | --- |
 | unit | `unit` | pure modules, codecs, config, framing, metrics, registry | `python3 tools/gate.py unit` |
-| e2e | `e2e` | in-process loopback/stream/api/worker/semantics plus separate server/client echo | `python3 tools/gate.py e2e` |
+| e2e | `e2e` | in-process loopback/stream/api/worker/semantics, separate server/client echo, and a separate DDS publisher/Cyclone subscriber | `python3 tools/gate.py e2e` |
 | perf | none | TCP/UDP/DDS throughput and latency smoke, optional baseline regression | `python3 tools/gate.py perf` |
 | stability | none | long-running server, multiple waves with varying payload sizes, failure and resource growth checks | `python3 tools/gate.py stability` |
 | fuzz | `fuzz` | libFuzzer smoke (only with `NB_BUILD_FUZZERS=ON`) | `python3 tools/gate.py fuzz` |
