@@ -1409,7 +1409,11 @@ static void test_reliable_late_joiner(void)
  * best effort. A VOLATILE publication keeps nothing for a reader that was not
  * matched when the sample was written.
  */
-static void run_late_joiner_case(const char *prefix, uint32_t durability, int expect_count)
+static void run_late_joiner_case(const char *prefix,
+                                 uint32_t durability,
+                                 uint32_t history_kind,
+                                 int sample_count,
+                                 int expect_count)
 {
     nb_rtps_participant_config_t config;
     nb_rtps_participant_t *publisher = NULL;
@@ -1420,7 +1424,7 @@ static void run_late_joiner_case(const char *prefix, uint32_t durability, int ex
     test_state_t publisher_state;
     test_state_t subscriber_state;
     reliable_data_state_t data_state;
-    static const uint8_t samples[] = {0xa1, 0xb2};
+    uint8_t samples[8];
     char name[64];
     uint16_t publisher_port;
     uint16_t subscriber_port;
@@ -1429,6 +1433,9 @@ static void run_late_joiner_case(const char *prefix, uint32_t durability, int ex
     memset(&publisher_state, 0, sizeof(publisher_state));
     memset(&subscriber_state, 0, sizeof(subscriber_state));
     memset(&data_state, 0, sizeof(data_state));
+    for (i = 0; i < sample_count && i < (int)sizeof(samples); i++) {
+        samples[i] = (uint8_t)(0xa1 + i);
+    }
 
     (void)snprintf(name, sizeof(name), "%s-publisher", prefix);
     fill_config(&config, name);
@@ -1469,11 +1476,14 @@ static void run_late_joiner_case(const char *prefix, uint32_t durability, int ex
 
     init_data_endpoint(&publication, 0);
     publication.durability = durability;
+    publication.history_kind = history_kind;
+    /* A KEEP_ALL publication must not be limited by the configured depth. */
+    publication.history_depth = 2;
     CHECK(nb_rtps_participant_add_endpoint(
               publisher, NB_RTPS_ENDPOINT_PUBLICATION, &publication) == NB_OK);
 
     /* Written before any reader matches. */
-    for (i = 0; i < (int)(sizeof(samples)); i++) {
+    for (i = 0; i < sample_count; i++) {
         message.payload = &samples[i];
         message.payload_len = 1;
         (void)nb_rtps_participant_publish_dds_message(
@@ -1483,6 +1493,8 @@ static void run_late_joiner_case(const char *prefix, uint32_t durability, int ex
 
     init_data_endpoint(&subscription, 0);
     subscription.durability = durability;
+    subscription.history_kind = history_kind;
+    subscription.history_depth = 2;
     CHECK(nb_rtps_participant_add_endpoint(
               subscriber, NB_RTPS_ENDPOINT_SUBSCRIPTION, &subscription) == NB_OK);
     CHECK(wait_endpoint_count(&subscriber_state, 0, 1, 5000));
@@ -1527,8 +1539,13 @@ cleanup:
 
 static void test_late_joiner_durability(void)
 {
-    run_late_joiner_case("tl", NB_RTPS_DURABILITY_TRANSIENT_LOCAL, 2);
-    run_late_joiner_case("vol", NB_RTPS_DURABILITY_VOLATILE, 0);
+    run_late_joiner_case(
+        "tl", NB_RTPS_DURABILITY_TRANSIENT_LOCAL, NB_RTPS_HISTORY_KEEP_LAST, 2, 2);
+    run_late_joiner_case(
+        "vol", NB_RTPS_DURABILITY_VOLATILE, NB_RTPS_HISTORY_KEEP_LAST, 2, 0);
+    /* KEEP_ALL retains more than the configured depth of two. */
+    run_late_joiner_case(
+        "ka", NB_RTPS_DURABILITY_TRANSIENT_LOCAL, NB_RTPS_HISTORY_KEEP_ALL, 5, 5);
 }
 
 /*

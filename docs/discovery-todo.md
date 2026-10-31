@@ -257,14 +257,27 @@ a fixed participant index instead.
       unacknowledged history through ACKNACK, because a late-joining reader
       starts with an empty window; the wire result is interoperable, the policy
       is just more generous than DDS requires
-- [ ] `KEEP_ALL` history with a depth and byte bound
+- [x] `KEEP_ALL` history: capacity is decoupled from the `KEEP_LAST` depth and
+      uses the 1024-sample ceiling, with the 256 KiB per-writer byte budget as
+      the real bound. Test: a KEEP_ALL publication with depth 2 still replays
+      five retained samples to a late joiner
 - [x] Partition matching: names are comma-separated lists and `*` is a
       wildcard, so "alpha,team-*" matches "team-blue" but not "other". An
       endpoint matches when any name on either side matches any name on the
       other; the default partition is the empty name. Not yet verified against
       Cyclone with an actual partition mismatch
 - [ ] Lifespan and deadline (optional, after the above)
-- [ ] Document the implemented QoS matrix
+- [x] Document the implemented QoS matrix (see below)
+
+Implemented QoS matrix:
+
+| Policy | Support |
+| --- | --- |
+| Reliability | `BEST_EFFORT` and `RELIABLE`; reliable pairs use writer history, HEARTBEAT/ACKNACK, per-reader windows and GAP |
+| Durability | `VOLATILE` and `TRANSIENT_LOCAL` (replay to late joiners). `TRANSIENT`/`PERSISTENT` are accepted and behave like `TRANSIENT_LOCAL`; nothing is persisted across process restarts |
+| History | `KEEP_LAST` with a depth, `KEEP_ALL` up to 1024 samples and 256 KiB per writer |
+| Partition | comma-separated name lists with `*` wildcards |
+| Lifespan, deadline, ownership, resource limits | not implemented |
 
 ## Follow-ups after bidirectional DATA
 

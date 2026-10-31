@@ -3131,8 +3131,10 @@ int nb_rtps_participant_add_endpoint(nb_rtps_participant_t *participant,
                              ? local.info.history_depth
                              : participant->data_history_depth;
 
+        /* KEEP_ALL means "keep everything the memory bound allows", so it is not
+         * tied to the KEEP_LAST depth. The byte budget still caps the total. */
         if (local.info.history_kind == NB_RTPS_HISTORY_KEEP_ALL) {
-            depth = participant->data_history_depth;
+            depth = NB_RTPS_MAX_DATA_HISTORY;
         }
         local.history = nb_rtps_reliable_writer_create(depth);
         if (!local.history) {
