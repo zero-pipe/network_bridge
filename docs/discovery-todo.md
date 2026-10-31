@@ -258,9 +258,11 @@ a fixed participant index instead.
       starts with an empty window; the wire result is interoperable, the policy
       is just more generous than DDS requires
 - [ ] `KEEP_ALL` history with a depth and byte bound
-- [ ] Partition matching: only exact string equality is implemented.
-      Comma-separated partition lists and `*` wildcards, which Cyclone and
-      Fast DDS accept, still fail to match
+- [x] Partition matching: names are comma-separated lists and `*` is a
+      wildcard, so "alpha,team-*" matches "team-blue" but not "other". An
+      endpoint matches when any name on either side matches any name on the
+      other; the default partition is the empty name. Not yet verified against
+      Cyclone with an actual partition mismatch
 - [ ] Lifespan and deadline (optional, after the above)
 - [ ] Document the implemented QoS matrix
 
@@ -413,3 +415,8 @@ a fixed participant index instead.
   publications keep nothing for unmatched readers. Tests: the same late-joiner
   scenario with `TRANSIENT_LOCAL` (two samples delivered) and with `VOLATILE`
   (none delivered).
+- 2026-11-01: M11 partition matching. Partition strings are treated as
+  comma-separated name lists with `*` wildcards instead of exact string
+  equality, which matches the DDS rule and the way Cyclone and Fast DDS parse
+  partitions. Test: a publication in "alpha,team-*" delivers to a subscriber in
+  "team-blue" and not to one in "other".

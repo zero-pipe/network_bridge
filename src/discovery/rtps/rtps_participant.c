@@ -1407,6 +1407,76 @@ static void handle_sedp_acknack(nb_rtps_participant_t *participant,
  * subscription: matching topic, type and partition; a reliable reader
  * requires a reliable writer; the writer must offer at least the requested
  * durability. */
+/*
+ * DDS partition names may contain the '*' wildcard and an endpoint may list
+ * several names separated by commas. Two endpoints match when any name on one
+ * side matches any name on the other.
+ */
+static int partition_name_match(const char *pattern,
+                                size_t pattern_len,
+                                const char *name,
+                                size_t name_len)
+{
+    size_t pi = 0;
+    size_t ni = 0;
+
+    while (pi < pattern_len) {
+        if (pattern[pi] == '*') {
+            size_t k;
+
+            while (pi < pattern_len && pattern[pi] == '*') {
+                pi++;
+            }
+            if (pi == pattern_len) {
+                return 1;
+            }
+            for (k = ni; k <= name_len; k++) {
+                if (partition_name_match(
+                        pattern + pi, pattern_len - pi, name + k, name_len - k)) {
+                    return 1;
+                }
+            }
+            return 0;
+        }
+        if (ni >= name_len || name[ni] != pattern[pi]) {
+            return 0;
+        }
+        pi++;
+        ni++;
+    }
+    return ni == name_len;
+}
+
+static int partition_lists_match(const char *left, const char *right)
+{
+    const char *lp = left;
+
+    for (;;) {
+        size_t left_len = strcspn(lp, ",");
+        const char *rp = right;
+
+        for (;;) {
+            size_t right_len = strcspn(rp, ",");
+
+            if (partition_name_match(lp, left_len, rp, right_len) ||
+                partition_name_match(rp, right_len, lp, left_len)) {
+                return 1;
+            }
+            rp += right_len;
+            if (*rp != ',') {
+                break;
+            }
+            rp++;
+        }
+        lp += left_len;
+        if (*lp != ',') {
+            break;
+        }
+        lp++;
+    }
+    return 0;
+}
+
 static int endpoint_qos_compatible(const nb_rtps_endpoint_info_t *publication,
                                    const nb_rtps_endpoint_info_t *subscription)
 {
@@ -1415,7 +1485,7 @@ static int endpoint_qos_compatible(const nb_rtps_endpoint_info_t *publication,
 
     if (strcmp(publication->topic_name, subscription->topic_name) != 0 ||
         strcmp(publication->type_name, subscription->type_name) != 0 ||
-        strcmp(publication->partition, subscription->partition) != 0) {
+        !partition_lists_match(publication->partition, subscription->partition)) {
         return 0;
     }
     pub_reliability = publication->reliability ? publication->reliability

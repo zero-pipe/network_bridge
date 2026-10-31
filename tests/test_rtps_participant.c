@@ -700,6 +700,16 @@ static void on_frag_data(void *user,
     ntk_mutex_unlock(state->lock);
 }
 
+static int frag_data_received(frag_state_t *state)
+{
+    int received;
+
+    ntk_mutex_lock(state->lock);
+    received = state->received;
+    ntk_mutex_unlock(state->lock);
+    return received;
+}
+
 /* Publish `sample` until the subscriber reports exactly `expected_len` bytes
  * whose hash matches (or the attempt times out). */
 static int send_raw_sample(nb_rtps_participant_t *publisher,
@@ -1022,6 +1032,151 @@ cleanup:
     }
     if (frag_state.lock) {
         ntk_mutex_destroy(frag_state.lock);
+    }
+}
+
+/*
+ * Partition matching follows DDS rules: names are comma-separated lists and
+ * '*' is a wildcard, so "alpha,team-*" matches "team-blue" but not "other".
+ */
+static void test_partition_matching(void)
+{
+    nb_rtps_participant_config_t config;
+    nb_rtps_participant_t *publisher = NULL;
+    nb_rtps_participant_t *matched = NULL;
+    nb_rtps_participant_t *unmatched = NULL;
+    nb_rtps_endpoint_info_t publication;
+    nb_rtps_endpoint_info_t subscription;
+    test_state_t publisher_state;
+    test_state_t matched_state;
+    test_state_t unmatched_state;
+    frag_state_t matched_data;
+    frag_state_t unmatched_data;
+    nb_rtps_dds_message_t message;
+    uint8_t payload[3] = {0x21, 0x22, 0x23};
+    uint8_t serialized[16];
+    size_t serialized_len = 0;
+    uint16_t publisher_port;
+    uint16_t matched_port;
+    int i;
+
+    memset(&publisher_state, 0, sizeof(publisher_state));
+    memset(&matched_state, 0, sizeof(matched_state));
+    memset(&unmatched_state, 0, sizeof(unmatched_state));
+    memset(&matched_data, 0, sizeof(matched_data));
+    memset(&unmatched_data, 0, sizeof(unmatched_data));
+
+    fill_config(&config, "part-publisher");
+    publisher = nb_rtps_participant_create(&config);
+    CHECK(publisher != NULL);
+    if (!publisher) {
+        return;
+    }
+    publisher_port = nb_rtps_participant_spdp_port(publisher);
+    fill_config(&config, "part-matched");
+    matched = nb_rtps_participant_create(&config);
+    fill_config(&config, "part-unmatched");
+    unmatched = nb_rtps_participant_create(&config);
+    CHECK(matched != NULL && unmatched != NULL);
+    if (!matched || !unmatched) {
+        goto cleanup;
+    }
+    matched_port = nb_rtps_participant_spdp_port(matched);
+    CHECK(nb_rtps_participant_add_peer(publisher, "127.0.0.1", matched_port) == NB_OK);
+    CHECK(nb_rtps_participant_add_peer(matched, "127.0.0.1", publisher_port) == NB_OK);
+    CHECK(nb_rtps_participant_add_peer(
+              publisher,
+              "127.0.0.1",
+              nb_rtps_participant_spdp_port(unmatched)) == NB_OK);
+    CHECK(nb_rtps_participant_add_peer(unmatched, "127.0.0.1", publisher_port) == NB_OK);
+
+    publisher_state.lock = ntk_mutex_create(NTK_MUTEX_NORMAL);
+    matched_state.lock = ntk_mutex_create(NTK_MUTEX_NORMAL);
+    unmatched_state.lock = ntk_mutex_create(NTK_MUTEX_NORMAL);
+    matched_data.lock = ntk_mutex_create(NTK_MUTEX_NORMAL);
+    unmatched_data.lock = ntk_mutex_create(NTK_MUTEX_NORMAL);
+    CHECK(publisher_state.lock && matched_state.lock && unmatched_state.lock);
+    CHECK(matched_data.lock && unmatched_data.lock);
+    if (!publisher_state.lock || !matched_state.lock || !unmatched_state.lock ||
+        !matched_data.lock || !unmatched_data.lock) {
+        goto cleanup;
+    }
+    nb_rtps_participant_set_callback(publisher, on_participant, &publisher_state);
+    nb_rtps_participant_set_callback(matched, on_participant, &matched_state);
+    nb_rtps_participant_set_callback(unmatched, on_participant, &unmatched_state);
+    nb_rtps_participant_set_endpoint_callback(publisher, on_endpoint, &publisher_state);
+    nb_rtps_participant_set_data_callback(matched, on_frag_data, &matched_data);
+    nb_rtps_participant_set_data_callback(unmatched, on_frag_data, &unmatched_data);
+    CHECK(nb_rtps_participant_start(publisher) == NB_OK);
+    CHECK(nb_rtps_participant_start(matched) == NB_OK);
+    CHECK(nb_rtps_participant_start(unmatched) == NB_OK);
+    CHECK(wait_count(&publisher_state, 0, 2, 5000));
+    CHECK(wait_count(&matched_state, 0, 1, 5000));
+    CHECK(wait_count(&unmatched_state, 0, 1, 5000));
+
+    init_data_endpoint(&publication, 0);
+    (void)snprintf(publication.partition, sizeof(publication.partition), "alpha,team-*");
+    CHECK(nb_rtps_participant_add_endpoint(
+              publisher, NB_RTPS_ENDPOINT_PUBLICATION, &publication) == NB_OK);
+
+    init_data_endpoint(&subscription, 0);
+    (void)snprintf(subscription.partition, sizeof(subscription.partition), "team-blue");
+    CHECK(nb_rtps_participant_add_endpoint(
+              matched, NB_RTPS_ENDPOINT_SUBSCRIPTION, &subscription) == NB_OK);
+    (void)snprintf(subscription.partition, sizeof(subscription.partition), "other");
+    CHECK(nb_rtps_participant_add_endpoint(
+              unmatched, NB_RTPS_ENDPOINT_SUBSCRIPTION, &subscription) == NB_OK);
+    CHECK(wait_endpoint_count(&publisher_state, 0, 2, 5000));
+
+    message.payload = payload;
+    message.payload_len = sizeof(payload);
+    CHECK(nb_rtps_dds_message_serialize(
+              &message, serialized, sizeof(serialized), &serialized_len) == NB_OK);
+    for (i = 0; i < 60 && !frag_data_received(&matched_data); i++) {
+        (void)nb_rtps_participant_publish(
+            publisher, &publication.endpoint_guid, serialized, serialized_len);
+        ntk_sleep_ms(50);
+    }
+    CHECK(frag_data_received(&matched_data));
+    ntk_sleep_ms(500);
+    CHECK(!frag_data_received(&unmatched_data));
+    if (frag_data_received(&unmatched_data)) {
+        nb_log_error("a subscription in partition \"other\" received a sample");
+    }
+
+cleanup:
+    if (publisher) {
+        nb_rtps_participant_stop(publisher);
+    }
+    if (matched) {
+        nb_rtps_participant_stop(matched);
+    }
+    if (unmatched) {
+        nb_rtps_participant_stop(unmatched);
+    }
+    if (publisher) {
+        nb_rtps_participant_destroy(publisher);
+    }
+    if (matched) {
+        nb_rtps_participant_destroy(matched);
+    }
+    if (unmatched) {
+        nb_rtps_participant_destroy(unmatched);
+    }
+    if (publisher_state.lock) {
+        ntk_mutex_destroy(publisher_state.lock);
+    }
+    if (matched_state.lock) {
+        ntk_mutex_destroy(matched_state.lock);
+    }
+    if (unmatched_state.lock) {
+        ntk_mutex_destroy(unmatched_state.lock);
+    }
+    if (matched_data.lock) {
+        ntk_mutex_destroy(matched_data.lock);
+    }
+    if (unmatched_data.lock) {
+        ntk_mutex_destroy(unmatched_data.lock);
     }
 }
 
@@ -1660,6 +1815,7 @@ int main(void)
     test_data_roundtrip();
     test_fragmented_data();
     test_generic_type_delivery();
+    test_partition_matching();
     test_reliable_late_joiner();
     test_late_joiner_durability();
     test_reliable_gap();
