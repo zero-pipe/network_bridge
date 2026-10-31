@@ -215,6 +215,7 @@ if(Python3_Interpreter_FOUND)
                     test_buf_concurrency test_slotpool test_poolset test_contracts
                     test_loopback test_stream test_api test_move test_worker test_semantics
                     bench_server loadgen
+                    $<$<TARGET_EXISTS:test_dds_remote>:test_dds_remote>
             USES_TERMINAL VERBATIM)
     endif()
 endif()
