@@ -12,7 +12,10 @@ changes state so a later session can resume without reading the whole history.
 | Vendor id | Placeholder `0x01,0x9a` until an OMG-assigned value exists |
 | First interop target | Bundled Cyclone DDS; ROS 2 is out of scope for now |
 | Scale target | About 1000 participants, which requires unicast peers/scoping; plain multicast is not enough |
-| Public API | Deferred until the SPDP/SEDP runtime is stable (M4) |
+| Public API | Frozen: the existing participant, endpoint and callback signatures stay; new capability must fit behind them |
+| Framework discovery | DDS discovery is self-contained (SPDP/SEDP inside the DDS stack). The framework keeps its own broadcast; there is no RTPS-to-registry mapping (M4 dropped) |
+| Serialization | Move the CDR layer onto the vendored Micro-CDR 2.0.2 instead of the hand-written `nb_cdr_*` byte packing |
+| RPC | Service discovery and the TCP RPC stay on the nb broadcast; modelling RPC as DDS topics is possible later but is not part of this plan |
 
 ## Status
 
@@ -20,13 +23,31 @@ changes state so a later session can resume without reading the whole history.
 - M1 wire codec: done
 - M2 SPDP runtime: done
 - M3 SEDP: done (runtime, reliable exchange, endpoint callbacks and tests)
-- M4 integration: pending
+- M4 integration: dropped by decision (self-contained DDS discovery)
 - M5 scale: pending
 - M6 Cyclone interop: partial (SPDP/SEDP and bidirectional `dds::Message`
   delivery verified on Linux; reliable application DATA verified nb-to-nb
   and against Cyclone on Windows, in multicast and unicast-only modes; the
   Linux runner pass and the CI job pending)
 - M7 packaging: pending
+- M8 serialization on Micro-CDR: pending (vendored, not yet wired into CMake)
+- M9 `DATA_FRAG`: pending
+- M10 generic type support: pending
+- M11 QoS semantics: pending
+
+## Priority order
+
+The DDS stack is the deliverable; framework service discovery is not part of
+it. Work is ordered so each step removes a real interop limit.
+
+| Order | Track | Why |
+| --- | --- | --- |
+| P0 | M8: serialization on Micro-CDR | Removes the hand-written CDR surface before more types and fragmentation build on it; byte-level refactor, no protocol change |
+| P1 | M9: `DATA_FRAG` | Samples and SEDP payloads are capped at 1200 bytes today; large IDL values are impossible without it |
+| P2 | M10: generic type support | The point of "own DDS": arbitrary structs instead of the fixed `dds::Message` |
+| P3 | M11: QoS semantics | Late-joiner durability, keep-all history, partition matching |
+| P4 | M5: scale and scoping | Unicast peer scoping, discovery server, 1000-participant measurements |
+| P5 | M6/M7: CI and second implementation | Fast DDS interop and an automated Linux job |
 
 ## M1: wire codec (done)
 
@@ -68,13 +89,18 @@ changes state so a later session can resume without reading the whole history.
 - [ ] Map endpoints to framework service records (M4)
 - [x] Unit and loopback tests
 
-## M4: framework integration
+## M4: dropped
 
-- [ ] Registry backend adapter for the RTPS participant
-- [ ] Config field to select the discovery provider (`mesh`, `rtps`, `static`)
-- [ ] Keep the existing mesh broadcast behavior as one provider
-- [ ] End-to-end test: two nodes discover services over RTPS
-- [ ] Shutdown ordering and no threads left behind
+RTPS/`dds::Message` endpoints are not mapped into the framework registry and no
+discovery-provider selection is added. DDS already discovers itself through
+SPDP/SEDP, so a registry mapping would only couple the two layers without
+adding DDS capability. Framework service discovery keeps using the nb
+broadcast; the TCP RPC keeps using that path as well.
+
+Nothing in the RTPS code depends on this decision: the existing endpoint
+callback (`nb_rtps_participant_set_endpoint_callback`) is enough to build a
+thin registry adapter later if the framework ever needs one, without any
+protocol or API change.
 
 ## M5: scale to 1000
 
@@ -137,6 +163,71 @@ RELIABLE QoS on both sides it passes 5/5 repeated runs. `AllowMulticast` is not
 recognised by Cyclone 0.10.5, so the unicast-only mode relies on `<Peers>` plus
 a fixed participant index instead.
 
+## M8: serialization on Micro-CDR (P0)
+
+- [ ] Wire `3rdparty/micro-cdr` into the top-level build with
+      `UCDR_SUPERBUILD=OFF`, `UCDR_BUILD_TESTS=OFF`, `UCDR_BUILD_EXAMPLES=OFF`
+      and `BUILD_SHARED_LIBS=OFF`, then link `microcdr` into the RTPS target
+- [ ] Re-implement `rtps_cdr.{c,h}` as a thin wrapper over `ucdrBuffer` without
+      changing the `nb_cdr_*` signatures, so codec call sites stay untouched
+- [ ] Initialise buffers with an explicit little-endian origin
+      (`ucdr_init_buffer_origin_offset_endian`). Version 2.0.2 has no
+      `ucdr_offset`: report the written length as
+      `ucdr_buffer_size() - ucdr_buffer_remaining()`
+- [ ] Map `nb_cdr_*_align` to `ucdr_align_to`, keeping the alignment origin at
+      the byte after the 4-byte encapsulation header
+- [ ] Keep PL_CDR semantics: a parameter value is read as a view whose origin
+      is the parameter-list start (`ucdr_init_buffer_origin`), which is what
+      keeps SPDP/SEDP byte-identical to today
+- [ ] Replace the `dds::Message` octet sequence with
+      `ucdr_serialize_sequence_uint8_t` / `ucdr_deserialize_sequence_uint8_t`
+- [ ] Replace the SPDP/SEDP value codecs (GUID, locator, string, reliability,
+      history, partition, user data) with typed Micro-CDR calls; the
+      ParameterList framing itself stays hand-written
+- [ ] Centralise the encapsulation header (CDR_LE `00 01`, PL_CDR_LE `00 03`)
+      in one helper instead of open-coding the four bytes at each site
+- [ ] Golden-vector tests: encode SPDP, SEDP and `dds::Message` with the old
+      and the new codec and require byte equality
+- [ ] Keep Cyclone interop green in reliable multicast and unicast-only modes
+- [ ] Delete the hand-written packing helpers once nothing calls them
+
+## M9: DATA_FRAG (P1)
+
+- [ ] Fragment outgoing samples larger than the MTU; keep one sequence number
+      per sample and track fragment state per (writer, reader)
+- [ ] Reassemble incoming fragments with a bounded buffer, a timeout and
+      duplicate handling; deliver only complete samples to the callback
+- [ ] HEARTBEAT/ACKNACK interaction: a partly received sample stays missing;
+      retransmit whole samples first and add `NACK_FRAG` later
+- [ ] SEDP over fragments: long topic/type names, partitions and user data
+      already exceed 1200 bytes
+- [ ] Tests: nb-to-nb 4 KiB and 64 KiB payloads, Cyclone sending `DATA_FRAG` to
+      nb, and nb sending `DATA_FRAG` to a Cyclone reader
+- [ ] Raise `NB_RTPS_DATA_PAYLOAD_MAX` and document the memory bound
+
+## M10: generic type support (P2)
+
+- [ ] Type registry: type name -> element size plus serialise/deserialise
+      callbacks, bounded and keyed like the endpoint tables
+- [ ] Decide the registration seam that fits the frozen public API: an
+      internal registry plus example-level codec first, additive API only if
+      unavoidable
+- [ ] Codec coverage: nested structs, fixed arrays, sequences, strings, enums,
+      optional members (Micro-CDR generated code)
+- [ ] Verify Cyclone matches a custom type by type name and exchanges samples
+      in both directions
+- [ ] Unit tests: round trip, truncated input, oversized sequence length,
+      misaligned member offsets
+
+## M11: QoS semantics (P3)
+
+- [ ] `TRANSIENT_LOCAL` durability: keep history for late joiners on the
+      writer and request it on the reader
+- [ ] `KEEP_ALL` history with a depth and byte bound
+- [ ] Partition matching verification against Cyclone
+- [ ] Lifespan and deadline (optional, after the above)
+- [ ] Document the implemented QoS matrix
+
 ## Follow-ups after bidirectional DATA
 
 - [x] Reliable application `DATA`: writer history, HEARTBEAT/ACKNACK, GAP
@@ -188,10 +279,10 @@ a fixed participant index instead.
   address from the default route unless `NB_RTPS_ADVERTISE_HOST` is set.
 - Do not commit `build-review/`, `artifacts/`, `Testing/` or other build output.
 - Commit identity: `OldChen <825988516@qq.com>` (repository-local config).
-- Next task: M4 framework integration: map RTPS endpoints to registry service
-  records and add the discovery provider selection seam. The bidirectional
-  `dds::Message` path is functional in both best-effort and reliable modes;
-  `DATA_FRAG` and generic DATA remain separate follow-ups.
+- Next task: M8, move the CDR layer onto Micro-CDR 2.0.2 (P0), then M9
+  `DATA_FRAG`, then M10 generic types. M4 (RTPS-to-registry mapping) is
+  dropped: DDS discovery is self-contained and framework service discovery
+  keeps using the nb broadcast.
 
 ## Change log
 
@@ -234,3 +325,8 @@ a fixed participant index instead.
   (fixed ports plus explicit `dds_create_domain()` peers). Cyclone interop now
   runs with RELIABLE QoS on both sides and passes on Windows in both modes;
   `tools/verify-rtps-interop.sh` runs the same sweep on Linux.
+- 2026-11-01: Dropped M4 (RTPS endpoints to registry service records, discovery
+  provider selection). DDS discovery is self-contained; framework service
+  discovery and the TCP RPC stay on the nb broadcast. Re-ordered the plan
+  around the DDS stack: M8 serialization on Micro-CDR 2.0.2 (P0), M9
+  `DATA_FRAG` (P1), M10 generic types (P2), M11 QoS (P3), then scale and CI.
