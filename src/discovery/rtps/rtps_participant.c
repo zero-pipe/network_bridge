@@ -195,6 +195,17 @@ struct nb_rtps_participant {
 static void drop_data_readers_for_writer(nb_rtps_participant_t *participant,
                                          const nb_rtps_guid_t *writer);
 
+static int endpoint_qos_compatible(const nb_rtps_endpoint_info_t *publication,
+                                   const nb_rtps_endpoint_info_t *subscription);
+
+static int send_user_heartbeat(nb_rtps_participant_t *participant,
+                               nb_rtps_local_endpoint_t *local,
+                               const nb_rtps_endpoint_info_t *remote,
+                               uint32_t first_sn,
+                               uint32_t last_sn,
+                               const char *host,
+                               uint16_t port);
+
 static void copy_str(char *dst, size_t cap, const char *src)
 {
     if (!dst || cap == 0) {
@@ -940,6 +951,70 @@ static int endpoint_data_target(nb_rtps_participant_t *participant,
     return NB_ERR_NOTFOUND;
 }
 
+/*
+ * TRANSIENT_LOCAL late joiner support: a reader that matches a publication
+ * after samples were written must still receive the retained history. Reliable
+ * readers would eventually pull it through ACKNACK, but best-effort readers
+ * have no such recovery, so replay the history explicitly for both.
+ */
+static void replay_retained_history(nb_rtps_participant_t *participant,
+                                    const nb_rtps_endpoint_info_t *reader_info)
+{
+    size_t i;
+
+    if (!participant || !reader_info) {
+        return;
+    }
+    ntk_mutex_lock(participant->lock);
+    for (i = 0; i < participant->max_local_endpoints; i++) {
+        nb_rtps_local_endpoint_t *local = &participant->local_endpoints[i];
+        nb_rtps_remote_endpoint_t *remote;
+        char host[NB_RTPS_PEER_HOST_MAX];
+        uint16_t port = 0;
+        uint32_t first_sn = 0;
+        uint32_t last_sn = 0;
+        uint32_t sn;
+        size_t sample_count = 0;
+
+        if (!local->used || local->kind != NB_RTPS_ENDPOINT_PUBLICATION ||
+            !local->history ||
+            local->info.durability < NB_RTPS_DURABILITY_TRANSIENT_LOCAL ||
+            !endpoint_qos_compatible(&local->info, reader_info)) {
+            continue;
+        }
+        remote = find_remote_endpoint(participant, &reader_info->endpoint_guid);
+        if (!remote ||
+            endpoint_data_target(participant, remote, host, sizeof(host), &port) != NB_OK) {
+            continue;
+        }
+        nb_rtps_reliable_state(local->history, &first_sn, &last_sn, &sample_count);
+        for (sn = first_sn; sample_count > 0 && sn <= last_sn; sn++) {
+            const uint8_t *payload = NULL;
+            size_t len = 0;
+            int dispose = 0;
+
+            if (nb_rtps_reliable_get(local->history, sn, &payload, &len, &dispose) !=
+                NB_OK) {
+                continue;
+            }
+            (void)send_user_data(participant,
+                                 &local->info.endpoint_guid,
+                                 &reader_info->endpoint_guid,
+                                 sn,
+                                 payload,
+                                 len,
+                                 host,
+                                 port);
+        }
+        if (sample_count > 0 &&
+            local->info.reliability == NB_RTPS_RELIABILITY_RELIABLE) {
+            (void)send_user_heartbeat(
+                participant, local, reader_info, first_sn, last_sn, host, port);
+        }
+    }
+    ntk_mutex_unlock(participant->lock);
+}
+
 static void update_remote_endpoint(nb_rtps_participant_t *participant,
                                    nb_rtps_endpoint_kind_t kind,
                                    const nb_rtps_endpoint_info_t *info)
@@ -983,6 +1058,9 @@ static void update_remote_endpoint(nb_rtps_participant_t *participant,
     ntk_mutex_unlock(participant->lock);
 
     notify_endpoint(participant, event, copy.kind, &copy.info);
+    if (event == NB_RTPS_ENDPOINT_ADDED && kind == NB_RTPS_ENDPOINT_SUBSCRIPTION) {
+        replay_retained_history(participant, &copy.info);
+    }
 }
 
 static int remove_remote_endpoint(nb_rtps_participant_t *participant,
@@ -2974,8 +3052,11 @@ int nb_rtps_participant_add_endpoint(nb_rtps_participant_t *participant,
         ntk_mutex_unlock(participant->lock);
         return NB_ERR_BAD_MESSAGE;
     }
+    /* Reliable writers need a history for retransmission. A durable writer
+     * needs one even when it is best effort, so late joiners can be served. */
     if (kind == NB_RTPS_ENDPOINT_PUBLICATION &&
-        local.info.reliability == NB_RTPS_RELIABILITY_RELIABLE) {
+        (local.info.reliability == NB_RTPS_RELIABILITY_RELIABLE ||
+         local.info.durability >= NB_RTPS_DURABILITY_TRANSIENT_LOCAL)) {
         uint32_t depth = local.info.history_depth
                              ? local.info.history_depth
                              : participant->data_history_depth;

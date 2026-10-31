@@ -249,10 +249,18 @@ a fixed participant index instead.
 
 ## M11: QoS semantics (P3)
 
-- [ ] `TRANSIENT_LOCAL` durability: keep history for late joiners on the
-      writer and request it on the reader
+- [x] `TRANSIENT_LOCAL` durability: a publication with that durability (or
+      higher) keeps its history and replays it when a matching reader is
+      discovered later, including best-effort pairs. `VOLATILE` publications
+      keep nothing for a reader that was not matched, which the test also
+      asserts. Known deviation: a reliable `VOLATILE` writer still serves its
+      unacknowledged history through ACKNACK, because a late-joining reader
+      starts with an empty window; the wire result is interoperable, the policy
+      is just more generous than DDS requires
 - [ ] `KEEP_ALL` history with a depth and byte bound
-- [ ] Partition matching verification against Cyclone
+- [ ] Partition matching: only exact string equality is implemented.
+      Comma-separated partition lists and `*` wildcards, which Cyclone and
+      Fast DDS accept, still fail to match
 - [ ] Lifespan and deadline (optional, after the above)
 - [ ] Document the implemented QoS matrix
 
@@ -399,3 +407,9 @@ a fixed participant index instead.
   (sample minus the encapsulation header). `publish()` already accepted opaque
   bytes, so no public API changed. Tests: `test::Blob` with a 64-byte inline
   body and a 3000-byte body over `DATA_FRAG`.
+- 2026-11-01: M11 `TRANSIENT_LOCAL` late joiners. A publication with that
+  durability keeps a history (best effort included) and replays it to a reader
+  that is discovered afterwards, plus a heartbeat for reliable pairs. `VOLATILE`
+  publications keep nothing for unmatched readers. Tests: the same late-joiner
+  scenario with `TRANSIENT_LOCAL` (two samples delivered) and with `VOLATILE`
+  (none delivered).

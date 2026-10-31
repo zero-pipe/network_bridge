@@ -1249,6 +1249,134 @@ static void test_reliable_late_joiner(void)
 }
 
 /*
+ * Late-joiner durability. A TRANSIENT_LOCAL publication keeps its history and
+ * replays it when a matching reader appears later, even when the pair is
+ * best effort. A VOLATILE publication keeps nothing for a reader that was not
+ * matched when the sample was written.
+ */
+static void run_late_joiner_case(const char *prefix, uint32_t durability, int expect_count)
+{
+    nb_rtps_participant_config_t config;
+    nb_rtps_participant_t *publisher = NULL;
+    nb_rtps_participant_t *subscriber = NULL;
+    nb_rtps_endpoint_info_t publication;
+    nb_rtps_endpoint_info_t subscription;
+    nb_rtps_dds_message_t message;
+    test_state_t publisher_state;
+    test_state_t subscriber_state;
+    reliable_data_state_t data_state;
+    static const uint8_t samples[] = {0xa1, 0xb2};
+    char name[64];
+    uint16_t publisher_port;
+    uint16_t subscriber_port;
+    int i;
+
+    memset(&publisher_state, 0, sizeof(publisher_state));
+    memset(&subscriber_state, 0, sizeof(subscriber_state));
+    memset(&data_state, 0, sizeof(data_state));
+
+    (void)snprintf(name, sizeof(name), "%s-publisher", prefix);
+    fill_config(&config, name);
+    publisher = nb_rtps_participant_create(&config);
+    CHECK(publisher != NULL);
+    if (!publisher) {
+        return;
+    }
+    publisher_port = nb_rtps_participant_spdp_port(publisher);
+    (void)snprintf(name, sizeof(name), "%s-subscriber", prefix);
+    fill_config(&config, name);
+    subscriber = nb_rtps_participant_create(&config);
+    CHECK(subscriber != NULL);
+    if (!subscriber) {
+        nb_rtps_participant_destroy(publisher);
+        return;
+    }
+    subscriber_port = nb_rtps_participant_spdp_port(subscriber);
+    CHECK(nb_rtps_participant_add_peer(publisher, "127.0.0.1", subscriber_port) == NB_OK);
+    CHECK(nb_rtps_participant_add_peer(subscriber, "127.0.0.1", publisher_port) == NB_OK);
+
+    publisher_state.lock = ntk_mutex_create(NTK_MUTEX_NORMAL);
+    subscriber_state.lock = ntk_mutex_create(NTK_MUTEX_NORMAL);
+    data_state.lock = ntk_mutex_create(NTK_MUTEX_NORMAL);
+    CHECK(publisher_state.lock && subscriber_state.lock && data_state.lock);
+    if (!publisher_state.lock || !subscriber_state.lock || !data_state.lock) {
+        goto cleanup;
+    }
+    nb_rtps_participant_set_callback(publisher, on_participant, &publisher_state);
+    nb_rtps_participant_set_callback(subscriber, on_participant, &subscriber_state);
+    nb_rtps_participant_set_endpoint_callback(publisher, on_endpoint, &publisher_state);
+    nb_rtps_participant_set_endpoint_callback(subscriber, on_endpoint, &subscriber_state);
+    nb_rtps_participant_set_data_callback(subscriber, on_reliable_data, &data_state);
+    CHECK(nb_rtps_participant_start(publisher) == NB_OK);
+    CHECK(nb_rtps_participant_start(subscriber) == NB_OK);
+    CHECK(wait_count(&publisher_state, 0, 1, 5000));
+    CHECK(wait_count(&subscriber_state, 0, 1, 5000));
+
+    init_data_endpoint(&publication, 0);
+    publication.durability = durability;
+    CHECK(nb_rtps_participant_add_endpoint(
+              publisher, NB_RTPS_ENDPOINT_PUBLICATION, &publication) == NB_OK);
+
+    /* Written before any reader matches. */
+    for (i = 0; i < (int)(sizeof(samples)); i++) {
+        message.payload = &samples[i];
+        message.payload_len = 1;
+        (void)nb_rtps_participant_publish_dds_message(
+            publisher, &publication.endpoint_guid, &message);
+    }
+    ntk_sleep_ms(100);
+
+    init_data_endpoint(&subscription, 0);
+    subscription.durability = durability;
+    CHECK(nb_rtps_participant_add_endpoint(
+              subscriber, NB_RTPS_ENDPOINT_SUBSCRIPTION, &subscription) == NB_OK);
+    CHECK(wait_endpoint_count(&subscriber_state, 0, 1, 5000));
+    CHECK(wait_endpoint_count(&publisher_state, 0, 1, 5000));
+
+    if (expect_count > 0) {
+        CHECK(wait_reliable_data(&data_state, expect_count, 5000));
+        ntk_sleep_ms(300);
+        CHECK(reliable_data_count(&data_state) == expect_count);
+        for (i = 0; i < expect_count; i++) {
+            CHECK(data_state.payload_lens[i] == 1);
+            CHECK(data_state.payloads[i][0] == samples[i]);
+        }
+    } else {
+        ntk_sleep_ms(1200);
+        CHECK(reliable_data_count(&data_state) == 0);
+    }
+
+cleanup:
+    if (publisher) {
+        nb_rtps_participant_stop(publisher);
+    }
+    if (subscriber) {
+        nb_rtps_participant_stop(subscriber);
+    }
+    if (publisher) {
+        nb_rtps_participant_destroy(publisher);
+    }
+    if (subscriber) {
+        nb_rtps_participant_destroy(subscriber);
+    }
+    if (publisher_state.lock) {
+        ntk_mutex_destroy(publisher_state.lock);
+    }
+    if (subscriber_state.lock) {
+        ntk_mutex_destroy(subscriber_state.lock);
+    }
+    if (data_state.lock) {
+        ntk_mutex_destroy(data_state.lock);
+    }
+}
+
+static void test_late_joiner_durability(void)
+{
+    run_late_joiner_case("tl", NB_RTPS_DURABILITY_TRANSIENT_LOCAL, 2);
+    run_late_joiner_case("vol", NB_RTPS_DURABILITY_VOLATILE, 0);
+}
+
+/*
  * Reader-side GAP handling: once the writer declares sequence numbers as
  * permanently unavailable, samples that reuse those numbers must be dropped
  * instead of delivered late.
@@ -1533,6 +1661,7 @@ int main(void)
     test_fragmented_data();
     test_generic_type_delivery();
     test_reliable_late_joiner();
+    test_late_joiner_durability();
     test_reliable_gap();
     test_reliable_reader_capacity();
     test_multicast();
