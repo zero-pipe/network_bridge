@@ -33,18 +33,22 @@ static int param_end(nb_rtps_param_writer_t *writer, size_t pid_pos, size_t valu
 {
     size_t value_len;
     size_t pad;
+    size_t encoded_len;
 
     if (!param_writer_ok_internal(writer)) {
         return NB_ERR_TOOBIG;
     }
     value_len = writer->len - value_start;
-    if (value_len > 0xffffu) {
+    pad = (4u - (value_len & 3u)) & 3u;
+    encoded_len = value_len + pad;
+    if (encoded_len > 0xffffu) {
         writer->failed = 1;
         return NB_ERR_TOOBIG;
     }
-    writer->data[pid_pos + 2] = (uint8_t)(value_len & 0xffu);
-    writer->data[pid_pos + 3] = (uint8_t)(value_len >> 8);
-    pad = (4u - (value_len & 3u)) & 3u;
+    /* Cyclone DDS and several other implementations require the parameter
+     * length to include the padding and therefore to be a multiple of 4. */
+    writer->data[pid_pos + 2] = (uint8_t)(encoded_len & 0xffu);
+    writer->data[pid_pos + 3] = (uint8_t)(encoded_len >> 8);
     if (pad > writer->cap - writer->len) {
         writer->failed = 1;
         return NB_ERR_TOOBIG;
@@ -98,6 +102,21 @@ bool nb_rtps_param_writer_ok(const nb_rtps_param_writer_t *writer)
 size_t nb_rtps_param_writer_len(const nb_rtps_param_writer_t *writer)
 {
     return writer ? writer->len : 0;
+}
+
+int nb_rtps_param_put_encapsulation(nb_rtps_param_writer_t *writer)
+{
+    if (!param_writer_ok_internal(writer) || writer->cap - writer->len < 4) {
+        if (writer) {
+            writer->failed = 1;
+        }
+        return NB_ERR_TOOBIG;
+    }
+    writer->data[writer->len++] = (uint8_t)(NB_RTPS_ENCAPSULATION_PL_CDR_LE >> 8);
+    writer->data[writer->len++] = (uint8_t)(NB_RTPS_ENCAPSULATION_PL_CDR_LE & 0xffu);
+    writer->data[writer->len++] = 0x00;
+    writer->data[writer->len++] = 0x00;
+    return NB_OK;
 }
 
 int nb_rtps_param_put_octets2(nb_rtps_param_writer_t *writer,

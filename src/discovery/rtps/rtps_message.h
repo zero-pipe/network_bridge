@@ -34,7 +34,7 @@
 /* Submessage flags. */
 #define NB_RTPS_FLAG_ENDIAN_LITTLE 0x01u
 #define NB_RTPS_FLAG_INLINE_QOS 0x02u
-#define NB_RTPS_FLAG_DISPOSE 0x04u
+#define NB_RTPS_FLAG_DATA 0x04u
 #define NB_RTPS_FLAG_KEY 0x08u
 
 typedef struct nb_rtps_header {

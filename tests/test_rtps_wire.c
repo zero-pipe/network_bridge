@@ -120,8 +120,8 @@ static void test_param_roundtrip(void)
             CHECK(nb_rtps_param_get_locator(value, value_len, &parsed) == NB_OK);
             CHECK(parsed.kind == NB_RTPS_LOCATOR_KIND_UDPV4);
             CHECK(parsed.port == 7400);
-            CHECK(parsed.address[0] == 192 && parsed.address[1] == 168);
-            CHECK(parsed.address[2] == 1 && parsed.address[3] == 10);
+            CHECK(parsed.address[12] == 192 && parsed.address[13] == 168);
+            CHECK(parsed.address[14] == 1 && parsed.address[15] == 10);
             seen |= 8;
         } else if (pid == NB_RTPS_PID_ENTITY_NAME) {
             CHECK(nb_rtps_param_get_string(value, value_len, name, sizeof(name)) == NB_OK);
@@ -201,6 +201,10 @@ static void test_message_data(void)
             saw_ts = 1;
         } else if (view.id == NB_RTPS_SUBMSG_DATA) {
             CHECK(nb_rtps_data_decode(view.flags, view.body, view.body_len, &data_view) == NB_OK);
+            CHECK((view.flags & NB_RTPS_FLAG_DATA) != 0);
+            CHECK((view.flags & NB_RTPS_FLAG_KEY) == 0);
+            CHECK(!data_view.dispose);
+            CHECK(!data_view.key);
             CHECK(nb_rtps_entity_id_equal(&data_view.writer_id, &nb_rtps_eid_spdp_writer));
             CHECK(nb_rtps_entity_id_equal(&data_view.reader_id, &nb_rtps_eid_unknown));
             CHECK(data_view.writer_sn.high == 0 && data_view.writer_sn.low == 7);
@@ -305,16 +309,20 @@ static void test_spdp_roundtrip(void)
 
     CHECK(nb_rtps_spdp_build(&info, buf, sizeof(buf), &len) == NB_OK);
     CHECK(len > 0 && len % 4 == 0);
+    CHECK(len >= 4);
+    CHECK(buf[0] == 0x00);
+    CHECK(buf[1] == (uint8_t)NB_RTPS_ENCAPSULATION_PL_CDR_LE);
+    CHECK(buf[2] == 0x00 && buf[3] == 0x00);
     CHECK(nb_rtps_spdp_parse(buf, len, &parsed) == NB_OK);
     CHECK(parsed.vendor_id[0] == NB_RTPS_VENDOR_ID_0);
     CHECK(nb_rtps_guid_equal(&parsed.guid, &info.guid));
     CHECK(parsed.lease_duration.seconds == 20);
     CHECK(parsed.builtin_endpoints == info.builtin_endpoints);
     CHECK(parsed.metatraffic_unicast.port == 7410);
-    CHECK(parsed.metatraffic_unicast.address[0] == 192);
-    CHECK(parsed.metatraffic_unicast.address[1] == 168);
-    CHECK(parsed.metatraffic_unicast.address[2] == 1);
-    CHECK(parsed.metatraffic_unicast.address[3] == 10);
+    CHECK(parsed.metatraffic_unicast.address[12] == 192);
+    CHECK(parsed.metatraffic_unicast.address[13] == 168);
+    CHECK(parsed.metatraffic_unicast.address[14] == 1);
+    CHECK(parsed.metatraffic_unicast.address[15] == 10);
     CHECK(parsed.default_unicast.port == 42420);
     CHECK(strcmp(parsed.name, "node-a") == 0);
     CHECK(parsed.user_data_len == 2);

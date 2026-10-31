@@ -90,7 +90,8 @@ bool nb_rtps_sequence_number_equal(const nb_rtps_sequence_number_t *a,
 int nb_rtps_sequence_number_compare(const nb_rtps_sequence_number_t *a,
                                     const nb_rtps_sequence_number_t *b);
 
-/* Fill an IPv4 locator; the remaining address octets are left zero. */
+/* Fill an IPv4 locator. The address is stored in the last four bytes of the
+ * 16-byte RTPS address field; the first twelve bytes are left zero. */
 void nb_rtps_locator_ipv4(nb_rtps_locator_t *locator,
                           uint8_t a,
                           uint8_t b,

@@ -175,11 +175,10 @@ int nb_rtps_data(nb_cdr_writer_t *writer, const nb_rtps_data_t *data)
     if (data->inline_qos && data->inline_qos_len > 0) {
         flags |= NB_RTPS_FLAG_INLINE_QOS;
     }
-    if (data->dispose) {
-        flags |= NB_RTPS_FLAG_DISPOSE;
-    }
-    if (data->key) {
+    if (data->key || data->dispose) {
         flags |= NB_RTPS_FLAG_KEY;
+    } else {
+        flags |= NB_RTPS_FLAG_DATA;
     }
     start = nb_rtps_submessage_begin(writer, NB_RTPS_SUBMSG_DATA, flags);
     if (start == SIZE_MAX) {
@@ -263,8 +262,8 @@ int nb_rtps_data_decode(uint8_t flags,
     memcpy(out->writer_id.bytes, body + 8, NB_RTPS_ENTITY_ID_SIZE);
     out->writer_sn.high = (int32_t)rd_u32(body + 12);
     out->writer_sn.low = rd_u32(body + 16);
-    out->dispose = (flags & NB_RTPS_FLAG_DISPOSE) ? 1 : 0;
     out->key = (flags & NB_RTPS_FLAG_KEY) ? 1 : 0;
+    out->dispose = ((flags & NB_RTPS_FLAG_KEY) && !(flags & NB_RTPS_FLAG_DATA)) ? 1 : 0;
     payload_offset = inline_qos_offset;
     if (flags & NB_RTPS_FLAG_INLINE_QOS) {
         if (inline_qos_offset > body_len) {

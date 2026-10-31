@@ -662,6 +662,13 @@ nb_rtps_participant_t *nb_rtps_participant_create(const nb_rtps_participant_conf
                          participant->advertise_addr[2],
                          participant->advertise_addr[3],
                          participant->unicast_port);
+    if (participant->default_unicast.kind == NB_RTPS_LOCATOR_KIND_INVALID) {
+        /* SPDP peers such as Cyclone DDS require a default unicast locator in
+         * addition to the metatraffic locator before they create a proxy
+         * participant. With no RTPS data plane yet, reuse the discovery
+         * unicast endpoint. */
+        participant->default_unicast = participant->metatraffic_unicast;
+    }
     if (participant->multicast_enabled) {
         nb_rtps_locator_ipv4(&participant->metatraffic_multicast,
                              participant->multicast_addr[0],

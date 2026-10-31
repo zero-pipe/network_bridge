@@ -16,6 +16,10 @@ int nb_rtps_spdp_build(const nb_rtps_participant_info_t *info,
         return NB_ERR_INVALID;
     }
     nb_rtps_param_writer_init(&writer, buf, cap);
+    rc = nb_rtps_param_put_encapsulation(&writer);
+    if (rc != NB_OK) {
+        return rc;
+    }
     rc = nb_rtps_param_put_octets2(&writer,
                                    NB_RTPS_PID_PROTOCOL_VERSION,
                                    NB_RTPS_PROTOCOL_VERSION_MAJOR,
@@ -100,6 +104,8 @@ int nb_rtps_spdp_parse(const void *payload, size_t len, nb_rtps_participant_info
     const uint8_t *value = NULL;
     size_t value_len = 0;
     uint8_t version_major = 0;
+    const uint8_t *params = (const uint8_t *)payload;
+    size_t params_len = len;
     int seen_version = 0;
     int seen_guid = 0;
     int seen_lease = 0;
@@ -111,7 +117,16 @@ int nb_rtps_spdp_parse(const void *payload, size_t len, nb_rtps_participant_info
         return NB_ERR_INVALID;
     }
     memset(out, 0, sizeof(*out));
-    nb_rtps_param_reader_init(&reader, payload, len);
+    /* DDSI discovery payloads carry a 4-byte CDR encapsulation header before
+     * the ParameterList. Accept raw ParameterList input as well for tests and
+     * for older peers. */
+    if (params_len >= 4 && params[0] == 0x00 &&
+        params[1] == 0x03 &&
+        params[2] == 0x00 && params[3] == 0x00) {
+        params += 4;
+        params_len -= 4;
+    }
+    nb_rtps_param_reader_init(&reader, params, params_len);
     for (;;) {
         rc = nb_rtps_param_reader_next(&reader, &pid, &value, &value_len);
         if (rc < 0) {

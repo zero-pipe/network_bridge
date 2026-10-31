@@ -60,10 +60,12 @@ void nb_rtps_locator_ipv4(nb_rtps_locator_t *locator,
     memset(locator, 0, sizeof(*locator));
     locator->kind = NB_RTPS_LOCATOR_KIND_UDPV4;
     locator->port = port;
-    locator->address[0] = a;
-    locator->address[1] = b;
-    locator->address[2] = c;
-    locator->address[3] = d;
+    /* RTPS Locator_t stores an IPv4 address in the last four bytes of the
+     * 16-byte address field; the first twelve bytes are zero. */
+    locator->address[12] = a;
+    locator->address[13] = b;
+    locator->address[14] = c;
+    locator->address[15] = d;
 }
 
 void nb_rtps_locator_spdp_multicast(nb_rtps_locator_t *locator, uint16_t port)

@@ -6,8 +6,9 @@
  *
  * A ParameterList is a sequence of Parameter entries followed by PID_SENTINEL.
  * Each entry is: ParameterId (u16 LE), length (u16 LE), value, zero padding to
- * a 4-byte boundary. The value itself is a little-endian CDR stream whose
- * alignment starts at the first byte of the value.
+ * a 4-byte boundary. The stored length includes the padding and is always a
+ * multiple of 4, matching Cyclone DDS. The value itself is a little-endian CDR
+ * stream whose alignment starts at the first byte of the value.
  */
 
 #include <stdbool.h>
@@ -55,6 +56,9 @@
 #define NB_RTPS_BUILTIN_ENDPOINT_PARTICIPANT_MESSAGE_DATA_WRITER 0x00000400u
 #define NB_RTPS_BUILTIN_ENDPOINT_PARTICIPANT_MESSAGE_DATA_READER 0x00000800u
 
+/* CDR encapsulation identifier used by RTPS discovery payloads. */
+#define NB_RTPS_ENCAPSULATION_PL_CDR_LE 0x0003u
+
 typedef struct nb_rtps_param_writer {
     uint8_t *data;
     size_t cap;
@@ -72,6 +76,10 @@ typedef struct nb_rtps_param_reader {
 void nb_rtps_param_writer_init(nb_rtps_param_writer_t *writer, void *buf, size_t cap);
 bool nb_rtps_param_writer_ok(const nb_rtps_param_writer_t *writer);
 size_t nb_rtps_param_writer_len(const nb_rtps_param_writer_t *writer);
+
+/* Write the 4-byte PL_CDR_LE encapsulation header required by DDSI
+ * discovery serialization. */
+int nb_rtps_param_put_encapsulation(nb_rtps_param_writer_t *writer);
 
 int nb_rtps_param_put_octets2(nb_rtps_param_writer_t *writer,
                               uint16_t pid,
