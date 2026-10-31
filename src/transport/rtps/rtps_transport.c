@@ -319,10 +319,17 @@ static int nb_rtps_transport_publish(nb_rtps_transport_t *inst,
     return rc;
 }
 
+/*
+ * Deliver an event to local subscriber endpoints without a round trip.
+ *
+ * The endpoints are collected under the lock and called after it is released,
+ * because the receiver may send or subscribe re-entrantly.
+ */
 static void nb_rtps_transport_local_deliver(nb_rtps_transport_t *inst,
-                                            const nb_transport_message_t *message,
-                                            int want_response_reader)
+                                            const nb_transport_message_t *message)
 {
+    nb_rtps_transport_endpoint_t *targets[NB_RTPS_TRANSPORT_MAX_ENDPOINTS];
+    size_t count = 0;
     size_t i;
 
     if (!inst->options.on_receive) {
@@ -332,14 +339,14 @@ static void nb_rtps_transport_local_deliver(nb_rtps_transport_t *inst,
     for (i = 0; i < inst->endpoint_count; ++i) {
         nb_rtps_transport_endpoint_t *ep = &inst->endpoints[i];
 
-        if (!ep->used) {
-            continue;
-        }
-        if (want_response_reader ? ep->have_requester : ep->have_responder) {
-            inst->options.on_receive(inst->options.user, ep, message);
+        if (ep->used && ep->have_responder && count < NB_RTPS_TRANSPORT_MAX_ENDPOINTS) {
+            targets[count++] = ep;
         }
     }
     ntk_mutex_unlock(inst->lock);
+    for (i = 0; i < count; ++i) {
+        inst->options.on_receive(inst->options.user, targets[i], message);
+    }
 }
 
 /*
@@ -420,16 +427,14 @@ static void nb_rtps_transport_on_data(void *user,
 
 /* ---- provider ops ---- */
 
-static void nb_rtps_transport_parse_peers(nb_rtps_transport_t *inst,
-                                          const char *path,
+static void nb_rtps_transport_parse_peers(const char *path,
                                           nb_rtps_peer_t *peers,
-                                          size_t *peer_count,
-                                          uint32_t *path_peers)
+                                          size_t *peer_count)
 {
     const char *p = path;
     size_t count = 0;
 
-    *path_peers = 0;
+    *peer_count = 0;
     while (p && *p == '/') {
         p++;
     }
@@ -467,8 +472,6 @@ static void nb_rtps_transport_parse_peers(nb_rtps_transport_t *inst,
         p = *end ? end + 1 : end;
     }
     *peer_count = count;
-    *path_peers = (uint32_t)count;
-    (void)inst;
 }
 
 static int nb_rtps_op_create(const nb_transport_provider_options_t *options,
@@ -483,11 +486,9 @@ static int nb_rtps_op_create(const nb_transport_provider_options_t *options,
     char domain_text[16];
     char port_text[8];
     size_t n = 0;
-    uint32_t peer_count = 0;
     size_t path_peers = 0;
     uint16_t spdp_port = 0;
     int domain = 0;
-    int rc;
 
     if (!options || !out) {
         return NB_ERR_INVALID;
@@ -535,7 +536,7 @@ static int nb_rtps_op_create(const nb_transport_provider_options_t *options,
         spdp_port = (uint16_t)strtoul(port_text, NULL, 10);
     }
     if (auth_end && *auth_end == '/') {
-        nb_rtps_transport_parse_peers(inst, auth_end, peers, &path_peers, &peer_count);
+        nb_rtps_transport_parse_peers(auth_end, peers, &path_peers);
     }
 
     inst->reliability = nb_rtps_transport_reliability(&options->qos);
@@ -585,8 +586,6 @@ static int nb_rtps_op_create(const nb_transport_provider_options_t *options,
     nb_rtps_participant_set_data_callback(
         inst->participant, nb_rtps_transport_on_data, inst);
     *out = (nb_transport_instance_t *)inst;
-    (void)rc;
-    (void)peer_count;
     return NB_OK;
 }
 
@@ -653,7 +652,7 @@ static int nb_rtps_op_send(nb_transport_instance_t *instance,
     }
     if (message->kind == KIND_EVENT) {
         if (inst->options.intra_process != NB_INTRA_PROCESS_OFF) {
-            nb_rtps_transport_local_deliver(inst, message, 0);
+            nb_rtps_transport_local_deliver(inst, message);
             if (inst->options.intra_process == NB_INTRA_PROCESS_ONLY) {
                 return NB_OK;
             }
