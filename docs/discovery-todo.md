@@ -34,7 +34,9 @@ changes state so a later session can resume without reading the whole history.
   Cyclone interop in both directions; SEDP stays inline by construction)
 - M10 generic type support: done (raw CDR body delivery keyed by `type_name`;
   no registry and no new public API)
-- M11 QoS semantics: pending
+- M11 QoS semantics: partial (`TRANSIENT_LOCAL` late joiners, `KEEP_ALL`,
+  partition lists and wildcards done; lifespan, deadline, ownership and
+  resource limits open)
 
 ## Priority order
 
@@ -43,8 +45,8 @@ it. Work is ordered so each step removes a real interop limit.
 
 | Order | Track | Why |
 | --- | --- | --- |
-| P0 | M11: QoS semantics | Late-joiner durability, keep-all history, partition matching |
-| P1 | Cyclone custom-type interop | Prove the generic-type path against a second implementation, not only nb-to-nb |
+| P0 | Cyclone custom-type interop | Prove the generic-type path against a second implementation, not only nb-to-nb |
+| P1 | M11 remainder | Lifespan, deadline, ownership, resource limits |
 | P2 | M5: scale and scoping | Unicast peer scoping, discovery server, 1000-participant measurements |
 | P3 | M6/M7: CI and second implementation | Fast DDS interop and an automated Linux job |
 
@@ -433,3 +435,8 @@ Implemented QoS matrix:
   equality, which matches the DDS rule and the way Cyclone and Fast DDS parse
   partitions. Test: a publication in "alpha,team-*" delivers to a subscriber in
   "team-blue" and not to one in "other".
+- 2026-11-01: M11 `KEEP_ALL` bounded by the byte budget instead of the
+  `KEEP_LAST` depth, and the implemented QoS matrix documented. Linux
+  re-verified after the M11 batch on `192.168.54.14`: fresh build, unit/RTPS
+  tests, `e2e.rtps_participant` three times, and Cyclone interop in multicast
+  and unicast-only modes.
