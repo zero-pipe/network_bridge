@@ -3,6 +3,8 @@
 - [SDK API](api/sdk-api.md): object model, lifetime, threading and ownership.
 - [Architecture](architecture.md): endpoint / message / QoS / mesh / provider
   layering.
+- [Discovery](discovery.md): RTPS SPDP/SEDP subset, wire format and roadmap.
+- [Discovery plan](discovery-todo.md): milestone checklist and resume notes.
 - [Configuration](api/config.md): JSON fields, defaults and validation.
 - [Error codes](api/error-codes.md): stable values, names, descriptions and
   retry semantics.
