@@ -22,7 +22,7 @@ changes state so a later session can resume without reading the whole history.
 - M3 SEDP: pending
 - M4 integration: pending
 - M5 scale: pending
-- M6 Cyclone interop: pending
+- M6 Cyclone interop: partial (SPDP verified; SEDP waits for M3)
 - M7 packaging: pending
 
 ## M1: wire codec (done)
@@ -84,10 +84,16 @@ changes state so a later session can resume without reading the whole history.
 ## M6: Cyclone DDS interop
 
 - [ ] Docker or CI job with the bundled Cyclone DDS version
-- [ ] Verify Cyclone sees our participant and SPDP endpoint
-- [ ] Verify we see Cyclone participants and SEDP endpoints
-- [ ] Vendor id note for `0x01,0x10` quirks
-- [ ] Interop test in `tests/` or `tools/`
+- [x] Verify Cyclone sees our participant and SPDP endpoint
+- [x] Verify we see Cyclone participants (SPDP)
+- [ ] Verify we see Cyclone SEDP endpoints (after M3)
+- [x] Vendor id note for `0x01,0x10` quirks
+- [x] Interop test in `tests/` or `tools/`
+
+Manual verification: Cyclone DDS 0.10.5 on Windows and Linux. The Linux
+capture used `ens1` (`192.168.54.14`) and `udp port 7400`; Cyclone and nb both
+used `PL_CDR_LE`, and the locator address was in the last four bytes of the
+16-byte address field.
 
 ## M7: packaging
 
@@ -112,13 +118,20 @@ changes state so a later session can resume without reading the whole history.
 - Build: `cmake --build build-review --config Debug`
 - Unit tests: `cd build-review; ctest -C Debug -L unit`
 - Single RTPS test: `ctest -C Debug -R rtps`
+- Linux build: `build-linux` (Ninja); Cyclone test needs
+  `NB_TEST_RTPS_CYCLONE=1` and usually
+  `NB_TEST_RTPS_ADVERTISE_HOST=<local-ip>`. Run `ctest` from inside
+  `build-linux`; the installed CTest does not support `--test-dir`.
 - Do not commit `build-review/`, `artifacts/`, `Testing/` or other build output.
 - Commit identity: `OldChen <825988516@qq.com>` (repository-local config).
-- Next task: implement `src/discovery/rtps/rtps_participant.c` (M2), starting
-  with the unicast-peer loopback test so CI does not depend on multicast.
+- Next task: implement M3 SEDP: endpoint payload codec, reliable history,
+  HEARTBEAT/ACKNACK, endpoint table, and loopback tests.
 
 ## Change log
 
 - 2026-10-31: M1 wire codec and SPDP payload codec completed; plan created.
 - 2026-10-31: M2 SPDP runtime, unicast-peer and multicast loopback tests
   completed.
+- 2026-10-31: SPDP interop with Cyclone DDS 0.10.5 verified on Windows and
+  Linux. Fixed parameter padding, `PL_CDR_LE` encapsulation, DATA flags,
+  IPv4 locator layout, and the default unicast locator fallback.

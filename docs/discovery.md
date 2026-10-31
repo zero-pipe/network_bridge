@@ -6,7 +6,8 @@ taking a dependency on a DDS implementation. The data plane remains the
 framework's own UDP/TCP/SHM transports.
 
 Status: the wire codec, the SPDP announcement payload, and the SPDP participant
-runtime are implemented and covered by unit and loopback tests. SEDP endpoint
+runtime are implemented and covered by unit and loopback tests. SPDP interop
+with Cyclone DDS 0.10.5 is verified on Windows and Linux. SEDP endpoint
 exchange is the next milestone.
 
 ## 1. Scope
@@ -168,12 +169,22 @@ Encoding rules:
 - Each submessage starts with a 4-byte header (`id`, `flags`,
   `octetsToNextHeader`) and is padded to a 4-byte boundary.
 - A `ParameterList` entry is `pid` (u16), `length` (u16), value, then zero
-  padding to 4 bytes. The list ends with `PID_SENTINEL`.
+  padding to 4 bytes. The stored length includes the padding and is always a
+  multiple of 4, which is what Cyclone DDS expects. The list ends with
+  `PID_SENTINEL`.
+- SPDP payloads are prefixed with the 4-byte `PL_CDR_LE` encapsulation header
+  (`00 03 00 00`), as required by DDSI discovery serialization.
 - Parameter values are CDR streams whose alignment starts at the first value
   byte. This matches how implementations align `ParameterList` values.
+- A locator is `kind` (u32), `port` (u32), and a 16-byte address. For IPv4,
+  the address is stored in bytes 12-15 of the address field; bytes 0-11 are
+  zero.
 - `DATA` uses `octetsToInlineQos = 16`; the payload starts after the inline QoS
   parameter list (or immediately after the fixed fields when the inline QoS
   flag is clear).
+- DATA flags follow RTPS 2.4: `D` (`0x04`) means a serialized payload is
+  present and `K` (`0x08`) means it contains a key. Dispose is encoded as
+  key-only (`K` set, `D` clear).
 
 The codec is fuzz-friendly: every read is bounds checked and malformed input
 returns `NB_ERR_BAD_MESSAGE` without partial state.
@@ -284,8 +295,11 @@ unbounded growth.
 
 Discovery-level:
 
-- With M2, a DDS tool sees the framework participant and its SPDP endpoint.
-  Endpoints are not visible until SEDP lands in M3.
+- With M2, Cyclone DDS 0.10.5 sees the framework participant and its SPDP
+  endpoint, and the framework sees Cyclone participants. Endpoints are not
+  visible until SEDP lands in M3. Verification used Cyclone on Windows and
+  Linux; the Linux capture on `ens1` showed both sides using `PL_CDR_LE` and
+  IPv4 locators in the last four address bytes.
 - After M3, a DDS tool sees framework endpoints, and a framework node sees DDS
   participants and endpoints, including topic and type names.
 
@@ -319,11 +333,16 @@ Current:
   The test also covers repeated create/destroy.
 - The multicast path has an opt-in loopback test:
   `NB_TEST_RTPS_MULTICAST=1 ctest -C Debug -R rtps`.
+- Cyclone SPDP interop is opt-in:
+  `NB_TEST_RTPS_CYCLONE=1 NB_TEST_RTPS_ADVERTISE_HOST=<local-ip>
+  ctest -C Debug -R rtps_cyclone`. Without the environment variable the test
+  skips successfully.
 
 Planned:
 
-- Cross-implementation: Cyclone DDS and Fast DDS in Docker; verify participant
-  and endpoint visibility with packet capture and a discovery dump.
+- Cross-implementation: Cyclone DDS SPDP is verified; Fast DDS and SEDP
+  endpoint visibility remain to be tested with packet capture and a discovery
+  dump.
 - Scale: 100/500/1000 simulated participants, measuring packets per second,
   memory, and discovery latency.
 - Fuzzing: `ParameterList`, submessage headers, and `DATA` inline QoS.
@@ -337,7 +356,7 @@ Planned:
 | M3 | SEDP: reliable built-in writers, heartbeat/acknack, endpoint mapping |
 | M4 | Public discovery API and provider seam; mesh broadcast becomes one provider |
 | M5 | Scale to about 1000 participants: unicast peer scoping, table caps, load tests |
-| M6 | Cyclone DDS interoperability test and vendor-id notes |
+| M6 (partial) | Cyclone DDS SPDP interoperability verified; SEDP interop follows M3 |
 | M7 | Standalone `libnb_discovery` target, examples, packaging |
 
 M2 and M3 are the first point at which two framework processes can discover
